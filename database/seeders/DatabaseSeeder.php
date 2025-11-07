@@ -17,11 +17,18 @@ class DatabaseSeeder extends Seeder
 
          // 1. Llama primero a los seeders de datos base/lookup
          $this->call([
-           // ProcedenciaSeeder::class,
-                \Database\Seeders\CuentaCatalogoSeeder::class,
-                \Database\Seeders\ProductoServicioBaseSeeder::class,
+           
+            OficinaSeeder::class,
+            ProcedenciaSeeder::class,
+            DepartamentoSeeder::class,
+            TipoClienteSeeder::class,
+            MotivoDescarteSeeder::class,
+            DocumentoCategoriaSeeder::class,
+            DocumentoSubtipoSeeder::class,
+            VariablesConfiguracionSeeder::class,
 
-            // Aquí podrías añadir otros seeders si los tienes (ej: ServicioSeeder, MotivoDescarteSeeder...)
+
+             
         ]);
 
         
