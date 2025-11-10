@@ -37,6 +37,8 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+
 use Illuminate\Support\HtmlString;
 
 use Filament\Infolists\Infolist;
@@ -93,14 +95,14 @@ class LeadResource extends Resource implements HasShieldPermissions
 
     public static function getEloquentQuery(): Builder
     {
+            $user = auth()->user();
+
             // Empieza con la consulta base del recurso
             $query = parent::getEloquentQuery()->with(['comentarios.user']);
 
-            // Si el usuario es comercial, sólo ve sus leads
-            if (auth()->user()->hasRole('comercial')) {
-                $query->where('asignado_id', auth()->id());
-            }
-
+if ($user && $user->hasRole('comercial') && ! $user->hasRole('super_admin')) {
+        $query->where('asignado_id', $user->id);
+    }
             return $query;
 
     }
@@ -1667,17 +1669,21 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
                     ->label('Asignar Comercial')
                     ->icon('heroicon-o-users')
                     ->form([
-                        Select::make('asignado_id_masivo') // Nombre diferente para evitar conflictos
-                            ->label('Asignar a')
-                            ->options(
-                                // Obtener solo usuarios con rol 'comercial'
-                                User::whereHas('roles', fn (Builder $q) => $q->where('name', 'comercial'))
-                                    ->pluck('name', 'id') // Ajusta 'name' si es 'full_name'
-                            )
-                            ->required()
-                            ->searchable()
-                            ->preload(),
-                    ])
+                            Select::make('asignado_id_masivo')
+                                ->label('Asignar a')
+                                ->options(function () {
+                                    return User::query()
+                                        ->whereHas('roles', function (EloquentBuilder $q) {
+                                            $q->whereIn('name', ['comercial', 'super_admin']);
+                                        })
+                                        ->orderBy('name')
+                                        ->pluck('name', 'id')
+                                        ->toArray();
+                                })
+                                ->required()
+                                ->searchable()
+                                ->preload(),
+                        ])
                     ->action(function (array $data, EloquentCollection $records){
                         $userID = $data['asignado_id_masivo'];
                         $records->each->update(['asignado_id' => $userID]); // Actualiza cada registro
