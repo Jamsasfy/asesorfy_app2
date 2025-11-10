@@ -14,6 +14,7 @@ use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Resources\Pages\EditRecord;
@@ -68,56 +69,47 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
 
                 Section::make('Trabajador con acceso a Asesorfy')
                 ->description('Estos son los datos de acceso a la plataforma de AsesorFy. Una vez creado el trabajador, debe acceder a usuario web y darle los permisos que corresponden.')
-
-                 ->schema([
+                ->schema([
                     Group::make()
-                    ->relationship('user')
-                    ->schema([
-                        TextInput::make('name')
-                            ->label('Nombre')
-                            ->columnspan(1) 
-                            ->required(),
-                        TextInput::make('email')
-                            ->label('Email address')
-                            ->email()
-                            ->columnspan(1) 
-                            ->required(),
-                        Select::make('roles')
-                            ->label('Rol del trabajador')
-                            ->relationship('roles', 'name')
-                            ->multiple()
-                            ->preload()
-                            ->required()
-                            ->visible(fn ($livewire) => $livewire instanceof \App\Filament\Resources\TrabajadorResource\Pages\EditTrabajador)
-                            ->searchable(),
-                         TextInput::make('password')
-                            ->label('Password')
-                            ->password()
-                            ->required(fn ($livewire) => $livewire instanceof CreateRecord)
-                            ->revealable()                 
-                            ->dehydrateStateUsing(fn ($state) => Hash::make($state))
-                            ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
-                            ->same('password_confirmation')
-                            ->maxLength(191),
-                        TextInput::make('password_confirmation')
-                            ->helperText('Repite la contraseña de acceso.')
-                            ->password()
-                            ->revealable()
-                            ->dehydrated(false)
-                            ->required(fn ($livewire) => $livewire instanceof CreateRecord)
-                            ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
-                            ->label('Confirmar password'),    
-                    
-                    ])->columns(4),
-                   
-                    ]),   
+                        ->relationship('user')
+                        ->schema([
+                            TextInput::make('name')
+                                ->label('Nombre')
+                                ->columnspan(1) 
+                                ->required(),
+                            TextInput::make('email')
+                                ->label('Email address')
+                                ->email()
+                                ->columnspan(1) 
+                                ->required(),
+                      
+                 
+                            TextInput::make('password')
+                                ->label('Password')
+                                ->password()
+                                ->required(fn ($livewire) => $livewire instanceof CreateRecord)
+                                ->revealable()
+                                ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                                ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
+                                ->same('password_confirmation')
+                                ->maxLength(191),
+                            TextInput::make('password_confirmation')
+                                ->helperText('Repite la contraseña de acceso.')
+                                ->password()
+                                ->revealable()
+                                ->dehydrated(false)
+                                ->required(fn ($livewire) => $livewire instanceof CreateRecord)
+                                ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
+                                ->label('Confirmar password'),    
+                        ])->columns(4), // Tu layout original de 4 columnas
+                ]), // Fin Section 1
 
                     Section::make('Datos del trabajador')
                     ->description('Demás datos relativos al trabajador a nivel laboral y de accesos a la plataforma')
                    
                     ->schema([
-                        Forms\Components\Select::make('user_id')
-                        ->hidden(),
+                        //Forms\Components\Select::make('user_id')
+                        //->hidden(),
                     Forms\Components\Select::make('oficina_id')
                         ->relationship('oficina', 'nombre')
                         ->preload()

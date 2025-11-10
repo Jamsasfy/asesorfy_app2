@@ -7,6 +7,9 @@ use App\Models\User;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
+use App\Mail\BienvenidaTrabajadorMail;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class CreateTrabajador extends CreateRecord
 {
@@ -27,8 +30,11 @@ class CreateTrabajador extends CreateRecord
    
     protected function handleRecordCreation(array $data): \Illuminate\Database\Eloquent\Model
     {
-        $trabajador = $this->getModel()::create($data);
+       // 1. Dejamos que Filament haga la magia (esto SÍ funciona)
+        $trabajador = parent::handleRecordCreation($data);
     
+       
+        
         // Mostrar toast personalizado
         \Filament\Notifications\Notification::make()
             ->title('⚠️ Trabajador creado sin rol')

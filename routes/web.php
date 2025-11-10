@@ -5,7 +5,9 @@ use Livewire\Volt\Volt;
 use App\Http\Controllers\FacturaPdfController; // <-- Asegúrate de que esta importación esté
 use App\Http\Controllers\FileViewController;
 
-
+//eliminar
+use Illuminate\Support\Facades\Mail;
+use App\Mail\CorreoDePrueba;
 
 Route::get('/', function () {
     return redirect('/admin');
