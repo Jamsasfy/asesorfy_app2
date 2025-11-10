@@ -8,8 +8,8 @@ use App\Http\Controllers\FileViewController;
 
 
 Route::get('/', function () {
-    return view('welcome');
-})->name('home');
+    return redirect('/admin');
+});
 
 Route::view('dashboard', 'dashboard')
     ->middleware(['auth', 'verified'])
