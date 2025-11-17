@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
             DocumentoSubtipoSeeder::class,
             VariablesConfiguracionSeeder::class,
             CustomPermissionsSeeder::class,
+            EmailTemplateSeeder::class,
 
 
              

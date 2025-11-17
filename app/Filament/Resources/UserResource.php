@@ -50,6 +50,11 @@ class UserResource extends Resource implements HasShieldPermissions
             'delete_any',
         ];
     }
+            public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+        {
+            return parent::getEloquentQuery()
+                ->where('id', '!=', 9999);   // ⛔ Ocultamos a Boot IA Fy siempre
+        }
 
     public static function getNavigationBadge(): ?string
     {

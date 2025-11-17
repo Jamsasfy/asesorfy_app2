@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Notifications\Notification;
 
 class User extends Authenticatable implements FilamentUser
 {
@@ -55,12 +56,26 @@ class User extends Authenticatable implements FilamentUser
             'password' => 'hashed',
         ];
     }
-
+//bootIAfy no puede acceder a panel protegido
     public function canAccessPanel(Panel $panel): bool
     {
-        return true;
+        // 🚫 Bloquear siempre a Boot IA Fy
+    if ($this->id === 9999) {
+        return false;
     }
 
+    return true;
+    }
+//protegemos que nunca le llegen ni mande notificaciones
+public function notify(Notification $notification): void
+    {
+        // 👇 El bot NO recibe notificaciones nunca
+        if ($this->id === 9999) {
+            return;
+        }
+
+        parent::notify($notification);
+    }
     /**
      * Get the user's initials
      */

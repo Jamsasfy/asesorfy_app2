@@ -18,9 +18,17 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Radio;
+
 
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+
+use Filament\Tables\Columns\IconColumn;
+use Illuminate\Support\Str;
+
+
+use App\Models\LeadAutoEmailLog;
 
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
@@ -51,6 +59,7 @@ use Filament\Infolists\Components\Actions\Action as ActionInfolist;
 use Illuminate\Support\Facades\Log; // Para escribir en el log de Laravel
 
 use pxlrbt\FilamentExcel\Actions\Tables\ExportBulkAction;
+use Filament\Tables\Filters\TernaryFilter;
 
 
 
@@ -143,7 +152,11 @@ public static function shouldRegisterNavigation(): bool
                              // considerando leads y usuarios, al guardar.
                             ->suffixIcon('heroicon-m-envelope')
                             ->columnSpan(1),
-                        
+                        Toggle::make('autospam_activo')
+                        ->label('Autospam activo')
+                        ->helperText('Si lo desactivas, este lead deja de recibir emails automáticos de seguimiento que los manda Boot IA Fy.')
+                        ->default(true)
+                        ->inline(false)
                     ]),
 
                 Section::make('Origen y Asignación')
@@ -226,34 +239,50 @@ public static function shouldRegisterNavigation(): bool
                                     $set('fecha_cierre', null);
                                 }
                             }),
-                        DateTimePicker::make('agenda')
-                            ->label('Próximo Seguimiento')
-                            ->native(false)
-                            ->nullable()
-                            ->required(function (Get $get): bool {
-                                $state = $get('estado');
-                                $estadoEnum = $state instanceof LeadEstadoEnum ? $state : LeadEstadoEnum::tryFrom($state);
-                                return $estadoEnum instanceof LeadEstadoEnum &&
-                                    $estadoEnum !== LeadEstadoEnum::SIN_GESTIONAR &&
-                                    !$estadoEnum->isConvertido() &&
-                                    $estadoEnum !== LeadEstadoEnum::DESCARTADO;
-                            })
-                            ->visible(function (Get $get): bool {
-                                $state = $get('estado');
-                                $estadoEnum = $state instanceof LeadEstadoEnum ? $state : LeadEstadoEnum::tryFrom($state);
-                                return $estadoEnum instanceof LeadEstadoEnum &&
-                                    $estadoEnum !== LeadEstadoEnum::SIN_GESTIONAR &&
-                                    !$estadoEnum->isConvertido() &&
-                                    $estadoEnum !== LeadEstadoEnum::DESCARTADO;
-                            })
-                            ->after(function (string $operation, Get $get, ?Lead $record): string|Carbon {
-                                if ($operation === 'edit' && $record?->agenda) {
-                                    return $record->agenda;
-                                }
-                                return now();
-                            })
-                            ->helperText('Obligatorio si el lead está en gestión. Debe ser una fecha futura.')
-                            ->columnSpan(1),
+                       DateTimePicker::make('agenda')
+    ->label('Próximo Seguimiento')
+    ->native(false)
+    ->seconds(false)
+    ->nullable()
+    // ⬇️ SOLO puede ser requerida en CREATE, nunca en EDIT
+    ->required(function (string $operation, Get $get): bool {
+        if ($operation !== 'create') {
+            return false; // 👈 en edición nunca es obligatoria
+        }
+
+        // Si quieres que en creación tampoco sea obligatoria, simplemente devuelve false aquí
+        $state = $get('estado');
+        $estadoEnum = $state instanceof LeadEstadoEnum
+            ? $state
+            : LeadEstadoEnum::tryFrom($state);
+
+        return $estadoEnum instanceof LeadEstadoEnum &&
+            $estadoEnum !== LeadEstadoEnum::SIN_GESTIONAR &&
+            ! $estadoEnum->isConvertido() &&
+            $estadoEnum !== LeadEstadoEnum::DESCARTADO;
+    })
+    ->visible(function (Get $get): bool {
+        $state = $get('estado');
+        $estadoEnum = $state instanceof LeadEstadoEnum
+            ? $state
+            : LeadEstadoEnum::tryFrom($state);
+
+        return $estadoEnum instanceof LeadEstadoEnum &&
+            $estadoEnum !== LeadEstadoEnum::SIN_GESTIONAR &&
+            ! $estadoEnum->isConvertido() &&
+            $estadoEnum !== LeadEstadoEnum::DESCARTADO;
+    })
+    ->default(function (string $operation, ?Lead $record) {
+        // En edición, si ya hay agenda, la mostramos tal cual
+        if ($operation === 'edit' && $record?->agenda) {
+            return $record->agenda;
+        }
+
+        // En creación (o sin agenda), proponemos "ahora"
+        return now();
+    })
+   
+    ->columnSpan(1),
 
                         DateTimePicker::make('fecha_gestion')
                             ->label('Inicio Gestión')
@@ -336,15 +365,15 @@ public static function infolist(Infolist $infolist): Infolist
             InfoSection::make('Información del Lead')
                 ->schema([
                     TextEntry::make('nombre')
-                        ->label(new HtmlString('<span class="text-xl font-semibold">👤 Nombre</span>'))                       
+                        ->label(new HtmlString('<span class="font-semibold">👤 Nombre</span>'))                       
                         ->columnSpan(2),
 
                     TextEntry::make('tfn')
-                        ->label(new HtmlString('<span class="text-xl font-semibold">📞 Teléfono</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">📞 Teléfono</span>'))
                         ->copyable(),
 
                     TextEntry::make('email')
-                    ->label(new HtmlString('<span class="text-xl font-semibold">✉️ Email</span>'))
+                    ->label(new HtmlString('<span class="font-semibold">✉️ Email</span>'))
                     ->copyable()
                     ->html() // Para que el <span> con clases funcione
                     ->getStateUsing(fn (Lead $record) => new HtmlString(
@@ -354,7 +383,7 @@ public static function infolist(Infolist $infolist): Infolist
                     ->columnSpanFull(), // Ocupa todo el ancho de la sección
 
                     TextEntry::make('demandado')
-                    ->label(new HtmlString('<span class="text-xl font-semibold">Demandado</span>'))
+                    ->label(new HtmlString('<span class="font-semibold">Demandado</span>'))
                         ->color('info')
                         ->copyable()                        
                        ->columnSpan(3),    
@@ -369,7 +398,7 @@ public static function infolist(Infolist $infolist): Infolist
                         ->badge()
                         ->color('gray')
                        
-                        ->label(new HtmlString('<span class="text-lg font-semibold">🧑‍💻 Creado por</span>')),
+                        ->label(new HtmlString('<span class="font-semibold">🧑‍💻 Creado por</span>')),
 
                     TextEntry::make('created_at')
                         ->label(new HtmlString('<span class="font-semibold">🕒📅 Fecha de creación</span>'))
@@ -379,7 +408,7 @@ public static function infolist(Infolist $infolist): Infolist
                         ->dateTime('d/m/y H:i'),    
 
                     TextEntry::make('asignado_display') 
-                    ->label(new HtmlString('<span class="text-xl font-semibold">📌 Asignado a</span>'))
+                    ->label(new HtmlString('<span class="font-semibold">📌 Asignado a</span>'))
                         ->badge()
                         ->getStateUsing(function (Lead $record): string {
                             return $record->asignado?->full_name ?? '⚠️ Sin Asignar'; 
@@ -391,7 +420,7 @@ public static function infolist(Infolist $infolist): Infolist
                         TextEntry::make('estado')
                             //->inlineLabel()
 
-                        ->label(new HtmlString('<span class="text-xl font-semibold">Estado Actual</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">Estado Actual</span>'))
                         ->badge()
                         ->color(fn (?LeadEstadoEnum $state): string => match ($state) { // Usa $state que es Enum
                             LeadEstadoEnum::SIN_GESTIONAR => 'gray',
@@ -562,7 +591,7 @@ public static function infolist(Infolist $infolist): Infolist
                         ),
 
                         TextEntry::make('venta_asociada')
-                        ->label(new HtmlString('<span class="text-xl font-semibold">Venta Asociada</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">Venta Asociada</span>'))
                         ->getStateUsing(fn (Lead $record): string =>
                             '🔗 Ver venta #' . $record->ventas->first()->id
                         )
@@ -587,7 +616,7 @@ public static function infolist(Infolist $infolist): Infolist
                     ->label(new HtmlString('<span class="font-semibold">🔄📅 Lead Actualizado</span>'))
                         ->dateTime('d/m/y H:i'),
 
-                        TextEntry::make('agenda')
+                    TextEntry::make('agenda')
                         ->label(new HtmlString('<span class="font-semibold">📆 Próxima cita</span>'))
                         ->dateTime('d/m/y H:i')
                         ->suffixAction(
@@ -620,190 +649,388 @@ public static function infolist(Infolist $infolist): Infolist
                                 })
                                
                         ),
-                       
+
+
+                       TextEntry::make('autospam_activo')
+                                    ->label('🤖 Autospam IA Boot Fy')
+                                    ->badge()
+                                    ->formatStateUsing(fn (?bool $state): string => $state ? 'Activo' : 'Desactivado')
+                                    ->color(fn (?bool $state): string => $state ? 'success' : 'gray')
+                                    ->icon(fn (?bool $state): ?string => $state ? 'heroicon-m-bug-ant' : 'heroicon-m-bell-slash')
+                                    ->suffixAction(
+                                        ActionInfolist::make('toggleAutospam')
+                                            ->icon(fn (Lead $record): string => $record->autospam_activo
+                                                ? 'heroicon-m-no-symbol'
+                                                : 'heroicon-m-check'
+                                            )
+                                            ->color(fn (Lead $record): string => $record->autospam_activo ? 'danger' : 'success')
+                                            ->tooltip(fn (Lead $record): string => $record->autospam_activo
+                                                ? 'Desactivar autospam'
+                                                : 'Activar autospam'
+                                            )
+                                            ->action(function (Lead $record): void {
+                                                $record->update([
+                                                    'autospam_activo' => ! $record->autospam_activo,
+                                                ]);
+                                            })
+                                    ), 
 
                         // --- Fecha de cierre ---
                         InfoSection::make('Interacciones')
                         ->schema([
                            
                             // Acción COMPLETA de LLAMADA ✔️
-                            TextEntry::make('llamadas')
-                                ->label('📞 Llamadas')
-                                ->size('xl')
-                                ->weight('bold')
-                                ->alignment(Alignment::Center)
-                                ->suffixAction(
-                                    ActionInfolist::make('add_llamada')
-                                        ->icon('heroicon-m-phone-arrow-up-right')
-                                        ->color('primary')
-                                        ->form([
-                                            Toggle::make('respuesta')
-                                                ->label('Contestado')
-                                                ->default(false)
-                                                ->helperText('Marca si el lead ha contestado la llamada.')
-                                                ->live(),
-                            
-                                            Textarea::make('comentario')
-                                                ->label('Comentario')
-                                                ->rows(3)
-                                                ->hint('Describe brevemente la llamada.')
-                                                ->visible(fn (Get $get) => $get('respuesta') === true)
-                                                ->required(fn (Get $get) => $get('respuesta') === true)
-                                                ->maxLength(500),
-                            
-                                            Toggle::make('agendar')
-                                                ->label('Agendar nueva llamada')
-                                                ->default(false)
-                                                ->helperText('Programa una nueva cita de seguimiento.')
-                                                ->live(),
-                            
-                                            DateTimePicker::make('agenda')
-                                                ->label('Fecha y hora de la nueva llamada')
-                                                ->minutesStep(30)
-                                                ->seconds(false)
-                                                ->native(false)
-                                                ->visible(fn (Get $get) => $get('agendar') === true)
-                                                ->after(now()),
-                                        ])
-                                        ->modalHeading('Registrar llamada')
-                                        ->modalSubmitActionLabel('Registrar llamada')
-                                        ->modalWidth('lg')
-                                        ->action(function (array $data, Lead $record) {
-                                            $currentUser = Auth::user();
-                                            $userName = $currentUser?->name ?? 'Usuario'; // Ajusta 'name' o 'full_name' según tu modelo User
-                    
-                                            // 1. Incrementar contador
-                                            $record->increment('llamadas');
-                    
-                                            // 2. Construir el texto INICIAL del comentario (sin la info de agenda todavía)
-                                            $comentarioTextoInicial = "Llamada registrada por {$userName}.";
-                                            if (isset($data['respuesta']) && $data['respuesta'] === true) {
-                                                $comentarioTextoInicial .= " [Contestada]";
-                                                if (!empty($data['comentario'])) {
-                                                    $comentarioTextoInicial .= " - Observación: " . $data['comentario'];
-                                                }
-                                            } else {
-                                                $comentarioTextoInicial .= " [📞Sin respuesta]";
-                                            }
-                    
-                                            // 3. Actualizar la agenda SOLO si el toggle 'agendar' estaba marcado y hay una fecha VÁLIDA
-                                            $agendaActualizada = false;
-                                            $nuevaAgendaEstablecida = false; // Bandera para saber si se AGENDÓ algo en este paso
-                    
-                                            // *** LÓGICA DE VERIFICACIÓN CON NOMBRE DE CAMPO 'agenda' Y isset ANIDADO ***
-                                            // Primero, verificamos si el toggle 'agendar' está marcado en los datos recibidos
-                                            if (isset($data['agendar']) && $data['agendar'] === true) {
-                                                // Si el toggle está marcado, ahora verificamos si la clave 'agenda' existe Y está llena
-                                                if (isset($data['agenda']) && filled($data['agenda'])) { // <-- Verificamos 'agenda' y que esté filled
-                                                     try {
-                                                        // Si existe y está llena, intentamos parsear y guardar. Ahora es seguro acceder a $data['agenda'].
-                                                        $nuevaFechaAgenda = Carbon::parse($data['agenda']); // <-- Usamos $data['agenda']
-                                                        $record->agenda = $nuevaFechaAgenda;
-                                                        $record->save(); // Guardamos el lead
-                                                        $agendaActualizada = true;
-                                                        $nuevaAgendaEstablecida = true; // Se estableció una nueva agenda en esta interacción
-                    
-                                                     } catch (\Exception $e) {
-                                                        // Capturamos errores de parsing o de guardado
-                                                        Log::error('Error al procesar o guardar fecha de agenda en acción Llamada para Lead ID '.$record->id.': '.$e->getMessage());
-                                                        Notification::make()->title('Error al procesar fecha')->body('La fecha de agenda proporcionada no es válida o no se pudo guardar.')->danger()->send();
-                                                        $agendaActualizada = false;
-                                                        $nuevaAgendaEstablecida = false;
-                                                     }
-                                                } else {
-                                                     // Log opcional si el toggle está ON pero el campo de fecha está vacío (la validación debería evitar esto)
-                                                     Log::warning('Llamada action: Toggle agendar ON pero campo agenda vacio/no existe para Lead ID '.$record->id);
-                                                }
-                                            }
-                                            // Si el toggle 'agendar' no estaba marcado, las banderas $agendaActualizada y $nuevaAgendaEstablecida
-                                            // permanecen en false, que es el comportamiento deseado.
-                                            // *** FIN LÓGICA DE VERIFICACIÓN ***
-                    
-                    
-                                            // --- 4. Construimos el texto FINAL del comentario (añadiendo info de agenda SOLO SI SE AGENDA) ---
-                                            $comentarioTextoFinal = $comentarioTextoInicial; // Empezamos con el texto base
-                    
-                                            // Añadimos información sobre la agenda SOLO si se estableció una nueva fecha en esta interacción
-                                            if ($nuevaAgendaEstablecida) { // <-- Usamos la bandera, que se puso a true solo si se agendó exitosamente
-                                                $comentarioTextoFinal .= "\n---"; // Separador
-                    
-                                                 // Ahora $record->agenda ya tiene la fecha actualizada si el paso 3 tuvo éxito
-                                                 if ($record->agenda instanceof Carbon) { // Verificamos si ahora hay una fecha de agenda válida en el lead
-                                                     $textoRelativo = $record->agenda->diffForHumans();
-                                                     $fechaFormateada = $record->agenda->isoFormat('dddd D [de] MMMM, HH:mm'); // <-- Formato HH:mm correcto
-                                                     $comentarioTextoFinal .= "\nPróximo seguimiento agendado: {$textoRelativo} (el {$fechaFormateada}).";
-                                                 }
-                                                 // Si $nuevaAgendaEstablecida es true pero $record->agenda no es Carbon (un caso de error),
-                                                 // no añadimos texto de agenda aquí.
-                                            }
-                                            // Si $nuevaAgendaEstablecida es false, simplemente no añadimos nada sobre la agenda.
-                                            // --- Fin construcción comentario final ---
-                    
-                    
-                                            // 5. Crear el comentario polimórfico
-                                            try {
-                                                $record->comentarios()->create([
-                                                    'user_id' => $currentUser->id,
-                                                    'contenido' => $comentarioTextoFinal // Usamos el texto FINAL
-                                                ]);
-                                            } catch (\Exception $e) {
-                                                 Log::error('Error al guardar comentario (acción Llamada): ' . $e->getMessage());
-                                                Notification::make()->title('Error interno')->body('No se pudo guardar el comentario asociado.')->warning()->send();
-                                            }
-                    
-                                            // 6. Enviar Notificación final
-                                             Notification::make()->success()->title('Llamada registrada')->send();
-                                             if ($agendaActualizada) {
-                                                 Notification::make()->title('Agenda actualizada')->body('El próximo seguimiento ha sido modificado.')->info()->send();
-                                             }
-                    
-                                          
-                                        }),
-                                        
-                                ),
-                            
+TextEntry::make('llamadas')
+    ->label('📞 Llamadas')
+    ->size('xl')
+    ->weight('bold')
+    ->alignment(Alignment::Center)
+    ->suffixAction(
+        ActionInfolist::make('add_llamada')
+            ->icon('heroicon-m-phone-arrow-up-right')
+            ->color('primary')
+            ->form([
+                Toggle::make('respuesta')
+                    ->label('Contestado')
+                    ->default(false)
+                    ->helperText('Marca si el lead ha contestado la llamada.')
+                    ->live(),
+
+                Textarea::make('comentario')
+                    ->label('Comentario')
+                    ->rows(3)
+                    ->hint('Describe brevemente la llamada.')
+                    ->visible(fn (Get $get) => $get('respuesta') === true)
+                    ->required(fn (Get $get) => $get('respuesta') === true)
+                    ->maxLength(500),
+
+                // Para NO contestado, decidir si cambiamos a INTENTO_CONTACTO
+                Toggle::make('cambiar_a_intento_contacto')
+                    ->label('Cambiar estado a "Intento de contacto" y arrancar secuencia IA Boot Fy, se envía email automático')
+                    ->helperText('Solo se aplica si el lead está SIN GESTIONAR y no ha contestado.')
+                    ->default(true)
+                    ->visible(function (Get $get, ?Lead $record): bool {
+                        return $record?->estado === LeadEstadoEnum::SIN_GESTIONAR
+                            && $get('respuesta') === false;
+                    })
+                    ->live(),
+
+                // Para contestado, exigir nuevo estado
+                Select::make('nuevo_estado')
+                    ->label('Nuevo estado del lead')
+                    ->options(LeadEstadoEnum::class)
+                    ->visible(function (Get $get, ?Lead $record): bool {
+                        return $record?->estado === LeadEstadoEnum::SIN_GESTIONAR
+                            && $get('respuesta') === true;
+                    })
+                    ->required(function (Get $get, ?Lead $record): bool {
+                        return $record?->estado === LeadEstadoEnum::SIN_GESTIONAR
+                            && $get('respuesta') === true;
+                    })
+                    ->live(),
+
+                Toggle::make('agendar')
+                    ->label('Agendar nueva llamada')
+                    ->default(false)
+                    ->helperText('Programa una nueva cita de seguimiento.')
+                    ->live(),
+
+                DateTimePicker::make('agenda')
+                    ->label('Fecha y hora de la nueva llamada')
+                    ->minutesStep(30)
+                    ->seconds(false)
+                    ->native(false)
+                    ->visible(fn (Get $get) => $get('agendar') === true)
+                    ->after(now()),
+            ])
+            ->modalHeading('Registrar llamada')
+            ->modalSubmitActionLabel('Registrar llamada')
+            ->modalWidth('lg')
+            ->action(function (array $data, Lead $record) {
+                $currentUser = Auth::user();
+                $userName = $currentUser?->name ?? 'Usuario';
+
+                // 1. Incrementar contador
+                $record->increment('llamadas');
+
+                // 2. Texto base del comentario
+                $comentarioTextoInicial = "Llamada registrada por {$userName}.";
+                if (($data['respuesta'] ?? false) === true) {
+                    $comentarioTextoInicial .= " [Contestada]";
+                    if (!empty($data['comentario'])) {
+                        $comentarioTextoInicial .= " - Observación: " . $data['comentario'];
+                    }
+                } else {
+                    $comentarioTextoInicial .= " [📞Sin respuesta]";
+                }
+
+                // 3. Agenda
+                $agendaActualizada = false;
+                $nuevaAgendaEstablecida = false;
+                if (isset($data['agendar']) && $data['agendar'] === true) {
+                    if (isset($data['agenda']) && filled($data['agenda'])) {
+                        try {
+                            $nuevaFechaAgenda = Carbon::parse($data['agenda']);
+                            $record->agenda = $nuevaFechaAgenda;
+                            $record->save();
+                            $agendaActualizada = true;
+                            $nuevaAgendaEstablecida = true;
+                        } catch (\Exception $e) {
+                            Log::error('Error al procesar fecha de agenda en llamada para Lead ID '.$record->id.': '.$e->getMessage());
+                            Notification::make()->title('Error al procesar fecha')->body('La fecha de agenda proporcionada no es válida.')->danger()->send();
+                        }
+                    }
+                }
+
+                // 4. Comentario final con info de agenda
+                $comentarioTextoFinal = $comentarioTextoInicial;
+                if ($nuevaAgendaEstablecida && $record->agenda instanceof Carbon) {
+                    $textoRelativo   = $record->agenda->diffForHumans();
+                    $fechaFormateada = $record->agenda->isoFormat('dddd D [de] MMMM, HH:mm');
+                    $comentarioTextoFinal .= "\n---\nPróximo seguimiento agendado: {$textoRelativo} (el {$fechaFormateada}).";
+                }
+
+                // 5. Crear comentario
+                try {
+                    $record->comentarios()->create([
+                        'user_id'   => $currentUser->id,
+                        'contenido' => $comentarioTextoFinal,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Error al guardar comentario (acción Llamada): ' . $e->getMessage());
+                    Notification::make()->title('Error interno')->body('No se pudo guardar el comentario asociado.')->warning()->send();
+                }
+
+                // 6. Cambio de estado si el lead estaba SIN_GESTIONAR
+                $estadoOriginal = $record->estado; // Enum por cast
+
+                if ($estadoOriginal === LeadEstadoEnum::SIN_GESTIONAR) {
+                    // NO contestó
+                    if (($data['respuesta'] ?? false) === false && ($data['cambiar_a_intento_contacto'] ?? false) === true) {
+                        $record->estado = LeadEstadoEnum::INTENTO_CONTACTO;
+                        $record->save();
+                    }
+
+                    // SÍ contestó -> nuevo estado obligatorio
+                    if (($data['respuesta'] ?? false) === true && !empty($data['nuevo_estado'])) {
+                        $nuevoEnum = $data['nuevo_estado'] instanceof LeadEstadoEnum
+                            ? $data['nuevo_estado']
+                            : LeadEstadoEnum::tryFrom($data['nuevo_estado']);
+
+                        if ($nuevoEnum) {
+                            $record->estado = $nuevoEnum;
+                            $record->save();
+                        }
+                    }
+                }
+
+                // 7. Notificaciones
+                Notification::make()
+                    ->title('Llamada registrada')
+                    ->success()
+                    ->send();
+
+                if ($agendaActualizada) {
+                    Notification::make()
+                        ->title('Agenda actualizada')
+                        ->body('El próximo seguimiento ha sido modificado.')
+                        ->info()
+                        ->send();
+                }
+            }),
+        ),
+
                             
                             // Acción COMPLETA de EMAIL ✔️
-                            TextEntry::make('emails')
-                                ->label('📧 Emails')
-                                ->size('xl')
-                                ->weight('bold')
-                                ->alignment(Alignment::Center)
-                                ->suffixAction(
-                                    ActionInfolist::make('add_email')
-                                        ->icon('heroicon-m-envelope-open')
-                                        ->color('warning')
-                                        ->form([
-                                            Textarea::make('comentario')
-                                                ->label('Comentario (opcional)')
-                                                ->rows(3)
-                                                ->hint('Describe el contenido del email enviado.')
-                                                ->maxLength(500),
-                            
-                                            Toggle::make('agendar')
-                                                ->label('Agendar seguimiento')
-                                                ->default(false)
-                                                ->live(),
-                            
-                                            DateTimePicker::make('agenda')
-                                                ->label('Fecha de seguimiento')
-                                                ->minutesStep(30)
-                                                ->seconds(false)
-                                                ->native(false)
-                                                ->visible(fn (Get $get) => $get('agendar') === true)
-                                                ->after(now()),
-                                        ])
-                                        ->modalHeading('Registrar Email')
-                                        ->modalSubmitActionLabel('Registrar Email')
-                                        ->modalWidth('lg')
-                                        ->action(function (array $data, Lead $record) {
-                                            $comentarioTexto = '📧 Email enviado: ' . ($data['comentario'] ?? 'Sin comentario');
-                                            $agenda = isset($data['agenda']) ? Carbon::parse($data['agenda']) : null;
-                            
-                                            LeadResource::registrarInteraccion($record, 'emails', $comentarioTexto, $agenda);
-                                        })
-                                ),
-                            
+   TextEntry::make('emails')
+    ->label('📧 Emails')
+    ->size('xl')
+    ->weight('bold')
+    ->alignment(Alignment::Center)
+    ->suffixAction(
+        ActionInfolist::make('add_email')
+            ->icon('heroicon-m-envelope-open')
+            ->color('warning')
+            ->form([
+                Textarea::make('comentario')
+                    ->label('Comentario (opcional)')
+                    ->rows(3)
+                    ->hint('Describe el contenido del email enviado.')
+                    ->maxLength(500),
+
+                Toggle::make('agendar')
+                    ->label('Agendar seguimiento')
+                    ->default(false)
+                    ->live(),
+
+                DateTimePicker::make('agenda')
+                    ->label('Fecha de seguimiento')
+                    ->minutesStep(30)
+                    ->seconds(false)
+                    ->native(false)
+                    ->visible(fn (Get $get) => $get('agendar') === true)
+                    ->after(now()),
+
+                // 🔹 SOLO si el lead está SIN_GESTIONAR pedimos nuevo estado
+                Select::make('nuevo_estado_email')
+                    ->label('Nuevo estado del lead tras este email')
+                    ->options(LeadEstadoEnum::class)
+                    ->visible(fn (?Lead $record): bool =>
+                        $record?->estado === LeadEstadoEnum::SIN_GESTIONAR
+                    )
+                    ->required(fn (?Lead $record): bool =>
+                        $record?->estado === LeadEstadoEnum::SIN_GESTIONAR
+                    )
+                    ->live(),
+
+                // 🔹 Si el nuevo estado es uno de los estados con autospam, obligamos a elegir quién envía
+                Radio::make('modo_envio')
+                    ->label('¿Quién envía este email?')
+                    ->options([
+                        'manual' => 'Lo envío yo (email ya enviado)',
+                        'boot'   => 'Que lo envíe Boot IA automáticamente',
+                    ])
+                    ->inline()
+                    ->required()
+                    ->visible(function (Get $get): bool {
+                        $valor = $get('nuevo_estado_email');
+
+                        if (! $valor) {
+                            return false;
+                        }
+
+                        $enum = $valor instanceof LeadEstadoEnum
+                            ? $valor
+                            : LeadEstadoEnum::tryFrom($valor);
+
+                        return $enum && in_array($enum, [
+                            LeadEstadoEnum::INTENTO_CONTACTO,
+                            LeadEstadoEnum::ESPERANDO_INFORMACION,
+                        ], true);
+                    })
+                    ->live(),
+            ])
+            ->modalHeading('Registrar Email')
+            ->modalSubmitActionLabel('Registrar Email')
+            ->modalWidth('lg')
+            ->action(function (array $data, Lead $record) {
+                // ==========================
+                // 1) Datos básicos
+                // ==========================
+                $comentarioTexto = '📧 Email enviado: ' . ($data['comentario'] ?? 'Sin comentario');
+                $agenda = isset($data['agenda']) && filled($data['agenda'])
+                    ? Carbon::parse($data['agenda'])
+                    : null;
+
+                $modoEnvio = $data['modo_envio'] ?? 'manual';
+                $enviarConBoot = $modoEnvio === 'boot';
+
+                // Estado original antes de tocar nada
+                $estadoOriginal = $record->getOriginal('estado');
+                $estadoOriginalEnum = $estadoOriginal instanceof LeadEstadoEnum
+                    ? $estadoOriginal
+                    : LeadEstadoEnum::tryFrom($estadoOriginal);
+
+                // =========================================
+                // 2) Si estaba SIN_GESTIONAR, cambiamos estado (quiet)
+                // =========================================
+                if ($estadoOriginalEnum === LeadEstadoEnum::SIN_GESTIONAR && !empty($data['nuevo_estado_email'])) {
+
+                    $nuevoEnum = $data['nuevo_estado_email'] instanceof LeadEstadoEnum
+                        ? $data['nuevo_estado_email']
+                        : LeadEstadoEnum::tryFrom($data['nuevo_estado_email']);
+
+                    if ($nuevoEnum) {
+                        $record->estado = $nuevoEnum;
+                        $record->saveQuietly(); // 👈 sin observers / jobs
+                    }
+                }
+
+                // Recalculamos el estado FINAL
+                $estadoFinalEnum = $record->estado instanceof LeadEstadoEnum
+                    ? $record->estado
+                    : LeadEstadoEnum::tryFrom($record->estado);
+
+                // =========================================
+                // 3) MODO MANUAL → lo envía el comercial
+                // =========================================
+                if (! $enviarConBoot) {
+
+                    // Registra interacción:
+                    // - suma emails
+                    // - guarda agenda si hay
+                    // - crea comentario
+                    LeadResource::registrarInteraccion($record, 'emails', $comentarioTexto, $agenda);
+
+                    // Cortar autospam inmediato
+                    $record->marcarInteraccionManual();
+
+                    // Si estamos en estado con autospam, este email manual cuenta como intento IA
+                    if ($estadoFinalEnum && in_array($estadoFinalEnum, [
+                        LeadEstadoEnum::INTENTO_CONTACTO,
+                        LeadEstadoEnum::ESPERANDO_INFORMACION,
+                    ], true)) {
+                        // Incrementa intentos + fecha, NO envía email
+                        $record->registrarEnvioEmailEstado();
+                    }
+
+                // =========================================
+                // 4) MODO BOOT → lo envía IA ahora
+                // =========================================
+                } else {
+
+                    // Si hay agenda, la guardamos (sin tocar contadores)
+                    if ($agenda) {
+                        $record->agenda = $agenda;
+                        $record->saveQuietly();
+
+                        try {
+                            $fechaFormateada = $agenda->isoFormat('dddd D [de] MMMM, HH:mm');
+                            $record->comentarios()->create([
+                                'user_id'   => auth()->id(),
+                                'contenido' => "📅 Seguimiento agendado tras lanzar email IA: el {$fechaFormateada}.",
+                            ]);
+                        } catch (\Throwable $e) {
+                            Log::error('Error al registrar comentario de agenda (modo Boot IA) para lead '.$record->id.': '.$e->getMessage());
+                        }
+                    }
+
+                    // Lanzamos el Job SOLO si estamos en estado válido de autospam
+                    if ($estadoFinalEnum && in_array($estadoFinalEnum, [
+                        LeadEstadoEnum::INTENTO_CONTACTO,
+                        LeadEstadoEnum::ESPERANDO_INFORMACION,
+                    ], true)) {
+
+                        try {
+                            \App\Jobs\SendLeadEstadoChangedEmailJob::dispatch(
+                                $record->id,
+                                $estadoFinalEnum->value
+                            );
+                        } catch (\Throwable $e) {
+                            Log::error("Error al despachar SendLeadEstadoChangedEmailJob desde acción email para lead {$record->id}: ".$e->getMessage());
+
+                            Notification::make()
+                                ->title('Error enviando email IA')
+                                ->body('Se ha registrado la acción, pero no se pudo lanzar el email automático.')
+                                ->danger()
+                                ->send();
+
+                            return;
+                        }
+                    }
+                }
+
+                // =========================================
+                // 5) Notificación final
+                // =========================================
+                Notification::make()
+                    ->title($enviarConBoot ? 'Email IA en cola de envío' : 'Email registrado')
+                    ->success()
+                    ->send();
+            })
+    ),
+
+                              
                             
                             // Acción COMPLETA de CHAT ✔️
                             TextEntry::make('chats')
@@ -903,13 +1130,198 @@ public static function infolist(Infolist $infolist): Infolist
                         ->alignment(Alignment::Center),
                         ])
                         ->columns(5)
-                        ->columnSpan(2),
+                        ->columnSpan(3),
                 ])
-                ->columns(2)
+                ->columns(3)
                 ->columnSpan(1),
         ]),
 
-       
+ InfoSection::make('🤖 Autospam IA Boot Fy')
+    ->description('Últimos envíos automáticos asociados a este lead (🤖IA / autospam).')
+    ->headerActions([
+        ActionInfolist::make('enviar_primer_email_ia')
+            ->label('Enviar primer email IA ahora')
+            ->visible(fn (Lead $record): bool => $record->puedeSugerirPrimerEmailIa())
+            ->icon('heroicon-m-sparkles')
+            ->color('success')
+            ->requiresConfirmation()
+            ->modalHeading('Enviar primer email IA automático')
+            ->modalSubheading('Se enviará el primer email de la secuencia según el estado actual del lead.')
+            ->action(function (Lead $record): void {
+                // Usamos el Job que ya tienes creado
+                \App\Jobs\SendLeadEstadoChangedEmailJob::dispatch(
+                    $record->id,
+                    $record->estado instanceof \App\Enums\LeadEstadoEnum
+                        ? $record->estado->value
+                        : (string) $record->estado
+                );
+
+                Notification::make()
+                    ->title('Primer email IA en cola de envío')
+                    ->body('Se ha lanzado el envío del primer email automático para este lead.')
+                    ->success()
+                    ->send();
+            }),
+    ])
+    ->schema([
+        // 🔔 AVISO SOLO SI SE PUEDE SUGERIR EL PRIMER EMAIL IA
+        TextEntry::make('autospam_sugerencia')
+            ->label(false)
+            ->visible(fn (Lead $record): bool => $record->puedeSugerirPrimerEmailIa())
+            ->state(function (Lead $record): string {
+                return '
+                    <div style="
+                        background-color:#fef3c7;
+                        border:1px solid #fbbf24;
+                        color:#78350f;
+                        padding:0.75rem 1rem;
+                        border-radius:0.75rem;
+                        display:flex;
+                        align-items:center;
+                        justify-content:space-between;
+                        gap:1rem;
+                        font-size:0.9rem;
+                    ">
+                        <div>
+                            <strong>Este lead nunca ha recibido un email automático IA.</strong><br>
+                            Tiene email y autospam activo, y como acabas de actualizar su email y antes no tenia, puedes iniciar la secuencia con el botón de arriba "Enviar primer email IA ahora" y que IA Boot Fy haga su magia :).
+                        </div>
+                    </div>
+                ';
+            })
+            ->html(),
+
+        RepeatableEntry::make('autoEmailLogs')
+            ->label(false)
+            ->schema([
+                TextEntry::make('linea')
+                    ->label(false)
+                    ->html()
+                    ->state(function (LeadAutoEmailLog $log): string {
+
+                        // Fecha compacta
+                        $fecha = $log->sent_at?->format('d/m H:i')
+                            ?? $log->created_at?->format('d/m H:i')
+                            ?? '-';
+
+                        // Intento
+                        $intento = $log->intento ?? 1;
+
+                        // Icono según estado
+                        $icono = match ($log->status) {
+                            'sent'         => '✅',
+                            'failed'       => '❌',
+                            'rate_limited' => '⏱️',
+                            'pending'      => '⏳',
+                            'skipped'      => '⏭️',
+                            default        => '✉️',
+                        };
+
+                        // Texto y color del estado
+                        $estadoTexto = match ($log->status) {
+                            'sent'         => 'Enviado',
+                            'failed'       => 'Fallido',
+                            'rate_limited' => 'Rate limited',
+                            'pending'      => 'Pendiente',
+                            'skipped'      => 'Omitido',
+                            default        => ucfirst($log->status ?? 'Desconocido'),
+                        };
+
+                        $estadoColor = match ($log->status) {
+                            'sent'         => '#16a34a',
+                            'failed'       => '#dc2626',
+                            'rate_limited' => '#0ea5e9',
+                            'pending'      => '#d97706',
+                            'skipped'      => '#6b7280',
+                            default        => '#6b7280',
+                        };
+
+                        // Asunto sin limitar
+                        $asuntoCompleto = e($log->subject ?: '(sin asunto)');
+                        $url = \App\Filament\Resources\LeadAutoEmailLogResource::getUrl('view', [
+                            'record' => $log->id,
+                        ]);
+
+                        return "
+                        <div style='
+                            display:flex;
+                            align-items:center;
+                            gap:12px;
+                            padding:6px 12px;
+                            border-radius:8px;
+                            border:1px solid rgba(148,163,184,0.35);
+                            background-color:rgba(15,23,42,0.04);
+                            font-size:14px;
+                        '>
+                            <span style='color:#6b7280;'>{$icono}</span>
+
+                            <span style='color:#6b7280;'>
+                                {$fecha}
+                            </span>
+
+                            <span style=\"
+                                background-color:rgba(59,130,246,0.10);
+                                color:#1d4ed8;
+                                padding:2px 7px;
+                                border-radius:999px;
+                                font-size:12px;
+                                font-weight:600;
+                            \">
+                                #{$intento}
+                            </span>
+
+                            <span style=\"
+                                background-color:{$estadoColor}20;
+                                color:{$estadoColor};
+                                padding:2px 7px;
+                                border-radius:999px;
+                                font-size:12px;
+                                font-weight:600;
+                            \">
+                                {$estadoTexto}
+                            </span>
+
+                            <a href=\"{$url}\" target=\"_blank\" style=\"
+                                margin-left:auto;
+                                color:#2563eb;
+                                text-decoration:underline;
+                                font-weight:500;
+                                white-space:normal;
+                            \">
+                                {$asuntoCompleto}
+                            </a>
+                        </div>
+                        ";
+                    }),
+            ])
+            ->contained(false),
+
+        // “Ver más” si hay más de 10 logs
+        TextEntry::make('ver_mas_logs')
+            ->label(false)
+            ->visible(fn (Lead $lead) => $lead->autoEmailLogs()->count() > 10)
+            ->html()
+            ->state(function (Lead $lead): string {
+                $url = \App\Filament\Resources\LeadAutoEmailLogResource::getUrl('index');
+                $total = $lead->autoEmailLogs()->count();
+
+                return "
+                <div style='margin-top:8px;font-size:13px;color:#4b5563;'>
+                    Hay <strong>{$total}</strong> envíos automáticos para este lead.
+                    <a href=\"{$url}\" target=\"_blank\" style=\"color:#2563eb;text-decoration:underline;\">
+                        Ver todos en el log global
+                    </a>
+                </div>
+                ";
+            }),
+    ])
+    ->visible(fn (Lead $record) =>
+        $record->autoEmailLogs()->exists() || $record->puedeSugerirPrimerEmailIa()
+    )
+    ->collapsible()
+    ->collapsed(),
+
+
         InfoSection::make('🗨️ Comentarios')
         //boton de añadir nuevo comentario
         ->headerActions([
@@ -1060,12 +1472,8 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
     }
     // --- Fin creación comentario ---
 
-    // 5. Enviar Notificación final (Opcional, si no lo manejas en cada acción)
-    // Las notificaciones de éxito/error de la agenda se manejan en el paso 2
-    // La notificación principal de interacción registrada se puede hacer aquí o en la acción
 
-    // Intentar refrescar el infolist (puede que necesites ajustar esto)
-    // $this->infolist; // Esto no va aquí, va en la acción Livewire
+
 }
 
 
@@ -1079,6 +1487,11 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
         ->poll(60) // Actualizar cada 60 segundos
         ->defaultSort('created_at', 'desc') // Ordenar por defecto
         ->columns([
+            IconColumn::make('autospam_activo')
+            ->label('IA')
+            ->boolean()
+            ->trueIcon('heroicon-o-bug-ant')
+            ->falseIcon('heroicon-o-bug-ant'),
             // Columna Total Interacciones (Adaptada)
             TextColumn::make('total_interactions')
                 ->label('Acciones') // Etiqueta corta
@@ -1096,13 +1509,10 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
                 ->label('Creado por')
                 ->sortable()
                 ->badge() 
-                ->color('gray'),
+                ->color('gray')
+                   ->toggleable(isToggledHiddenByDefault: true),
 
-            TextColumn::make('procedencia.procedencia')
-                ->label('Procedencia')
-                ->badge()      
-                ->sortable()
-                ->searchable(),
+            
 
 
             // Datos del Lead
@@ -1136,7 +1546,11 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
                 ->copyable()
                 ->copyMessage('Teléfono Copiado')
                 ->icon('heroicon-m-phone'),
-
+            TextColumn::make('procedencia.procedencia')
+                ->label('Procedencia')
+                ->badge()      
+                ->sortable()
+                ->searchable(),
             // Estado (Adaptado con Enum)
             TextColumn::make('estado')
                 ->badge()
@@ -1217,7 +1631,28 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
         ])
         ->filters([
              // Filtros adaptados
-             SelectFilter::make('estado')
+          
+          TernaryFilter::make('autospam_activo')
+                ->label('Autospam')
+                ->trueLabel('Activos')
+                ->falseLabel('Desactivados')
+                ->placeholder('Todos')
+                ->indicateUsing(function (array $state): ?string {
+                    $value = $state['value'] ?? null;
+
+                    return match (true) {
+                        $value === true,
+                        $value === 1,
+                        $value === '1'  => '🔔 Autospam activo',
+
+                        $value === false,
+                        $value === 0,
+                        $value === '0'  => '🔕 Autospam desactivado',
+
+                        default => null, // "Todos"
+                    };
+                }),
+            SelectFilter::make('estado')
                  ->options(LeadEstadoEnum::class) // Usa el Enum (asegúrate que Enum tiene HasLabel)
                  ->multiple()
                  ->label('Estado del Lead'),
@@ -1268,7 +1703,7 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
                 // ->ranges([...]) // Puedes mantener tus rangos predefinidos
 
         ], layout: FiltersLayout::AboveContent) // Mantener layout
-        ->filtersFormColumns(5) // Mantener columnas
+        ->filtersFormColumns(6) // Mantener columnas
 
         ->actions([ // Acciones de Fila
             Tables\Actions\ViewAction::make()
@@ -1437,49 +1872,85 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
                 ->modalHeading(fn (?Lead $record): string => "Registrar Email a " . ($record?->nombre ?? 'este lead')) // Título dinámico cambiado
                 ->modalSubmitActionLabel('Registrar email') // Botón cambiado
                 ->modalWidth('xl')
-                ->action(function (array $data, Lead $record) { // Lógica de acción adaptada
-                    $currentUser = Auth::user();
-                    $userName = $currentUser?->name ?? 'Usuario'; // Ajusta 'name'
+               ->action(function (array $data, Lead $record) { // Lógica de acción adaptada
+                        $currentUser = Auth::user();
+                        $userName = $currentUser?->name ?? 'Usuario'; // Ajusta 'name'
 
-                    // 1. Incrementar contador específico
-                    $record->increment('emails'); // <-- Cambiado a 'emails'
+                        // 1. Incrementar contador específico
+                        $record->increment('emails'); // <-- Cambiado a 'emails'
 
-                    // 2. Determinar y actualizar agenda (lógica idéntica)
-                    $agendaActualizada = false;
-                    $fechaAgendaFinal = $record->agenda;
-                    if (isset($data['actualizar_agenda']) && $data['actualizar_agenda'] === true && !empty($data['agenda_nueva'])) {
-                        try {
-                            $nuevaFechaAgenda = Carbon::parse($data['agenda_nueva']);
-                            $record->agenda = $nuevaFechaAgenda;
-                            $record->save();
-                            $fechaAgendaFinal = $nuevaFechaAgenda;
-                            $agendaActualizada = true;
-                        } catch (\Exception $e) {
-                            Notification::make()->title('Error al procesar fecha')->danger()->send();
-                            return;
+                        // 2. Determinar y actualizar agenda (lógica idéntica)
+                        $agendaActualizada = false;
+                        $fechaAgendaFinal = $record->agenda;
+
+                        if (
+                            isset($data['actualizar_agenda']) &&
+                            $data['actualizar_agenda'] === true &&
+                            ! empty($data['agenda_nueva'])
+                        ) {
+                            try {
+                                $nuevaFechaAgenda = Carbon::parse($data['agenda_nueva']);
+                                $record->agenda = $nuevaFechaAgenda;
+                                $record->save();
+
+                                $fechaAgendaFinal   = $nuevaFechaAgenda;
+                                $agendaActualizada  = true;
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->title('Error al procesar fecha')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
                         }
-                    }
 
-                    // 3. Construir y crear el comentario (texto adaptado)
-                    $textoComentario = "Email enviado por {$userName}."; // <-- Texto cambiado
-                    if ($fechaAgendaFinal instanceof Carbon) {
-                        $textoRelativo = $fechaAgendaFinal->diffForHumans();
-                        $textoComentario .= " Próximo seguimiento: {$textoRelativo}.";
-                    } else {
-                        $textoComentario .= " No hay próximo seguimiento agendado.";
-                    }
-                    $record->comentarios()->create([
-                        'user_id' => $currentUser->id,
-                        'contenido' => $textoComentario
-                    ]);
+                        // 3. Construir comentario
+                        $textoComentario = "Email enviado por {$userName}.";
 
-                    // 4. Enviar Notificación (texto adaptado)
-                    if ($agendaActualizada) {
-                        Notification::make()->title('Email registrado y agenda actualizada')->success()->send(); // <-- Texto cambiado
-                    } else {
-                        Notification::make()->title('Email registrado')->success()->send(); // <-- Texto cambiado
-                    }
-                }),
+                        if ($fechaAgendaFinal instanceof Carbon) {
+                            $textoRelativo   = $fechaAgendaFinal->diffForHumans();
+                            $textoComentario .= " Próximo seguimiento: {$textoRelativo}.";
+                        } else {
+                            $textoComentario .= " No hay próximo seguimiento agendado.";
+                        }
+
+                        // Guardar comentario
+                        $record->comentarios()->create([
+                            'user_id'   => $currentUser->id,
+                            'contenido' => $textoComentario,
+                        ]);
+
+                        // ===============================
+                        //   CONTAR INTENTO PARA AUTOSPAM
+                        // ===============================
+                        $estadoActual = $record->estado instanceof \App\Enums\LeadEstadoEnum
+                            ? $record->estado->value
+                            : (string) $record->estado;
+
+                        if (in_array($estadoActual, [
+                            \App\Enums\LeadEstadoEnum::INTENTO_CONTACTO->value,
+                            \App\Enums\LeadEstadoEnum::ESPERANDO_INFORMACION->value,
+                        ], true)) {
+                            $record->registrarEnvioEmailEstado();
+                        }
+
+                        // 👇 marcar interacción manual SOLO aquí para el autospam
+                        $record->marcarInteraccionManual();
+
+                        // 4. Notificación
+                        if ($agendaActualizada) {
+                            Notification::make()
+                                ->title('Email registrado y agenda actualizada')
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('Email registrado')
+                                ->success()
+                                ->send();
+                        }
+                    }),
 
 
                 // --- Acción Chat ---

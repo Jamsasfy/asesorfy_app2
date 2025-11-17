@@ -9,7 +9,8 @@ use App\Models\Venta;                 // <-- Añadir
 use App\Observers\VentaObserver;      // <-- Añadir
 use App\Models\Proyecto;              // <-- Añadir
 use App\Observers\ProyectoObserver;   // <-- Añadir
-
+use App\Models\Lead;
+use App\Observers\LeadObserver;
 
 use Illuminate\Support\ServiceProvider;
 
@@ -38,5 +39,6 @@ class AppServiceProvider extends ServiceProvider
         Proyecto::observe(ProyectoObserver::class); // <-- Añadir esta línea
         ClienteSuscripcion::observe(\App\Observers\ClienteSuscripcionObserver::class);
         Cliente::observe(\App\Observers\ClienteObserver::class);
+         Lead::observe(LeadObserver::class);
     }
 }

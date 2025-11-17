@@ -42,6 +42,10 @@ class Lead extends Model
         'emails' => 'integer',            // Asegura que es un número entero
         'chats' => 'integer',             // Asegura que es un número entero
         'otros_acciones' => 'integer',     // Asegura que es un número entero
+          'estado_email_intentos' => 'integer',
+    'estado_email_ultima_fecha' => 'datetime',
+    'ultima_interaccion_manual_at' => 'datetime',
+     'autospam_activo' => 'bool',
     ];
 
       // --- Listener de Evento para fecha_gestion ---
@@ -49,25 +53,31 @@ class Lead extends Model
      * The "booted" method of the model.
      * Se ejecuta cuando el modelo se inicializa.
      */
-    protected static function booted(): void
-    {
-        // Escucha el evento 'updating' (justo antes de que se guarde una actualización)
-        static::updating(function (Lead $lead) {
-            // Comprobamos varias condiciones:
-            // 1. Si el campo 'estado' ha cambiado realmente en esta actualización
-            // 2. Si el valor ORIGINAL de 'estado' ANTES de esta actualización era SIN_GESTIONAR
-            // 3. Si el campo 'fecha_gestion' todavía está VACÍO (es null)
+  protected static function booted(): void
+{
+    static::updating(function (Lead $lead) {
+
+        // 1) Si cambia el estado...
+        if ($lead->isDirty('estado')) {
+
+            $estadoNuevo = $lead->estado instanceof LeadEstadoEnum
+                ? $lead->estado->value
+                : $lead->estado;
+
+            // Si antes no había fecha_gestion y AHORA deja de estar SIN_GESTIONAR,
+            // estampamos la fecha de primera gestión
             if (
-                $lead->isDirty('estado') &&
-                $lead->getOriginal('estado') === LeadEstadoEnum::SIN_GESTIONAR &&
-                is_null($lead->fecha_gestion)
+                is_null($lead->getOriginal('fecha_gestion')) &&
+                $estadoNuevo !== LeadEstadoEnum::SIN_GESTIONAR->value
             ) {
-                // Si se cumplen las 3 condiciones, es la primera vez que sale de SIN_GESTIONAR
-                // Establecemos la fecha de gestión a la hora actual.
                 $lead->fecha_gestion = now();
             }
-        });
-    }
+
+            // Resetear contadores de emails al cambiar de estado
+            $lead->resetEstadoEmails();
+        }
+    });
+}
     // --- Fin Listener ---
 
     
@@ -124,7 +134,12 @@ public function cliente(): BelongsTo
     return $this->belongsTo(Cliente::class);
 }
 
-   
+   public function autoEmailLogs()
+{
+    return $this->hasMany(\App\Models\LeadAutoEmailLog::class)
+    ->orderByDesc('sent_at')
+        ->orderByDesc('id');
+}
 
     // --- FIN RELACIONES ---
 
@@ -145,7 +160,97 @@ public function cliente(): BelongsTo
   {
       return $this->hasMany(Venta::class);
   }
+// Marca que alguien ha interactuado manualmente con el lead
+public function marcarInteraccionManual(): void
+{
+    $ahora = now();
 
+    $this->ultima_interaccion_manual_at = $ahora;
+
+    // Si aún no se había gestionado nunca el lead, fijamos la fecha de primera gestión
+    if (is_null($this->fecha_gestion)) {
+        $this->fecha_gestion = $ahora;
+    }
+
+    $this->save();
+}
+
+// Resetea el contador de emails al cambiar de estado
+public function resetEstadoEmails(): void
+    {
+        $this->estado_email_intentos = 0;
+        $this->estado_email_ultima_fecha = null;
+       // $this->save();
+    }
+
+// Registra que se ha enviado un email automático para el estado actual
+   public function registrarEnvioEmailEstado(): void
+    {
+        $this->estado_email_intentos = ($this->estado_email_intentos ?? 0) + 1;
+        $this->estado_email_ultima_fecha = now();
+        $this->save();
+    }
+
+public function activarAutospam(): void
+{
+    $this->forceFill(['autospam_activo' => true])->save();
+}
+
+public function desactivarAutospam(): void
+{
+    $this->forceFill(['autospam_activo' => false])->save();
+}
+
+// App\Models\Lead.php
+
+public function puedeSugerirPrimerEmailIa(): bool
+{
+    // Sin email o autospam desactivado → no sugerimos nada
+    if (empty($this->email) || ! $this->autospam_activo) {
+        return false;
+    }
+
+    // Estado actual
+    $estadoValue = $this->estado instanceof \App\Enums\LeadEstadoEnum
+        ? $this->estado->value
+        : (string) $this->estado;
+
+    // El estado tiene autospam configurado?
+    $configEstado = config("lead_emails.states.{$estadoValue}");
+
+    if (! $configEstado || empty($configEstado['auto'])) {
+        return false;
+    }
+
+    // ✅ Solo queremos sugerencia si alguna vez se intentó autospam
+    // y se marcó como "skipped" (por ejemplo, porque no había email)
+    $tieneSkips = $this->autoEmailLogs()
+        ->where('estado', $estadoValue)
+        ->where('status', 'skipped')
+        ->exists();
+
+    if (! $tieneSkips) {
+        // Si nunca hubo un intento skipped, NO mostramos el botón
+        return false;
+    }
+
+    // Si ya hay envíos reales (sent/pending/rate_limited) para este estado, tampoco sugerimos
+    $tieneEnviados = $this->autoEmailLogs()
+        ->where('estado', $estadoValue)
+        ->whereIn('status', ['sent', 'pending', 'rate_limited'])
+        ->exists();
+
+    if ($tieneEnviados) {
+        return false;
+    }
+
+    // En este punto:
+    // - Autospam activo
+    // - Estado con auto=true
+    // - Hubo intento skipped (ej. no tenía email antes)
+    // - No hay envíos reales todavía
+    return true;
+}
 
 
 }
