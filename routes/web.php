@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\FacturaPdfController; // <-- Asegúrate de que esta importación esté
 use App\Http\Controllers\FileViewController;
+use Illuminate\Support\Facades\Artisan;
 
 //eliminar
 use Illuminate\Support\Facades\Mail;
@@ -33,7 +34,15 @@ Route::get('/facturas/generar-pdf/{factura}', [FacturaPdfController::class, 'gen
     ->where('path', '.*')
     ->name('file.view')
     ->middleware('auth'); // <-- AÑADIR ESTA LÍNEA
+Route::get('/cron/schedule-run', function () {
+    if (request('token') !== env('CRON_TOKEN')) {
+        abort(403);
+    }
 
+    Artisan::call('schedule:run');
+
+    return 'Scheduler executed OK';
+});
 
 
 require __DIR__.'/auth.php';
