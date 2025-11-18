@@ -75,13 +75,14 @@
                         <p style="margin:0 0 6px 0;">Saludos,</p>
                         <p style="margin:0 0 6px 0;"><strong>Equipo {{ config('app.name') }}</strong></p>
 
-                      <p style="margin:0;">
-                            <a href="{{ config('app.url') }}" style="color:#6b7280; text-decoration:underline;">
-                                {{ parse_url(config('app.url'), PHP_URL_HOST) ?? config('app.url') }}
-                            </a>
-                            &nbsp;|&nbsp;
-                            {{ config('mail.reply_to.address') ?? config('mail.from.address') }}
-                        </p>
+                    <p style="margin:0;">
+                        <a href="{{ config('app.public_url') }}" style="color:#6b7280; text-decoration:underline;">
+                            {{ parse_url(config('app.public_url'), PHP_URL_HOST) ?? config('app.public_url') }}
+                        </a>
+                        &nbsp;|&nbsp;
+                        {{ config('mail.reply_to.address') ?? config('mail.from.address') }}
+                    </p>
+
 
 
                     </td>
