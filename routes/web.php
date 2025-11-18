@@ -34,8 +34,16 @@ Route::get('/facturas/generar-pdf/{factura}', [FacturaPdfController::class, 'gen
     ->where('path', '.*')
     ->name('file.view')
     ->middleware('auth'); // <-- AÑADIR ESTA LÍNEA
-Route::get('/cron/schedule-run', function () {
-    
+
+
+    Route::get('/cron/schedule-run', function () {
+    $token = request('token');
+    $valid = env('CRON_TOKEN');
+
+    if (! $valid || $token !== $valid) {
+        abort(403);
+    }
+
     Artisan::call('schedule:run');
 
     return 'Scheduler executed OK';
