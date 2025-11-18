@@ -13,4 +13,5 @@ Artisan::command('inspire', function () {
 // SCHEDULER DE LEADS AUTOMÁTICOS
 // ===============================
 
-Schedule::command('leads:enviar-recordatorios')->dailyAt('10:00');
+Schedule::command('leads:enviar-recordatorios')->dailyAt('08:00');
+Schedule::command('leads:enviar-informe-emails-diario')->dailyAt('09:00');
