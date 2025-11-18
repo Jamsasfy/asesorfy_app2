@@ -35,10 +35,7 @@ Route::get('/facturas/generar-pdf/{factura}', [FacturaPdfController::class, 'gen
     ->name('file.view')
     ->middleware('auth'); // <-- AÑADIR ESTA LÍNEA
 Route::get('/cron/schedule-run', function () {
-    if (request('token') !== env('CRON_TOKEN')) {
-        abort(403);
-    }
-
+    
     Artisan::call('schedule:run');
 
     return 'Scheduler executed OK';
