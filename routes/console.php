@@ -16,6 +16,5 @@ Artisan::command('inspire', function () {
 Schedule::command('leads:enviar-recordatorios')->dailyAt('08:00');
 Schedule::command('leads:enviar-informe-emails-diario')->dailyAt('09:00');
 
-// Línea temporal para test – elimínala o coméntala cuando todo funcione
-Schedule::command('leads:enviar-informe-emails-diario')->everyMinute();
+
 
