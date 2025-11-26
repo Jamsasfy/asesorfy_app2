@@ -29,6 +29,7 @@ class Proyecto extends Model
         'emails',
         'chats',
         'otros_acciones',
+        'lead_id', // <--- ¡IMPORTANTE!
     ];
 
     protected $casts = [
@@ -52,6 +53,11 @@ class Proyecto extends Model
     {
         return $this->belongsTo(Cliente::class);
     }
+    public function lead()
+    {
+        return $this->belongsTo(Lead::class);
+    }
+    
 
     public function venta(): BelongsTo
     {

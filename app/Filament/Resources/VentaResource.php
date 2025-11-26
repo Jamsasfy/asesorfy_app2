@@ -48,6 +48,7 @@ use App\Enums\VentaCorreccionEstadoEnum;
 use Filament\Tables\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Forms\Components\Placeholder;
+use Filament\Tables\Enums\ActionsPosition;
 
 
 
@@ -557,6 +558,25 @@ public static function form(Form $form): Form
         ->recordUrl(null)    // Esto quita la navegación al hacer clic en la fila
         ->defaultSort('created_at', 'desc') // Ordenar por defecto
             ->columns([
+                // Columna de Estado de Firma
+             // Columna de Estado de Firma (BLINDADA PARA NULOS)
+                Tables\Columns\TextColumn::make('signed_at')
+                    ->label('Contrato')
+                    ->badge()
+                    // Truco: Calculamos el texto manualmente. Si hay fecha -> Firmado, si no -> Pendiente
+                    ->getStateUsing(fn (Venta $record) => $record->signed_at ? 'Firmado' : 'Pendiente')
+                    // Asignamos color según el texto que acabamos de calcular
+                    ->color(fn (string $state) => match ($state) {
+                        'Firmado' => 'success',   // Verde
+                        'Pendiente' => 'danger',  // Rojo
+                        default => 'gray',
+                    })
+                    ->icon(fn (string $state) => match ($state) {
+                        'Firmado' => 'heroicon-m-check-badge',
+                        'Pendiente' => 'heroicon-m-clock',
+                        default => null,
+                    })
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('cliente.razon_social')
                     ->label('Cliente')
                     ->url(fn (Venta $record): ?string => 
@@ -686,6 +706,15 @@ public static function form(Form $form): Form
                    
             ])
             ->filters([
+                Tables\Filters\TernaryFilter::make('signed_at')
+                    ->label('Estado del Contrato')
+                    ->placeholder('Todas')
+                    ->trueLabel('Firmadas')
+                    ->falseLabel('Pendientes de Firma')
+                    ->queries(
+                        true: fn (Builder $query) => $query->whereNotNull('signed_at'),
+                        false: fn (Builder $query) => $query->whereNull('signed_at'),
+                    ),
                  Tables\Filters\SelectFilter::make('cliente_id')
                     ->relationship('cliente', 'razon_social')
                     ->searchable()
@@ -744,23 +773,138 @@ public static function form(Form $form): Form
                     ->toggle() // Se activa/desactiva con un switch
                     ->label('Mostrar con Descuento'),
                       Tables\Filters\Filter::make('correccion_solicitada')
-        ->label('Mostrar solo con corrección solicitada')
-        ->query(fn (Builder $query): Builder => $query->where('correccion_estado', VentaCorreccionEstadoEnum::SOLICITADA))
-        ->toggle(),
-                        ],layout: FiltersLayout::AboveContent)
-                            ->filtersFormColumns(7)
+                        ->label('Mostrar solo con corrección solicitada')
+                        ->query(fn (Builder $query): Builder => $query->where('correccion_estado', VentaCorreccionEstadoEnum::SOLICITADA))
+                        ->toggle(),
+                                        ],layout: FiltersLayout::AboveContent)
+                                            ->filtersFormColumns(7)
             ->actions([
+              
+                // ... tus otras acciones (ver, editar) ...
+// 🚀 ENVIAR CONTRATO (Manual)
+            Tables\Actions\Action::make('enviar_contrato')
+                ->label('') // <--- SIN TEXTO
+                ->tooltip('Enviar Contrato para Firma') // Tooltip al pasar el ratón
+                ->icon('heroicon-o-paper-airplane')
+                ->color('primary')
+                ->requiresConfirmation()
+                ->modalHeading('Enviar Contrato')
+                ->modalDescription('Se generará un enlace único basado en esta venta. El cliente recibirá un email para firmar.')
+                ->visible(fn (Venta $record) => 
+                    $record->lead_id && $record->lead && is_null($record->lead->contract_signed_at)
+                )
+                ->action(function (Venta $record) {
+                    if (!$record->lead || !$record->cliente) {
+                        Notification::make()->title('Error')->body('Falta Lead o Cliente.')->danger()->send();
+                        return;
+                    }
+
+                    // Construir Blueprint
+                    $itemsBlueprint = $record->items->map(function ($item) {
+                        $svc = $item->servicio;
+                        return [
+                            'servicio_id'         => $svc->id,
+                            'nombre'              => $item->nombre_personalizado ?: $svc->nombre,
+                            'tipo'                => $svc->tipo->value,
+                            'precio_base'         => $item->precio_unitario_aplicado ?? $item->precio_unitario,
+                            'unidades'            => $item->cantidad,
+                            'total_linea'         => $item->subtotal_aplicado,
+                            'es_tarifa_principal' => $svc->es_tarifa_principal,
+                            'es_alta_autonomo'    => false,
+                        ];
+                    })->toArray();
+
+                    if (empty($itemsBlueprint)) {
+                        Notification::make()->title('Error')->body('Venta sin servicios.')->danger()->send();
+                        return;
+                    }
+
+                    // Detectar Formulario
+                    $formType = 'alta_autonomo_fiscal_recurrente';
+                    foreach ($itemsBlueprint as $bpItem) {
+                        $nombre = strtolower($bpItem['nombre']);
+                        if (str_contains($nombre, 'sociedad') || str_contains($nombre, 'sl')) $formType = 'creacion_sociedad';
+                        elseif ($formType !== 'creacion_sociedad' && (str_contains($nombre, 'capitaliza') || str_contains($nombre, 'pago único'))) $formType = 'capitalizacion';
+                        elseif ($formType === 'alta_autonomo_fiscal_recurrente' && str_contains($nombre, 'alta') && str_contains($nombre, 'autónomo')) $formType = 'alta_autonomo';
+                    }
+
+                    // Pre-rellenar datos
+                    $formData = [
+                        'nombre'             => $record->cliente->nombre ?? '',
+                        'apellidos'          => $record->cliente->apellidos ?? '',
+                        'dni'                => $record->cliente->dni_cif,
+                        'email'              => $record->cliente->email_contacto,
+                        'telefono'           => $record->cliente->telefono_contacto,
+                        'direccion'          => $record->cliente->direccion,
+                        'cp'                 => $record->cliente->codigo_postal,
+                        'localidad'          => $record->cliente->localidad,
+                        'provincia'          => $record->cliente->provincia,
+                        'comunidad_autonoma' => $record->cliente->comunidad_autonoma,
+                        'cuenta_bancaria_ss' => $record->cliente->iban_asesorfy,
+                        'tipo_cliente_id'    => $record->cliente->tipo_cliente_id,
+                    ];
+
+                    // Crear Link
+                    $link = \App\Models\LeadConversionLink::create([
+                        'lead_id'    => $record->lead_id,
+                        'token'      => \Illuminate\Support\Str::uuid(),
+                        'expires_at' => now()->addDays(15),
+                        'mode'       => 'manual',
+                        'meta'       => [
+                            'form_type'      => $formType,
+                            'sale_blueprint' => ['modo' => 'manual', 'servicios' => $itemsBlueprint],
+                            'form_data'      => $formData,
+                            'existing_venta_id'   => $record->id,
+                            'existing_cliente_id' => $record->cliente_id,
+                        ],
+                    ]);
+
+                    // Enviar
+                    try {
+                        \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
+                            ->send(new \App\Mail\LeadConversionLinkMail($record->lead, $link));
+                        
+                        // Logs
+                        \App\Models\LeadAutoEmailLog::create([
+                            'lead_id'             => $record->lead_id,
+                            'estado'              => $record->lead->estado->value ?? 'unknown',
+                            'intento'             => 1,
+                            'template_identifier' => 'conversion_link_manual',
+                            'subject'             => 'Firma tu contrato',
+                            'body_preview'        => 'Enlace manual venta #' . $record->id,
+                            'scheduled_at'        => now(),
+                            'sent_at'             => now(),
+                            'status'              => 'sent',
+                            'mail_driver'         => config('mail.default'),
+                            'triggered_by_user_id'=> auth()->id(),
+                            'trigger_source'      => 'manual_action_venta',
+                        ]);
+
+                        $record->lead->comentarios()->create([
+                            'user_id'   => 9999,
+                            'contenido' => "📤 🔗 Contrato enviado manual (Venta #{$record->id}).",
+                        ]);
+                        
+                        Notification::make()->title('Contrato Enviado')->success()->send();
+                    } catch (\Exception $e) {
+                        Notification::make()->title('Error email')->body($e->getMessage())->danger()->send();
+                    }
+                }),
+             
                 // 1. Añadimos la acción para VER los detalles (el ojo)
                     Tables\Actions\ViewAction::make()
                         ->label('') // Sin texto, solo el icono
                         ->tooltip('Ver Venta'),
                 Tables\Actions\EditAction::make()
+                ->label('')
+                ->tooltip('Editar Venta')
                  ->visible(function (Venta $record): bool {
-            // El botón será visible solo si la venta NO tiene facturas asociadas.
-            return !$record->facturas()->exists();
-        }),
+                    // El botón será visible solo si la venta NO tiene facturas asociadas.
+                    return !$record->facturas()->exists();
+                }),
       Action::make('solicitar_correccion')
-    ->label('Solicitar Corrección')
+    ->label('')
+    ->tooltip('Solicitar Corrección')
     ->icon('heroicon-o-chat-bubble-left-right')
     ->color('warning')
     ->visible(fn (Venta $record): bool => 
@@ -844,7 +988,7 @@ public static function form(Form $form): Form
           ->openUrlInNewTab(),
 
 
-            ])
+            ])->actionsPosition(ActionsPosition::BeforeColumns)
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),

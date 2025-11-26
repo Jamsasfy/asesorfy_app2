@@ -11,7 +11,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+         // AGREGAR AQUÍ EL ALIAS DEL MIDDLEWARE:
+        $middleware->alias([
+            // ... otros alias de middlewares de ruta
+            'conversion.link.valid' => \App\Http\Middleware\EnsureConversionLinkIsValid::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

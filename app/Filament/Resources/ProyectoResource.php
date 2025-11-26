@@ -584,535 +584,333 @@ public static function getNavigationLabel(): string
     }
 
      // <<< AÑADIDO: Método infolist para la página de vista detallada
-  public static function infolist(Infolist $infolist): Infolist
+public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
             ->schema([
+                
+                // 1. SECCIÓN: DETALLES DEL ENCARGO (Volcado del contrato)
+                InfoSection::make('📋 Detalles del Encargo / Memoria')
+                    ->description('Información volcada automáticamente desde la contratación.')
+                    ->schema([
+                        TextEntry::make('descripcion')
+                            ->hiddenLabel()
+                            ->columnSpanFull()
+                            ->html()
+                            ->state(function ($record) {
+                                $texto = $record->descripcion ?? 'No hay descripción detallada disponible.';
+                                $safeText = e($texto); // Escapar para seguridad
+                                
+                                // Div con estilos Tailwind para Light/Dark mode
+                                return <<<HTML
+                                    <div class="whitespace-pre-wrap font-mono text-sm p-4 rounded-lg border
+                                                bg-gray-50 border-gray-200 text-gray-800
+                                                dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300">
+                                        {$safeText}
+                                    </div>
+                                HTML;
+                            }),
+                    ])
+                    ->collapsible(),
 
-
-
-
+                // 2. GRID PRINCIPAL
                 Grid::make(3)->schema([
-            // Info básica
-            InfoSection::make(fn (Proyecto $record): string => 'Proyecto para ' . ($record->cliente->razon_social ?? 'Cliente Desconocido'))
-                ->schema([
-                    TextEntry::make('nombre')  
-                   ->label(new HtmlString('<span class="font-semibold">Nombre del Proyecto</span>'))
+                    
+                    // Columna 1: Info Básica
+                    InfoSection::make(fn (Proyecto $record): string => 'Proyecto para ' . ($record->cliente->razon_social ?? 'Cliente Desconocido'))
+                        ->schema([
+                            TextEntry::make('nombre')  
+                                ->label(new HtmlString('<span class="font-semibold">Nombre del Proyecto</span>'))
                                 ->copyable()
                                 ->weight('bold')
                                 ->color('primary')                                        
-                        ->columnSpan(2),
-                    TextEntry::make('cliente.telefono_contacto')      
-                    ->label('Teléfono Cliente')
-                      ->copyable()
+                                ->columnSpan(2),
+                            
+                            TextEntry::make('cliente.telefono_contacto')      
+                                ->label('Teléfono Cliente')
                                 ->weight('bold')
-                                ->color('primary')       
-                        ->copyable(),
-                    TextEntry::make('cliente.email_contacto')      
-                        ->label('Email Cliente')
+                                ->color('primary')        
+                                ->copyable(),
+                            
+                            TextEntry::make('cliente.email_contacto')      
+                                ->label('Email Cliente')
                                 ->weight('bold')
-                                ->color('primary')       
-                    ->copyable()->columnSpanFull(), // Ocupa todo el ancho de la sección
+                                ->color('primary')        
+                                ->copyable()
+                                ->columnSpanFull(),
 
-                   TextEntry::make('acceso_perfil_cliente') // Nombre de campo ficticio o accesor
+                            TextEntry::make('acceso_perfil_cliente')
                                 ->label(new HtmlString('<span class="font-semibold">Acceso al Perfil del Cliente</span>')) 
-                                ->state(fn (Proyecto $record) => $record->cliente->razon_social ?? 'Cliente no disponible') // Mostrar el nombre del cliente o un texto
+                                ->state(fn (Proyecto $record) => $record->cliente->razon_social ?? 'Cliente no disponible')
                                 ->url(fn (Proyecto $record): ?string => 
-                                    // Genera la URL al recurso Cliente, a su página de vista
                                     $record->cliente_id ? ClienteResource::getUrl('view', ['record' => $record->cliente_id]) : null
                                 )
-                                ->openUrlInNewTab() // <<< Abrir en una nueva pestaña
-                                ->color('warning') // Color azul para el enlace
-                              //  ->copyable() // Permite copiar el texto del enlace (el nombre del cliente)
+                                ->openUrlInNewTab()
+                                ->color('warning')
                                 ->weight('bold')
-                                ->icon('heroicon-m-arrow-top-right-on-square')                 
-                                ->columnSpanFull(), // Ocupa todo el ancho
-                                    // ▼▼▼ CAMPO AÑADIDO ▼▼▼
-                    TextEntry::make('venta.lead.demandado')
-                            ->label(new HtmlString('<span class="font-semibold">Demandado del Lead</span>'))
-                            ->copyable()
-                            ->weight('bold')
-                            ->color('primary')
-                            ->placeholder('No informado') // Se mostrará si el campo está vacío
-                            ->columnSpanFull(),              
-                    TextEntry::make('venta.lead.procedencia.procedencia')
-                            ->label(new HtmlString('<span class="font-semibold">Tipo de Lead</span>'))
-                            ->badge()
-                            ->color('success')
-                            ->placeholder('No especificado')
-                            ->columnSpanFull(),
-                ])
-                ->columns(3)
-                ->columnSpan(1),
+                                ->icon('heroicon-m-arrow-top-right-on-square')                  
+                                ->columnSpanFull(),
 
-            // Estado y asignación
-            InfoSection::make('Estado & Asignación')
-                ->schema([
-                    TextEntry::make('venta.comercial.name')
-                    ->label('Comercial')
-                        ->badge()
-                        ->color('primary'),
+                            TextEntry::make('venta.lead.demandado')
+                                ->label(new HtmlString('<span class="font-semibold">Demandado del Lead</span>'))
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary')
+                                ->placeholder('No informado')
+                                ->columnSpanFull(),              
+                            
+                            TextEntry::make('venta.lead.procedencia.procedencia')
+                                ->label(new HtmlString('<span class="font-semibold">Tipo de Lead</span>'))
+                                ->badge()
+                                ->color('success')
+                                ->placeholder('No especificado')
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(3)
+                        ->columnSpan(1),
 
-                    TextEntry::make('created_at')
-                    ->label('Proyecto creado')
-                        
-                        ->dateTime('d/m/y H:i'),
-                     // <<< CAMBIO CLAVE AQUI: Diseño mejorado para Venta de Origen
+                    // Columna 2: Estado y Asignación
+                    InfoSection::make('Estado & Asignación')
+                        ->schema([
+                            TextEntry::make('venta.comercial.name')
+                                ->label('Comercial')
+                                ->badge()
+                                ->color('primary'),
+
+                            TextEntry::make('created_at')
+                                ->label('Proyecto creado')
+                                ->dateTime('d/m/y H:i'),
+
                             TextEntry::make('venta.id')
                                 ->label(new HtmlString('<span class="font-semibold">Venta de Origen</span>'))
-                                ->badge() // Convertir a badge
-                                // Formato que muestra el icono, el texto y el ID
-                                ->formatStateUsing(function ($state, Proyecto $record): string {
-                                    if ($record->venta_id) {
-                                        return 'Venta #' . $state; // 'state' es el ID de la venta
-                                    }
-                                    return 'No asociada'; // Texto si no hay venta
-                                })
-                                ->url(fn (Proyecto $record): ?string => 
-                                        $record->venta_id ? VentaResource::getUrl('edit', ['record' => $record->venta_id]) : null
-                                    )
-                                ->openUrlInNewTab() // Abrir en nueva pestaña
-                                ->color(function ($state, Proyecto $record): string {
-                                    // Color del badge: 'warning' si tiene venta, 'secondary' (gris) si no
-                                    if ($record->venta_id) {
-                                        return 'warning'; // Amarillo para ventas asociadas
-                                    }
-                                    return 'secondary'; // Gris para 'No asociada'
-                                })
-                                ->copyable() // Permite copiar el texto del badge
-                                ->weight('bold')
-                                ->icon(fn (Proyecto $record): ?string => // Icono para el badge
-                                    $record->venta_id ? 'heroicon-m-link' : null // Icono de link si hay venta
-                                ),
+                                ->badge()
+                                ->formatStateUsing(fn ($state) => $state ? 'Venta #' . $state : 'No asociada')
+                                ->url(fn (Proyecto $record) => $record->venta_id ? VentaResource::getUrl('edit', ['record' => $record->venta_id]) : null)
+                                ->openUrlInNewTab()
+                                ->color(fn ($record) => $record->venta_id ? 'warning' : 'secondary')
+                                ->icon(fn ($record) => $record->venta_id ? 'heroicon-m-link' : null),
 
-                    TextEntry::make('user.name')
-                         ->label('Asesor Asignado')
-                                ->badge() // Esto hace que se muestre como un badge
-                                ->getStateUsing(fn (Proyecto $record): string => $record->user?->name ?? '⚠️ Sin asignar') // Este define el texto
-                                ->color(fn (string $state): string => 
-                                    str_contains($state, 'Sin asignar') ? 'warning' : 'info' // Este define el color
-                                ),
+                            // --- NUEVO: Lead de Origen ---
+                            TextEntry::make('lead.id')
+                                ->label(new HtmlString('<span class="font-semibold">Lead de Origen</span>'))
+                                ->badge()
+                                ->formatStateUsing(fn ($state) => $state ? 'Lead #' . $state : 'Sin Lead')
+                                ->color(fn ($state) => $state ? 'warning' : 'gray')
+                                ->icon(fn ($state) => $state ? 'heroicon-m-link' : null)
+                                ->url(fn (Proyecto $record) => $record->lead_id 
+                                    ? \App\Filament\Resources\LeadResource::getUrl('edit', ['record' => $record->lead_id]) 
+                                    : null
+                                )
+                                ->openUrlInNewTab(),
 
-                  TextEntry::make('estado')
+                            TextEntry::make('user.name')
+                                ->label('Asesor Asignado')
+                                ->badge()
+                                ->getStateUsing(fn (Proyecto $record) => $record->user?->name ?? '⚠️ Sin asignar')
+                                ->color(fn (string $state) => str_contains($state, 'Sin asignar') ? 'warning' : 'info'),
+
+                            TextEntry::make('estado')
                                 ->label(new HtmlString('<span class="font-semibold">Estado Actual</span>'))
                                 ->badge()
                                 ->columnSpan(2)
-                                ->color(fn (\App\Enums\ProyectoEstadoEnum $state): string => match ($state->value) {
-                                    \App\Enums\ProyectoEstadoEnum::Pendiente->value   => 'primary',
-                                    \App\Enums\ProyectoEstadoEnum::EnProgreso->value  => 'warning',
-                                    \App\Enums\ProyectoEstadoEnum::Finalizado->value  => 'success',
-                                    \App\Enums\ProyectoEstadoEnum::Cancelado->value   => 'danger',
+                                ->color(fn (\App\Enums\ProyectoEstadoEnum $state) => match ($state->value) {
+                                    'pendiente' => 'primary',
+                                    'en_progreso' => 'warning',
+                                    'finalizado' => 'success',
+                                    'cancelado' => 'danger',
                                     default => 'gray',
                                 })
-                                 
                                 ->suffixAction(
                                     ActionInfolist::make('cambiar_estado_proyecto')
-                                        ->label('') // No label, solo icono
+                                        ->label('')
                                         ->icon('heroicon-m-arrow-path')
                                         ->color('primary')
                                         ->modalHeading('Cambiar Estado del Proyecto')
-                                        ->modalSubmitActionLabel('Guardar Estado')
-                                        ->modalWidth('md')
-                                         ->tooltip(fn (Proyecto $record): ?string =>
-                                                filled($record->user_id)
-                                                    ? 'Cambiar estado'
-                                                    : 'Cambiar estado'
-                                            )
-                                         ->visible(fn (Proyecto $record): bool =>
-                                                $record->user_id !== null && !$record->estado->isFinal()
-                                            )
                                         ->form([
-                                            Select::make('estado') // Usar FormsSelect
-                                                ->label('Nuevo Estado')
+                                            Select::make('estado')
                                                 ->options(\App\Enums\ProyectoEstadoEnum::class)
                                                 ->native(false)
                                                 ->required()
-                                                ->default(fn (?Proyecto $record): ?string => $record?->estado?->value),
-                                            Textarea::make('comentario_estado') // Usar FormsTextarea
-                                                ->label('Comentario para el cambio de estado')
+                                                ->default(fn (?Proyecto $record) => $record?->estado?->value),
+                                            Textarea::make('comentario_estado')
                                                 ->rows(3)
-                                                ->nullable()
                                                 ->maxLength(500),
                                         ])
                                         ->action(function (array $data, Proyecto $record) {
                                             $nuevoEstado = \App\Enums\ProyectoEstadoEnum::tryFrom($data['estado']);
-                                            if (!$nuevoEstado) {
-                                                Notification::make()->danger()->title('Error Estado')->send();
-                                                return;
-                                            }
-
-                                            // Lógica del Modelo:
-                                            // 1. El hook 'updating' en Proyecto.php establecerá fecha_finalizacion si pasa a Finalizado.
-                                            // 2. El hook 'updated' en Proyecto.php llamará a $proyecto->venta->checkAndActivateSubscriptions() (que está vacío por ahora).
+                                            if (!$nuevoEstado) return;
                                             $record->estado = $nuevoEstado;
-                                            $record->save(); // Guarda el cambio de estado y dispara los hooks.
-
-                                            // Registrar comentario
-                                            $comentarioTexto = 'Cambio de estado a: ' . $nuevoEstado->getLabel();
-                                            if (!empty($data['comentario_estado'])) {
-                                                $comentarioTexto .= "\n---\nObservación: " . $data['comentario_estado'];
-                                            }
-                                            $record->comentarios()->create([
-                                                'user_id' => Auth::id(),
-                                                'contenido' => $comentarioTexto,
-                                            ]);
-
-                                            Notification::make()->title('Estado del proyecto actualizado')->success()->send();
+                                            $record->save();
+                                            
+                                            $comentario = 'Cambio de estado a: ' . $nuevoEstado->getLabel();
+                                            if (!empty($data['comentario_estado'])) $comentario .= "\n---\nObservación: " . $data['comentario_estado'];
+                                            
+                                            $record->comentarios()->create(['user_id' => Auth::id(), 'contenido' => $comentario]);
+                                            Notification::make()->title('Estado actualizado')->success()->send();
                                         })
-                                )
-                                 ->helperText(fn (Proyecto $record) =>
-                            $record->user_id === null
-                                ? '❗ Asigna un comercial antes de poder cambiar el estado.'
-                                : null
-                                 ),
+                                        ->visible(fn (Proyecto $record) => $record->user_id !== null && !$record->estado->isFinal())
+                                ),
 
-                   InfoSection::make('Proyectos o servicios dependientes de la misma venta') // <-- El título que querías
-                   ->description('Aquí se listan otros proyectos o servicios de la misma venta que requieren atención. Importante comunicar con el asesor asignado en otros proyectos para establecer el orden de las presentaciones en la administarción') // <-- ESTE ES EL SUBTÍTULO
-            ->schema([
-                ViewEntry::make('resumen_venta_pendientes')
-                    ->view('filament.infolists.components.resumen-venta-pendientes'),
-            ])
-            ->columnSpanFull(), // Esto hace que la sub-sección ocupe todo el ancho
+                            InfoSection::make('Proyectos o servicios dependientes de la misma venta')
+                                ->description('Otros servicios de la misma venta.')
+                                ->schema([
+                                    ViewEntry::make('resumen_venta_pendientes')
+                                        ->view('filament.infolists.components.resumen-venta-pendientes'),
+                                ])
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(3)
+                        ->columnSpan(1),
 
-                  
-                  ])
-                
-                ->columns(3)
-                ->columnSpan(1),
-
-               
-
-            // Agenda
-            InfoSection::make('Agenda & Gestión')
-                ->schema([
-           
-                    // <<< CAMBIO CLAVE AQUI: Copiar exactamente la sintaxis que funciona en LeadResource
-                     TextEntry::make('agenda')
-                    ->label(new HtmlString('<span class="font-semibold">📆 Próxima cita</span>'))
-                    ->dateTime('d/m/y H:i')
-                    ->placeholder('Sin agendar')
-                      //  ->default('Sin agendar')          // TRATA esto como un estado "real"
- // <- Esto es suficiente si el campo existe
-                    ->suffixAction(
-                        ActionInfolist::make('reagendar')
-                            ->icon('heroicon-o-calendar-days')
-                            ->form([
-                                DateTimePicker::make('agenda')
-                                    ->label('Nueva fecha de agenda')
-                                    ->displayFormat('d/m/Y H:i')
-                                    ->native(false)
-                                    ->default(fn ($record) => $record->agenda ?? now())
-                                    ->minutesStep(30),
+                    // Columna 3: Agenda y Gestión
+                    InfoSection::make('Agenda & Gestión')
+                        ->schema([
+                            TextEntry::make('agenda')
+                                ->label(new HtmlString('<span class="font-semibold">📆 Próxima cita</span>'))
+                                ->dateTime('d/m/y H:i')
+                                ->placeholder('Sin agendar')
+                                ->suffixAction(
+                                    ActionInfolist::make('reagendar')
+                                        ->icon('heroicon-o-calendar-days')
+                                        ->form([
+                                            DateTimePicker::make('agenda')->native(false)->minutesStep(30),
                                         ])
                                         ->action(function (array $data, $record) {
                                             $record->agenda = $data['agenda'];
                                             $record->save();
-
-                                            $fechaFormateada = \Carbon\Carbon::parse($data['agenda'])->format('d/m/Y H:i');
-                                            $record->comentarios()->create([
-                                                'user_id' => auth()->id(),
-                                                'contenido' => '📅 Nueva agenda fijada para: ' . $fechaFormateada,
-                                            ]);
-                                            \Filament\Notifications\Notification::make()
-                                                ->title('✅ Agenda actualizada')
-                                                ->body('Se ha registrado la nueva fecha de agenda correctamente.')
-                                                ->success()
-                                                ->send();
+                                            $record->comentarios()->create(['user_id' => auth()->id(), 'contenido' => '📅 Nueva agenda: ' . \Carbon\Carbon::parse($data['agenda'])->format('d/m/Y H:i')]);
+                                            Notification::make()->title('Agenda actualizada')->success()->send();
                                         })
-                        ),
+                                ),
 
-                            // FIN CAMBIO CLAVE
+                            TextEntry::make('updated_at')->label('Última Act.')->color('warning')->weight('bold')->dateTime('d/m/y H:i'),
+                            TextEntry::make('fecha_finalizacion')->color('success')->weight('bold')->placeholder('En curso')->dateTime('d/m/y H:i'),
 
-                    TextEntry::make('updated_at')
-                        ->label('Última Actualización')  
-                        ->color('warning')
-                       ->weight('bold')
-                        ->dateTime('d/m/y H:i'),
+                            // --- INTERACCIONES (CORREGIDO) ---
+                            InfoSection::make('Interacciones')
+                                ->schema([
+                                    
+                                    // LLAMADAS
+                                    TextEntry::make('llamadas')
+                                        ->label('📞 Llamadas')
+                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
+                                        ->suffixAction(
+                                            ActionInfolist::make('add_llamada')
+                                                ->icon('heroicon-m-phone-arrow-up-right')->color('primary')
+                                                ->form([
+                                                    Toggle::make('respuesta')->label('Contestado')->live(),
+                                                    Textarea::make('comentario')->visible(fn(Forms\Get $get)=>$get('respuesta'))->required(fn(Forms\Get $get)=>$get('respuesta')),
+                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
+                                                ])
+                                                ->action(function(array $data, Proyecto $record){
+                                                    self::registrarInteraccion($record, 'llamadas', $data['comentario']??'', $data['respuesta']??false, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
+                                                })
+                                        ),
 
-                    TextEntry::make('fecha_finalizacion')
-                        ->color('warning')
-                       ->weight('bold')
-                       ->placeholder('Aún no finalizado')
-                        ->dateTime('d/m/y H:i'),
-                        
-                       
+                                    // EMAILS
+                                    TextEntry::make('emails')
+                                        ->label('📧 Emails')
+                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
+                                        ->suffixAction(
+                                            ActionInfolist::make('add_email')
+                                                ->icon('heroicon-m-envelope-open')->color('warning')
+                                                ->form([
+                                                    Textarea::make('comentario')->label('Resumen'),
+                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
+                                                ])
+                                                ->action(function(array $data, Proyecto $record){
+                                                    self::registrarInteraccion($record, 'emails', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
+                                                })
+                                        ),
 
-                        // --- Fecha de cierre ---
-                        InfoSection::make('Interacciones')
-                        ->schema([
-                           
-                            // Acción COMPLETA de LLAMADA ✔️
-                        // Acción COMPLETA de LLAMADA
-                        TextEntry::make('llamadas')
-                            ->label('📞 Llamadas')
-                            ->size('xl')
-                            ->weight('bold')
-                            ->alignment(alignment::Center)
-                            ->suffixAction(
-                                ActionInfolist::make('add_llamada')
-                                    ->icon('heroicon-m-phone-arrow-up-right')
-                                    ->color('primary')
-                                    ->form([
-                                        Toggle::make('respuesta') // Usar Toggle
-                                            ->label('Contestado')
-                                            ->default(false)
-                                            ->helperText('Marca si el cliente ha contestado la llamada.')
-                                            ->live(),
-                                        Textarea::make('comentario')
-                                            ->label('Comentario')
-                                            ->rows(3)
-                                            ->hint('Describe brevemente la llamada.')
-                                            ->visible(fn (Forms\Get $get) => $get('respuesta') === true)
-                                            ->required(fn (Forms\Get $get) => $get('respuesta') === true)
-                                            ->maxLength(500),
-                                        Toggle::make('agendar') // Usar Toggle
-                                            ->label('Agendar nueva llamada')
-                                            ->default(false)
-                                            ->helperText('Programa una nueva cita de seguimiento.')
-                                            ->live(),
-                                        DateTimePicker::make('agenda')
-                                            ->label('Fecha y hora de la nueva llamada')
-                                            ->minutesStep(30)
-                                            ->seconds(false)
-                                            ->native(false)
-                                            ->visible(fn (Forms\Get $get) => $get('agendar') === true)
-                                            ->after(now())
-                                            ->required(fn (Forms\Get $get) => $get('agendar') === true),
-                                    ])
-                                    ->action(function (array $data, \App\Models\Proyecto $record) {
-                                        // Llamar al helper registrarInteraccion
-                                        self::registrarInteraccion(
-                                            $record,
-                                            'llamadas',
-                                            $data['comentario'] ?? '', // Contenido del comentario
-                                            $data['respuesta'] ?? false, // ¿Fue contestada?
-                                            $data['agendar'] ?? false, // ¿Agendar seguimiento?
-                                            isset($data['agenda']) ? Carbon::parse($data['agenda']) : null // Fecha de agenda
-                                        );
-                                    })
-                            ),
-                            
-                            
-                           // Acción COMPLETA de EMAIL
-                        TextEntry::make('emails')
-                            ->label('📧 Emails')
-                            ->size('xl')
-                            ->weight('bold')
-                            ->alignment(Alignment::Center)
-                            ->suffixAction(
-                                ActionInfolist::make('add_email')
-                                    ->icon('heroicon-m-envelope-open')
-                                    ->color('warning')
-                                    ->form([
-                                        Textarea::make('comentario')
-                                            ->label('Comentario (opcional)')
-                                            ->rows(3)
-                                            ->hint('Describe el contenido del email enviado.')
-                                            ->maxLength(500),
-                                        Toggle::make('agendar')
-                                            ->label('Agendar seguimiento')
-                                            ->default(false)
-                                            ->live(),
-                                        DateTimePicker::make('agenda')
-                                            ->label('Fecha de seguimiento')
-                                            ->minutesStep(30)
-                                            ->seconds(false)
-                                            ->native(false)
-                                            ->visible(fn (Forms\Get $get) => $get('agendar') === true)
-                                            ->after(now()),
-                                    ])
-                                    ->action(function (array $data, \App\Models\Proyecto $record) {
-                                        self::registrarInteraccion(
-                                            $record,
-                                            'emails',
-                                            $data['comentario'] ?? '',
-                                            true, // Se asume que un email siempre se 'envía'
-                                            $data['agendar'] ?? false,
-                                            isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
-                                        );
-                                    })
-                            ),
+                                    // CHATS
+                                    TextEntry::make('chats')
+                                        ->label('💬 Chats')
+                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
+                                        ->suffixAction(
+                                            ActionInfolist::make('add_chat')
+                                                ->icon('heroicon-m-chat-bubble-left-right')->color('success')
+                                                ->form([
+                                                    Textarea::make('comentario')->label('Resumen'),
+                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
+                                                ])
+                                                ->action(function(array $data, Proyecto $record){
+                                                    self::registrarInteraccion($record, 'chats', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
+                                                })
+                                        ),
 
-                        // Acción COMPLETA de CHAT
-                        TextEntry::make('chats')
-                            ->label('💬 Chats')
-                            ->size('xl')
-                            ->weight('bold')
-                            ->alignment(Alignment::Center)
-                            ->suffixAction(
-                                ActionInfolist::make('add_chat')
-                                    ->icon('icon-whatsapp') // Asegúrate de que este icono está disponible
-                                    ->color('success')
-                                    ->form([
-                                        Textarea::make('comentario')
-                                            ->label('Comentario (opcional)')
-                                            ->rows(3)
-                                            ->hint('Describe el chat realizado.')
-                                            ->maxLength(500),
-                                        Toggle::make('agendar')
-                                            ->label('Agendar seguimiento')
-                                            ->default(false)
-                                            ->live(),
-                                        DateTimePicker::make('agenda')
-                                            ->label('Fecha de seguimiento')
-                                            ->minutesStep(30)
-                                            ->seconds(false)
-                                            ->native(false)
-                                            ->visible(fn (Forms\Get $get) => $get('agendar') === true)
-                                            ->after(now()),
-                                    ])
-                                    ->action(function (array $data, \App\Models\Proyecto $record) {
-                                        self::registrarInteraccion(
-                                            $record,
-                                            'chats',
-                                            $data['comentario'] ?? '',
-                                            true, // Se asume que un chat siempre se 'realiza'
-                                            $data['agendar'] ?? false,
-                                            isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
-                                        );
-                                    })
-                            ),
-
-                        // Acción COMPLETA de OTROS
-                        TextEntry::make('otros_acciones')
-                            ->label('📎 Otros')
-                            ->size('xl')
-                            ->weight('bold')
-                            ->alignment(Alignment::Center)
-                            ->suffixAction(
-                                ActionInfolist::make('add_otro')
-                                    ->icon('heroicon-m-paper-airplane')
-                                    ->color('gray')
-                                    ->form([
-                                        Textarea::make('comentario')
-                                            ->label('Comentario obligatorio en esta acción')
-                                            ->rows(3)
-                                            ->required()
-                                            ->hint('Describe la acción realizada.')
-                                            ->maxLength(500),
-                                        Toggle::make('agendar')
-                                            ->label('Agendar seguimiento')
-                                            ->default(false)
-                                            ->live(),
-                                        DateTimePicker::make('agenda')
-                                            ->label('Fecha de seguimiento')
-                                            ->minutesStep(30)
-                                            ->seconds(false)
-                                            ->native(false)
-                                            ->visible(fn (Forms\Get $get) => $get('agendar') === true)
-                                            ->after(now()),
-                                    ])
-                                    ->action(function (array $data, \App\Models\Proyecto $record) {
-                                        self::registrarInteraccion(
-                                            $record,
-                                            'otros_acciones',
-                                            $data['comentario'] ?? '',
-                                            true, // Se asume que una 'otra acción' siempre se 'realiza'
-                                            $data['agendar'] ?? false,
-                                            isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
-                                        );
-                                    })
-                            ),
- // Totalizador de Interacciones
-                        TextEntry::make('total_interacciones')
-                            ->label('🔥 Total')
-                            ->size('xl')
-                            ->weight('extrabold')
-                            ->color('warning')
-                            ->alignment(Alignment::Center)
-                            ->getStateUsing(fn (\App\Models\Proyecto $record) => $record->total_interacciones),
+                                    // OTROS
+                                    TextEntry::make('otros_acciones')
+                                        ->label('📎 Otros')
+                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
+                                        ->suffixAction(
+                                            ActionInfolist::make('add_otro')
+                                                ->icon('heroicon-m-paper-airplane')->color('gray')
+                                                ->form([
+                                                    Textarea::make('comentario')->label('Descripción')->required(),
+                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
+                                                ])
+                                                ->action(function(array $data, Proyecto $record){
+                                                    self::registrarInteraccion($record, 'otros_acciones', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
+                                                })
+                                        ),
+                                    
+                                    // TOTAL
+                                    TextEntry::make('total_interacciones')
+                                        ->label('🔥 Total')
+                                        ->size('xl')->weight('extrabold')->color('warning')->alignment(Alignment::Center)
+                                        ->getStateUsing(fn (Proyecto $record) => $record->total_interacciones),
+                                ])
+                                ->columns(5)->columnSpan(3),
                         ])
-                        ->columns(5)
-                        ->columnSpan(3),
-                ])
-                ->columns(3)
-                ->columnSpan(1),
-        ]),
+                        ->columns(3)
+                        ->columnSpan(1),
+                ]),
 
-       
-        InfoSection::make('🗨️ Comentarios')
-        //boton de añadir nuevo comentario
-        ->headerActions([
-            ActionInfolist::make('anadir_comentario')
-                ->label('📝 Añadir comentario nuevo')
-                ->icon('heroicon-o-plus-circle')
-                ->color('warning')
-                ->modalHeading('Nuevo comentario')
-                ->modalSubmitActionLabel('Guardar comentario')
-                ->form([
-                    Textarea::make('contenido')
-                        ->label('Escribe el comentario')
-                        ->required()
-                        ->rows(4)
-                        ->placeholder('Escribe aquí tu comentario...')
-                ])
-                ->action(function (array $data, Proyecto $record) {
-                    $record->comentarios()->create([
-                        'user_id' => auth()->id(),
-                        'contenido' => $data['contenido'],
-                    ]);
-        
-                    Notification::make()
-                        ->title('Comentario guardado')
-                        ->success()
-                        ->send();
-                }),
+                // 3. COMENTARIOS (Estilo Burbuja Light/Dark)
+                InfoSection::make('🗨️ Comentarios')
+                    ->headerActions([
+                        ActionInfolist::make('anadir_comentario')
+                            ->label('Añadir comentario')
+                            ->icon('heroicon-o-plus-circle')
+                            ->form([Textarea::make('contenido')->required()])
+                            ->action(function (array $data, Proyecto $record) {
+                                $record->comentarios()->create(['user_id' => auth()->id(), 'contenido' => $data['contenido']]);
+                                Notification::make()->title('Comentario guardado')->success()->send();
+                            }),
+                    ])
+                    ->schema([
+                        RepeatableEntry::make('comentarios')
+                            ->label(false)->contained(false)
+                            ->schema([
+                                TextEntry::make('contenido')
+                                    ->html()
+                                    ->label(false)
+                                    ->state(function ($record) {
+                                        $usuario = e($record->user?->name ?? 'Usuario');
+                                        $contenido = nl2br(e($record->contenido));
+                                        $fecha = $record->created_at?->format('d/m H:i') ?? '';
 
-              
-
-
-        ])
-        ->schema([
-            RepeatableEntry::make('comentarios')
-                ->label(false)
-                ->contained(false)
-              //  ->reverseItems()
-                ->schema([
-                    TextEntry::make('contenido')
-                        ->html()
-                        ->label(false)
-                        ->state(function ($record) {
-                            $usuario = $record->user?->name ?? 'Usuario';
-                            $contenido = $record->contenido;
-                            $fecha = $record->created_at?->format('d/m/Y H:i') ?? '';
-                        
-                      return '
-                                    <div style="
-                                        display: flex;
-                                        align-items: center;
-                                        gap: 1rem;
-                                        background-color: #e0f2fe;
-                                        color: #1e3a8a;
-                                        padding: 0.5rem 0.75rem;
-                                        border-radius: 1rem;
-                                        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-                                        margin: 0.5rem 0;
-                                        font-size: 0.9rem;
-                                        line-height: 1.4;
-                                        flex-wrap: wrap;
-                                    ">
-                                        <span style="font-weight: 600;">🧑‍💼 ' . e($usuario) . '</span>
-                                        <span>' . e($contenido) . '</span>
-                                        <span style="font-size: 0.8rem; color: #6b7280;">🕓 ' . e($fecha) . '</span>
-                                    </div>
-                                ';
-
-
-                        })
-                ])
-                //->columnSpanFull()
-                ->visible(fn (Proyecto $record) => $record->comentarios->isNotEmpty()),
-        ])
-
-
-
-
-
-               
+                                        return <<<HTML
+                                            <div class="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl my-2 text-sm shadow-sm 
+                                                        bg-blue-50 text-blue-900 border border-blue-100
+                                                        dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800">
+                                                <div class="flex items-center gap-2 font-bold whitespace-nowrap">
+                                                    <span>🧑‍💼</span><span>{$usuario}</span>
+                                                </div>
+                                                <div class="flex-1 break-words">{$contenido}</div>
+                                                <div class="text-xs opacity-70 whitespace-nowrap ml-auto">🕓 {$fecha}</div>
+                                            </div>
+                                        HTML;
+                                    }),
+                            ]),
+                    ]),
             ]);
     }
-
-
 
 
     public static function getRelations(): array

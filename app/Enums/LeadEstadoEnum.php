@@ -13,7 +13,13 @@ enum LeadEstadoEnum: string implements HasLabel
     case ESPERANDO_INFORMACION  = 'esperando_informacion';
     case PROPUESTA_ENVIADA      = 'propuesta_enviada';
     case EN_NEGOCIACION         = 'en_negociacion';
-    case CONVERTIDO             = 'convertido';
+
+    // 🎯 Nuevos estados de conversión (flujo acordado)
+    case CONVERTIDO                 = 'convertido';                 // disparador (elige manual/automático)
+    case CONVERTIDO_ESPERA_DATOS    = 'convertido_espera_datos';    // automático: esperando formulario
+    case CONVERTIDO_ESPERA_FIRMA    = 'convertido_espera_firma';    // manual/auto: contrato enviado, esperando firma
+    case CONVERTIDO_FIRMADO         = 'convertido_firmado';         // ✅ final (venta OK)
+
     case DESCARTADO             = 'descartado';
 
     public function getLabel(): string
@@ -26,22 +32,41 @@ enum LeadEstadoEnum: string implements HasLabel
             self::ESPERANDO_INFORMACION => 'Esperando Información',
             self::PROPUESTA_ENVIADA     => 'Propuesta Enviada',
             self::EN_NEGOCIACION        => 'En Negociación',
-            self::CONVERTIDO            => 'Convertido',
+
+            self::CONVERTIDO               => 'Convertido (inicia proceso)',
+            self::CONVERTIDO_ESPERA_DATOS  => 'Convertido · Espera datos',
+            self::CONVERTIDO_ESPERA_FIRMA  => 'Convertido · Espera firma',
+            self::CONVERTIDO_FIRMADO       => 'Convertido · Firmado',
+
             self::DESCARTADO            => 'Descartado',
         };
     }
 
+    /**
+     * Estados finales reales del lead.
+     * Ahora SOLO: CONVERTIDO_FIRMADO y DESCARTADO.
+     */
     public function isFinal(): bool
     {
         return match ($this) {
-            self::CONVERTIDO, self::DESCARTADO => true,
-            default                             => false,
+            self::CONVERTIDO_FIRMADO, self::DESCARTADO => true,
+            default => false,
         };
     }
 
+    /**
+     * “Convertido” en sentido amplio para no romper
+     * estadísticas/controles existentes que usan isConvertido().
+     */
     public function isConvertido(): bool
     {
-        return $this === self::CONVERTIDO;
+        return match ($this) {
+            self::CONVERTIDO,
+            self::CONVERTIDO_ESPERA_DATOS,
+            self::CONVERTIDO_ESPERA_FIRMA,
+            self::CONVERTIDO_FIRMADO => true,
+            default => false,
+        };
     }
 
     public function isEnProgreso(): bool
@@ -53,7 +78,7 @@ enum LeadEstadoEnum: string implements HasLabel
             self::ESPERANDO_INFORMACION,
             self::PROPUESTA_ENVIADA,
             self::EN_NEGOCIACION => true,
-            default               => false,
+            default => false,
         };
     }
 
@@ -61,7 +86,26 @@ enum LeadEstadoEnum: string implements HasLabel
     {
         return match ($this) {
             self::SIN_GESTIONAR => true,
-            default                                     => false,
+            default => false,
         };
+    }
+
+    // 🔸 Helpers útiles (por si los necesitas en condiciones/visibilidad)
+    public function isConvertidoInicio(): bool
+    {
+        return $this === self::CONVERTIDO;
+    }
+
+    public function isConvertidoTransicion(): bool
+    {
+        return in_array($this, [
+            self::CONVERTIDO_ESPERA_DATOS,
+            self::CONVERTIDO_ESPERA_FIRMA,
+        ], true);
+    }
+
+    public function isConvertidoFirmado(): bool
+    {
+        return $this === self::CONVERTIDO_FIRMADO;
     }
 }

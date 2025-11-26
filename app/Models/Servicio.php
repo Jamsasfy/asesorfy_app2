@@ -26,8 +26,8 @@ class Servicio extends Model
         'precio_base',
         'activo',
          'es_editable',
-        'es_tarifa_principal', // Este campo es opcional, solo si lo necesitas
-        'requiere_proyecto_activacion', // <<< AÑADIDO
+        'es_tarifa_principal', 
+        'requiere_proyecto_activacion', 
         'ciclo_facturacion',
         'departamento_id',
 

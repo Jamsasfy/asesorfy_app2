@@ -61,11 +61,11 @@ class CreateVenta extends CreateRecord
         }
 
         // 5. Actualizar el estado del lead si hay uno vinculado
-        if ($this->record->lead_id && $this->record->lead) {
+       /*  if ($this->record->lead_id && $this->record->lead) {
             $this->record->lead->update([
                 'estado' => \App\Enums\LeadEstadoEnum::CONVERTIDO,
             ]);
-        }
+        } */
     }
 }
 

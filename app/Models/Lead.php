@@ -46,6 +46,8 @@ class Lead extends Model
     'estado_email_ultima_fecha' => 'datetime',
     'ultima_interaccion_manual_at' => 'datetime',
      'autospam_activo' => 'bool',
+     'form_submitted_at'   => 'datetime',
+'contract_signed_at'  => 'datetime',
     ];
 
       // --- Listener de Evento para fecha_gestion ---
@@ -160,6 +162,20 @@ public function cliente(): BelongsTo
   {
       return $this->hasMany(Venta::class);
   }
+
+      public function facturas()
+    {
+        return $this->hasManyThrough(
+            Factura::class,
+            Venta::class,
+            'lead_id',   // clave foránea en ventas
+            'venta_id',  // clave foránea en facturas
+            'id',        // clave local en leads
+            'id'         // clave local en ventas
+        );
+    }
+
+    
 // Marca que alguien ha interactuado manualmente con el lead
 public function marcarInteraccionManual(): void
 {
@@ -251,6 +267,25 @@ public function puedeSugerirPrimerEmailIa(): bool
     // - No hay envíos reales todavía
     return true;
 }
+
+
+// Atajos opcionales para legibilidad en vistas/acciones
+public function estaFirmado(): bool
+{
+    return $this->estado?->isConvertidoFirmado() ?? false;
+}
+
+public function estaEsperandoDatos(): bool
+{
+    return $this->estado === \App\Enums\LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS;
+}
+
+public function estaEsperandoFirma(): bool
+{
+    return $this->estado === \App\Enums\LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
+}
+
+
 
 
 }

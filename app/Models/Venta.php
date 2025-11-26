@@ -35,6 +35,7 @@ class Venta extends Model
     'correccion_solicitada_at',
     'correccion_solicitada_por_id',
     'correccion_motivo',
+    'signed_at',
     ];
 
     protected $casts = [
@@ -42,6 +43,7 @@ class Venta extends Model
         'importe_total' => 'decimal:2', // Asegura que se maneja como decimal
         'correccion_estado' => VentaCorreccionEstadoEnum::class,
     'correccion_solicitada_at' => 'datetime',
+    'signed_at' => 'datetime',
     ];
 
     protected $appends = ['tipo_venta'];
@@ -195,98 +197,151 @@ protected function importeTotalConIva(): Attribute
      * Orquesta la creación de proyectos y suscripciones después de que una venta
      * se haya guardado completamente (incluyendo sus items).
      */
-public function processSaleAfterCreation(): void
-{
-    // Precargamos relaciones para que las consultas sean más eficientes
-    $this->loadMissing('items.servicio', 'cliente');
+/**
+     * Crea los proyectos y suscripciones tras cerrar la venta.
+     * Recibe $extraData (los datos del formulario) para enriquecer el proyecto.
+     */
+   public function processSaleAfterCreation(array $extraData = []): void
+    {
+        $this->loadMissing('items.servicio', 'cliente');
 
-    // 1. Decidimos si la VENTA COMPLETA requiere un proyecto.
-    $ventaRequiereProyecto = $this->items->contains(function ($item) {
-        if (!$item->servicio) return false;
+        $ventaRequiereProyecto = $this->items->contains(function ($item) {
+            if (!$item->servicio) return false;
+            return $item->servicio->es_editable
+                ? $item->requiere_proyecto
+                : $item->servicio->requiere_proyecto_activacion;
+        });
 
-        // Si el servicio es editable, la decisión la toma el campo del item.
-        // Si no, la decisión la toma el campo del servicio.
-        return $item->servicio->es_editable
-            ? $item->requiere_proyecto
-            : $item->servicio->requiere_proyecto_activacion;
-    });
+        foreach ($this->items as $item) {
+            $servicio = $item->servicio;
+            if (!$servicio) continue;
 
-    // 2. Recorremos cada item para crear proyectos y suscripciones
-    foreach ($this->items as $item) {
-        $servicio = $item->servicio;
-        if (!$servicio) continue;
+            // --- CREAR PROYECTO ---
+            $debeCrearProyecto = $servicio->es_editable
+                ? $item->requiere_proyecto
+                : $servicio->requiere_proyecto_activacion;
 
-        // --- Lógica para decidir si ESTE ITEM necesita un proyecto ---
-        $debeCrearProyecto = $servicio->es_editable
-            ? $item->requiere_proyecto
-            : $servicio->requiere_proyecto_activacion;
+            if ($debeCrearProyecto) {
+                $nombreDelProyecto = $item->nombre_personalizado ?: $servicio->nombre;
+                $nombreSvcLower = strtolower($servicio->nombre);
+                
+                $descripcion = "Proyecto generado por la venta #{$this->id}.";
 
-        if ($debeCrearProyecto) {
-            // Usamos el nombre personalizado si existe, si no, el del servicio.
-            $nombreDelProyecto = $item->nombre_personalizado ?: $servicio->nombre;
+              // 1. DATOS CONSTITUCIÓN S.L. (CORREGIDO: 5 NOMBRES)
+                if (str_contains($nombreSvcLower, 'sociedad') || str_contains($nombreSvcLower, 'sl') || str_contains($nombreSvcLower, 'mercantil')) {
+                    if (!empty($extraData['extra_sl_nombre1'])) {
+                        $descripcion .= "\n\n=== DATOS CONSTITUCIÓN SL ===\n";
+                        $descripcion .= "• Denominaciones (Preferencia):\n";
+                        $descripcion .= "   1. " . ($extraData['extra_sl_nombre1'] ?? '-') . "\n";
+                        $descripcion .= "   2. " . ($extraData['extra_sl_nombre2'] ?? '-') . "\n";
+                        $descripcion .= "   3. " . ($extraData['extra_sl_nombre3'] ?? '-') . "\n";
+                        $descripcion .= "   4. " . ($extraData['extra_sl_nombre4'] ?? '-') . "\n"; // <--- AÑADIDO
+                        $descripcion .= "   5. " . ($extraData['extra_sl_nombre5'] ?? '-') . "\n"; // <--- AÑADIDO
+                        
+                        $descripcion .= "• Capital: " . number_format((float)($extraData['extra_sl_capital'] ?? 0), 2) . " €\n";
+                        $descripcion .= "• Actividad: {$extraData['extra_sl_actividad']}\n";
+                        
+                        $descripcion .= "\n• Estructura:\n";
+                        $descripcion .= "   Admin: " . ucfirst($extraData['extra_sl_tipo_admin'] ?? '-') . " (" . ($extraData['extra_sl_admin_nombre'] ?? '-') . ")\n";
+                        $descripcion .= "   Socios: " . ($extraData['extra_sl_socios'] ?? '-') . "\n";
+                        $descripcion .= "   Separación Bienes: " . strtoupper($extraData['extra_sl_separacion_bienes'] ?? 'NO') . "\n";
+                        
+                        $domicilio = !empty($extraData['extra_sl_domicilio_social']) ? $extraData['extra_sl_domicilio_social'] : 'Mismo que domicilio personal';
+                        $descripcion .= "• Domicilio Social: {$domicilio}\n";
+                        $descripcion .= "• Firma en: " . ($extraData['extra_sl_ciudad_firma'] ?? '-');
+                    }
+                }
 
-            $proyecto = \App\Models\Proyecto::create([
-                'nombre'          => "{$nombreDelProyecto} ({$this->cliente->razon_social})",
-                'cliente_id'      => $this->cliente_id,
-                'venta_id'        => $this->id,
-                'venta_item_id'   => $item->id,
-                'servicio_id'     => $servicio->id,
-                'estado'          => \App\Enums\ProyectoEstadoEnum::Pendiente,
-                'descripcion'     => "Proyecto generado por la venta #{$this->id}.",
-            ]);
+                // 2. DATOS CAPITALIZACIÓN
+                if (str_contains($nombreSvcLower, 'capitaliza') || str_contains($nombreSvcLower, 'pago único')) {
+                    if (!empty($extraData['extra_cap_forma_juridica'])) {
+                        $descripcion .= "\n\n=== DATOS CAPITALIZACIÓN ===\n";
+                        $descripcion .= "• Destino: " . strtoupper($extraData['extra_cap_forma_juridica']) . "\n";
+                        $descripcion .= "• Modalidad: " . ucfirst(str_replace('_', ' ', $extraData['extra_cap_modalidad'] ?? '-')) . "\n";
+                        $inv = $extraData['extra_cap_inversion'] ?? 'No indicado';
+                        $sol = $extraData['extra_cap_solicitado'] ?? 'No indicado';
+                        $descripcion .= "• Inversión: {$inv} € | Solicita: {$sol} €\n";
+                        $descripcion .= "\n[DESEMPLEO]\n";
+                        $descripcion .= "• Desde: " . ($extraData['extra_cap_fecha_paro'] ?? '-') . "\n";
+                        $descripcion .= "• Percibe: " . ($extraData['extra_cap_prestacion_mensual'] ?? '-') . "\n";
+                        $descripcion .= "• Queda: " . ($extraData['extra_cap_duracion_paro'] ?? '-') . "\n";
+                        if (!empty($extraData['extra_cap_memoria'])) $descripcion .= "\n[MEMORIA]\n{$extraData['extra_cap_memoria']}";
+                    }
+                }
 
-            // Lógica de notificación al coordinador...
-            $coordinadores = \App\Models\User::whereHas('roles', fn ($q) => $q->where('name', 'coordinador'))->get();
-            if ($coordinadores->isNotEmpty()) {
-                \Filament\Notifications\Notification::make()
-                    ->title('Nuevo Proyecto Pendiente')
-                    ->body("El proyecto '{$proyecto->nombre}' necesita un responsable.")
-                    ->actions([\Filament\Notifications\Actions\Action::make('view')->label('Ver Proyecto')->url(\App\Filament\Resources\ProyectoResource::getUrl('view', ['record' => $proyecto]))])
-                    ->sendToDatabase($coordinadores);
+                // 3. DATOS ALTA AUTÓNOMO
+                if (str_contains($nombreSvcLower, 'alta') && str_contains($nombreSvcLower, 'autónomo')) {
+                    if (!empty($extraData['extra_auto_fecha_inicio'])) {
+                        $descripcion .= "\n\n=== DATOS ALTA AUTÓNOMO ===\n";
+                        $descripcion .= "• Inicio: {$extraData['extra_auto_fecha_inicio']}\n";
+                        $descripcion .= "• Actividad: {$extraData['extra_auto_actividad']}\n";
+                        $descripcion .= "• Lugar: " . strtoupper($extraData['extra_auto_lugar'] ?? '-') . "\n";
+                        if (($extraData['extra_auto_lugar'] ?? '') === 'local') $descripcion .= "   (Dir: {$extraData['extra_auto_direccion_local']})\n";
+                        $descripcion .= "• Tarifa Plana: " . strtoupper($extraData['extra_auto_tarifa_plana'] ?? '-') . "\n";
+                    }
+                }
+
+                // CREAR EL PROYECTO
+                $proyecto = \App\Models\Proyecto::create([
+                    'nombre'          => "{$nombreDelProyecto} ({$this->cliente->razon_social})",
+                    'cliente_id'      => $this->cliente_id,
+                    'venta_id'        => $this->id,
+                    'lead_id'         => $this->lead_id, // <--- Aquí vinculamos el Proyecto al Lead
+                    'venta_item_id'   => $item->id,
+                    'servicio_id'     => $servicio->id,
+                    'estado'          => \App\Enums\ProyectoEstadoEnum::Pendiente,
+                    'descripcion'     => $descripcion, 
+                ]);
+
+                // Notificar coordinadores
+                $coordinadores = \App\Models\User::whereHas('roles', fn ($q) => $q->where('name', 'coordinador'))->get();
+                if ($coordinadores->isNotEmpty()) {
+                    \Filament\Notifications\Notification::make()
+                        ->title('Nuevo Proyecto Pendiente')
+                        ->body("Proyecto: {$proyecto->nombre}")
+                        ->actions([\Filament\Notifications\Actions\Action::make('view')->label('Ver')->url(\App\Filament\Resources\ProyectoResource::getUrl('view', ['record' => $proyecto]))])
+                        ->sendToDatabase($coordinadores);
+                }
             }
-        }
 
-        // --- Lógica de Creación de Suscripciones ---
-        $estadoInicial = null;
-        $fechaInicio = null;
-        $fechaFin = null;
+            // --- CREAR SUSCRIPCIÓN ---
+            $estadoInicial = null;
+            $fechaInicio = null;
 
-        if ($servicio->tipo === \App\Enums\ServicioTipoEnum::UNICO) {
-            $estadoInicial = \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA;
-            $fechaInicio = now();
-            $fechaFin = now();
-        } elseif ($servicio->tipo === \App\Enums\ServicioTipoEnum::RECURRENTE) {
-            $estadoInicial = $ventaRequiereProyecto ? \App\Enums\ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION : \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA;
-            $fechaInicio = $ventaRequiereProyecto ? null : ($item->fecha_inicio_servicio ?? now());
-            $fechaFin = null;
-        }
+            if ($servicio->tipo === \App\Enums\ServicioTipoEnum::UNICO) {
+                $estadoInicial = \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA;
+                $fechaInicio = now();
+            } elseif ($servicio->tipo === \App\Enums\ServicioTipoEnum::RECURRENTE) {
+                $estadoInicial = $ventaRequiereProyecto 
+                    ? \App\Enums\ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION 
+                    : \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA;
+                $fechaInicio = $ventaRequiereProyecto ? null : ($item->fecha_inicio_servicio ?? now());
+            }
 
-        if ($estadoInicial) {
-              $suscripcion = \App\Models\ClienteSuscripcion::create([
-                'cliente_id'             => $this->cliente_id,
-                'servicio_id'            => $item->servicio_id,
-                'venta_origen_id'        => $this->id,
-                'nombre_personalizado'   => $item->nombre_personalizado,
-                'es_tarifa_principal'    => $servicio->es_tarifa_principal,
-                'precio_acordado'        => $item->subtotal_aplicado,
-                'cantidad'               => $item->cantidad,
-                'fecha_inicio'           => $fechaInicio,
-                'fecha_fin'              => $fechaFin,
-                'estado'                 => $estadoInicial,
-                'ciclo_facturacion'      => $servicio->ciclo_facturacion,
-                'descuento_tipo'         => $item->descuento_tipo,
-                'descuento_valor'        => $item->descuento_valor,
-                'descuento_duracion_meses' => $item->descuento_duracion_meses, // <-- LÍNEA AÑADIDA
-                'descuento_descripcion'  => $item->observaciones_descuento,
-                'descuento_valido_hasta' => $item->descuento_valido_hasta,
-                'observaciones'          => $item->observaciones_item,
-            ]);
-            // 👉 Asociamos la suscripción recién creada al item
+            if ($estadoInicial) {
+                $suscripcion = \App\Models\ClienteSuscripcion::create([
+                    'cliente_id'             => $this->cliente_id,
+                    'servicio_id'            => $item->servicio_id,
+                    'venta_origen_id'        => $this->id,
+                    'nombre_personalizado'   => $item->nombre_personalizado,
+                    'es_tarifa_principal'    => $servicio->es_tarifa_principal,
+                    'precio_acordado'        => $item->subtotal_aplicado,
+                    'cantidad'               => $item->cantidad,
+                    'fecha_inicio'           => $fechaInicio,
+                    'estado'                 => $estadoInicial,
+                    'ciclo_facturacion'      => $servicio->ciclo_facturacion,
+                    'descuento_tipo'           => $item->descuento_tipo,
+                    'descuento_valor'          => $item->descuento_valor,
+                    'descuento_duracion_meses' => $item->descuento_duracion_meses,
+                    'descuento_descripcion'    => $item->observaciones_descuento,
+                    'descuento_valido_hasta'   => $item->descuento_valido_hasta,
+                    'observaciones'            => $item->observaciones_item,
+                ]);
                 $item->cliente_suscripcion_id = $suscripcion->id;
                 $item->save();
+            }
         }
     }
-}
   
 
 }

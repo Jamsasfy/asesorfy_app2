@@ -194,7 +194,7 @@ public static function generarFacturaParaVenta(Venta $venta): ?Factura
             'venta_id'          => $venta->id,
             'serie'             => $datosFactura['serie'],
             'numero_factura'    => $datosFactura['numero_factura'],
-            'estado'            => FacturaEstadoEnum::PAGADA,
+            'estado'            => FacturaEstadoEnum::PENDIENTE_PAGO,
             'metodo_pago'       => null,
             'fecha_emision'     => $fechaEmision,
             'fecha_vencimiento' => $fechaVencimiento,
