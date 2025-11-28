@@ -17,7 +17,9 @@ use App\Models\User;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
 use App\Filament\Resources\ProyectoResource;
-
+use App\Enums\VentaEstadoEnum;
+use App\Enums\FacturaEstadoEnum; // si no lo tenías ya
+use Illuminate\Support\Carbon;
 
 
 class Venta extends Model
@@ -31,19 +33,22 @@ class Venta extends Model
         'fecha_venta',
         'importe_total', // Lo calcularemos automáticamente, pero debe ser fillable
         'observaciones',
-         'correccion_estado',
-    'correccion_solicitada_at',
-    'correccion_solicitada_por_id',
-    'correccion_motivo',
-    'signed_at',
+        'correccion_estado',
+        'correccion_solicitada_at',
+        'correccion_solicitada_por_id',
+        'correccion_motivo',
+        'signed_at',
     ];
 
     protected $casts = [
         'fecha_venta' => 'datetime',
         'importe_total' => 'decimal:2', // Asegura que se maneja como decimal
         'correccion_estado' => VentaCorreccionEstadoEnum::class,
-    'correccion_solicitada_at' => 'datetime',
-    'signed_at' => 'datetime',
+        'correccion_solicitada_at' => 'datetime',
+        'signed_at' => 'datetime',
+        'estado'              => VentaEstadoEnum::class,     
+        'confirmada_at'       => 'datetime',
+        'requiere_pago_inicial' => 'boolean',
     ];
 
     protected $appends = ['tipo_venta'];
@@ -342,6 +347,79 @@ protected function importeTotalConIva(): Attribute
             }
         }
     }
-  
+    public function esVentaReal(): bool
+    {
+        return $this->estado === VentaEstadoEnum::COMPLETADA;
+    }
+    public function tienePagoInicialCompletado(): bool
+    {
+        // De momento: considerar "pago inicial completado" si existe alguna factura pagada
+        return $this->facturas()
+            ->where('estado', FacturaEstadoEnum::PAGADA)
+            ->exists();
+    }
+    public function scopeCompletadas($query)
+    {
+        return $query->where('estado', VentaEstadoEnum::COMPLETADA);
+    }
+
+        /**
+     * Devuelve true si la venta tiene algún servicio ÚNICO.
+     * Es decir, requiere un pago inicial para considerarla cerrada.
+     */
+    public function requierePagoInicial(): bool
+    {
+        return $this->items()
+            ->whereHas('servicio', function ($q) {
+                $q->where('tipo', ServicioTipoEnum::UNICO->value);
+            })
+            ->exists();
+    }
+
+    /**
+     * Marca la venta como COMPLETADA y fija la fecha de cierre.
+     */
+    public function marcarComoCompletada(?Carbon $fecha = null): void
+    {
+        $fecha = $fecha ?? now();
+
+        // Si ya está completada, solo nos aseguramos de que tenga confirmada_at
+        if ($this->estado === VentaEstadoEnum::COMPLETADA) {
+            if (! $this->confirmada_at) {
+                $this->forceFill([
+                    'confirmada_at' => $fecha,
+                ])->save();
+            }
+
+            return;
+        }
+
+        $this->forceFill([
+            'estado'        => VentaEstadoEnum::COMPLETADA,
+            'confirmada_at' => $fecha,
+        ])->save();
+    }
+
+    /**
+     * Lógica común tras la firma del contrato:
+     * - Solo recurrentes  → venta COMPLETADA.
+     * - Con servicios únicos → venta PENDIENTE hasta que se pague la factura.
+     */
+    public function prepararEstadoTrasFirma(Carbon $fechaFirma): void
+    {
+        if ($this->requierePagoInicial()) {
+            // Venta firmada pero aún pendiente porque falta el pago inicial
+            $this->forceFill([
+                'estado'        => VentaEstadoEnum::PENDIENTE,
+                'confirmada_at' => null,
+            ])->save();
+        } else {
+            // Solo recurrentes → ya consideramos la venta cerrada
+            $this->marcarComoCompletada($fechaFirma);
+        }
+    }
+
+
+
 
 }

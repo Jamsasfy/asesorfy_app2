@@ -49,6 +49,10 @@ use Filament\Tables\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Forms\Components\Placeholder;
 use Filament\Tables\Enums\ActionsPosition;
+use App\Enums\VentaEstadoEnum;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
+
 
 
 
@@ -558,25 +562,49 @@ public static function form(Form $form): Form
         ->recordUrl(null)    // Esto quita la navegación al hacer clic en la fila
         ->defaultSort('created_at', 'desc') // Ordenar por defecto
             ->columns([
-                // Columna de Estado de Firma
+                
+                TextColumn::make('estado')
+                    ->label('Estado venta')
+                    ->badge()
+                    ->sortable()
+                    ->formatStateUsing(fn (VentaEstadoEnum $state) => $state->getLabel())
+                    ->color(fn (VentaEstadoEnum $state) => $state->getColor()),
              // Columna de Estado de Firma (BLINDADA PARA NULOS)
                 Tables\Columns\TextColumn::make('signed_at')
-                    ->label('Contrato')
-                    ->badge()
-                    // Truco: Calculamos el texto manualmente. Si hay fecha -> Firmado, si no -> Pendiente
-                    ->getStateUsing(fn (Venta $record) => $record->signed_at ? 'Firmado' : 'Pendiente')
-                    // Asignamos color según el texto que acabamos de calcular
-                    ->color(fn (string $state) => match ($state) {
-                        'Firmado' => 'success',   // Verde
-                        'Pendiente' => 'danger',  // Rojo
-                        default => 'gray',
-                    })
-                    ->icon(fn (string $state) => match ($state) {
-                        'Firmado' => 'heroicon-m-check-badge',
-                        'Pendiente' => 'heroicon-m-clock',
-                        default => null,
-                    })
-                    ->sortable(),
+                ->label('Contrato')
+                ->badge()
+                ->getStateUsing(fn (Venta $record) => $record->signed_at ? 'Firmado' : 'Pendiente de firma')
+                ->color(fn (string $state) => match ($state) {
+                    'Firmado'          => 'success',
+                    'Pendiente de firma' => 'warning',
+                    default            => 'gray',
+                })
+                ->icon(fn (string $state) => match ($state) {
+                    'Firmado'          => 'heroicon-m-check-badge',
+                    'Pendiente de firma' => 'heroicon-m-clock',
+                    default            => null,
+                })
+                ->sortable(),
+                TextColumn::make('confirmada_at')
+    ->label('Venta cerrada')
+    ->badge()
+    ->sortable()
+    ->getStateUsing(function (Venta $record): string {
+        if ($record->estado === VentaEstadoEnum::COMPLETADA && $record->confirmada_at) {
+            return $record->confirmada_at->format('d/m/Y');
+        }
+
+        if ($record->estado === VentaEstadoEnum::CANCELADA) {
+            return 'Cancelada';
+        }
+
+        return 'Pendiente de cierre';
+    })
+    ->color(fn (string $state) => match ($state) {
+        'Pendiente de cierre' => 'warning',
+        'Cancelada'           => 'danger',
+        default               => 'success', // cuando muestra fecha => cerrada
+    }),
                 Tables\Columns\TextColumn::make('cliente.razon_social')
                     ->label('Cliente')
                     ->url(fn (Venta $record): ?string => 
@@ -593,8 +621,8 @@ public static function form(Form $form): Form
                     ->searchable()
                     ->sortable(),
                     Tables\Columns\TextColumn::make('lead_id')
-                    ->label('Lead Asociado')
-                    ->formatStateUsing(fn ($state, $record) => "Ver lead #{$record->lead_id}")
+                    ->label('Lead')
+                    ->formatStateUsing(fn ($state, $record) => "#{$record->lead_id}")
                     ->badge()
                     ->color('warning')
                     ->url(fn ($record) => LeadResource::getUrl('view', [
@@ -608,7 +636,7 @@ public static function form(Form $form): Form
                    ->color('info')
                     ->sortable(),
                 Tables\Columns\TextColumn::make('fecha_venta')
-                    ->dateTime('d/m/y - H:m')
+                    ->dateTime('d/m/y - H:i')
                     ->sortable(),
                 
             TextColumn::make('importe_recurrente')
@@ -665,7 +693,8 @@ public static function form(Form $form): Form
             }
             return 'Sin Dto.';
         })
-        ->color(fn ($state) => $state > 0 ? 'danger' : 'gray'),
+        ->color(fn ($state) => $state > 0 ? 'danger' : 'gray')
+           ->toggleable(isToggledHiddenByDefault: true),
 
     // ▼▼▼ Y REEMPLAZA ESTA OTRA COLUMNA ▼▼▼
     TextColumn::make('descuento_unico') // Nombre virtual
@@ -682,7 +711,8 @@ public static function form(Form $form): Form
                 });
         })
         ->formatStateUsing(fn ($state) => $state > 0 ? '-' . number_format($state, 2, ',', '.') . ' €' : 'Sin Dto.')
-        ->color(fn ($state) => $state > 0 ? 'danger' : 'gray'),
+        ->color(fn ($state) => $state > 0 ? 'danger' : 'gray')
+           ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('importe_total')
                     ->label('Importe Total')
@@ -693,19 +723,41 @@ public static function form(Form $form): Form
                     ->iconColor('warning')
                     ->weight('bold')
                     ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €')
+                    
                     ->sortable(),
                 Tables\Columns\TextColumn::make('created_at')
                 ->label('Venta creada')
-                    ->dateTime('d/m/y - H:m')
+                    ->dateTime('d/m/y - H:i')
+                    ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                 Tables\Columns\TextColumn::make('updated_at')
                 ->label('Venta actualizada')
-                ->dateTime('d/m/y - H:m')
+                ->dateTime('d/m/y - H:i')
                 ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
                    
             ])
             ->filters([
+                    // Filtro principal por estado (Pendiente / Completada / Cancelada)
+        SelectFilter::make('estado')
+            ->label('Estado venta')
+            ->options([
+                VentaEstadoEnum::PENDIENTE->value  => VentaEstadoEnum::PENDIENTE->getLabel(),
+                VentaEstadoEnum::COMPLETADA->value => VentaEstadoEnum::COMPLETADA->getLabel(),
+                VentaEstadoEnum::CANCELADA->value  => VentaEstadoEnum::CANCELADA->getLabel(),
+            ]),
+
+        // Filtro rápido "Solo ventas cerradas"
+        TernaryFilter::make('solo_completadas')
+            ->label('Solo cerradas')
+            ->placeholder('Todas')
+            ->trueLabel('Solo completadas')
+            ->falseLabel('Solo no completadas')
+            ->queries(
+                true: fn ($query) => $query->where('estado', VentaEstadoEnum::COMPLETADA),
+                false: fn ($query) => $query->where('estado', '!=', VentaEstadoEnum::COMPLETADA),
+                blank: fn ($query) => $query,
+            ),
                 Tables\Filters\TernaryFilter::make('signed_at')
                     ->label('Estado del Contrato')
                     ->placeholder('Todas')
@@ -715,11 +767,11 @@ public static function form(Form $form): Form
                         true: fn (Builder $query) => $query->whereNotNull('signed_at'),
                         false: fn (Builder $query) => $query->whereNull('signed_at'),
                     ),
-                 Tables\Filters\SelectFilter::make('cliente_id')
+                /*  Tables\Filters\SelectFilter::make('cliente_id')
                     ->relationship('cliente', 'razon_social')
                     ->searchable()
                     ->preload()
-                    ->label('Filtrar por Cliente'),
+                    ->label('Filtrar por Cliente'), */
 
               Tables\Filters\SelectFilter::make('user_id')
                     ->relationship('comercial', 'name', fn (Builder $query) => 
@@ -731,7 +783,7 @@ public static function form(Form $form): Form
                     )
                     ->searchable()
                     ->preload()
-                    ->label('Filtrar por Comercial'),
+                    ->label('Comercial'),
 
                 // Filtro por Tipo de Servicio (Único/Recurrente)
                 Tables\Filters\SelectFilter::make('tipo_servicio')
@@ -750,13 +802,13 @@ public static function form(Form $form): Form
                         }
                         return $query;
                     })
-                    ->label('Filtrar por Tipo de Servicio'),
+                    ->label('Tipo de Servicio'),
 
                 // Filtro por Rango de Fechas de Venta
-                DateRangeFilter::make('fecha_venta')
+                DateRangeFilter::make('confirmada_at')
                     
                    
-                    ->label('Filtrar por Fecha de Venta'),
+                    ->label('Venta consolidada'),
 
                 // Filtro por si tiene Descuento (cualquier tipo)
                 Tables\Filters\Filter::make('con_descuento')
@@ -771,13 +823,14 @@ public static function form(Form $form): Form
                         });
                     })
                     ->toggle() // Se activa/desactiva con un switch
-                    ->label('Mostrar con Descuento'),
+                    ->label('Descuento'),
                       Tables\Filters\Filter::make('correccion_solicitada')
-                        ->label('Mostrar solo con corrección solicitada')
+                        ->label('Corrección solicitada')
                         ->query(fn (Builder $query): Builder => $query->where('correccion_estado', VentaCorreccionEstadoEnum::SOLICITADA))
+                       
                         ->toggle(),
                                         ],layout: FiltersLayout::AboveContent)
-                                            ->filtersFormColumns(7)
+                                            ->filtersFormColumns(9)
             ->actions([
               
                 // ... tus otras acciones (ver, editar) ...

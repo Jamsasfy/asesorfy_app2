@@ -4,13 +4,12 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Models\Factura;
+use App\Models\Venta;
 use App\Enums\FacturaEstadoEnum;
 use Illuminate\Http\Request;
 use Stripe\Stripe;
 use Stripe\Checkout\Session;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\PagoFacturaConfirmado;
 
 class StripePaymentController extends Controller
 {
@@ -32,10 +31,9 @@ class StripePaymentController extends Controller
         // Iniciamos Stripe con la clave secreta del .env
         Stripe::setApiKey(env('STRIPE_SECRET'));
 
-        // 🚑 PARCHE SOLO EN LOCAL (WAMP / artisan serve):
-        // Desactivar verificación SSL para evitar "Network error [errno 60]"
+        // 🚑 PARCHE LOCAL: desactivar verificación SSL solo en entorno local (WAMP)
         if (app()->isLocal()) {
-            Stripe::setVerifySslCerts(false);
+            \Stripe\Stripe::setVerifySslCerts(false);
         }
 
         // Construimos los items para el carrito de Stripe
@@ -43,11 +41,11 @@ class StripePaymentController extends Controller
 
         foreach ($factura->items as $item) {
             // Stripe necesita el precio en CÉNTIMOS (integer)
-            // Usamos 'precio_unitario_aplicado' (ya con descuentos)
-            // y le sumamos el IVA porque vamos a cobrar el bruto final.
+            // Usamos 'precio_unitario_aplicado' (que ya tiene descuentos)
+            // Y le sumamos el IVA porque vamos a cobrar el bruto final.
 
-            $precioBase = $item->precio_unitario_aplicado;
-            $iva        = $item->porcentaje_iva; // ej: 21.00
+            $precioBase = (float) $item->precio_unitario_aplicado;
+            $iva        = (float) $item->porcentaje_iva; // ej: 21.00
 
             // Precio unitario FINAL con IVA
             $precioConIva = $precioBase * (1 + ($iva / 100));
@@ -86,9 +84,9 @@ class StripePaymentController extends Controller
 
                 // Metadatos para nosotros (útil si usamos webhooks luego)
                 'metadata'             => [
-                    'factura_id'      => $factura->id,
-                    'venta_id'        => $factura->venta_id,
-                    'numero_factura'  => $factura->numero_factura,
+                    'factura_id'     => $factura->id,
+                    'venta_id'       => $factura->venta_id,
+                    'numero_factura' => $factura->numero_factura,
                 ],
             ]);
 
@@ -97,12 +95,7 @@ class StripePaymentController extends Controller
         } catch (\Exception $e) {
             Log::error("Error creando sesión Stripe: " . $e->getMessage());
 
-            // En local mostramos el mensaje real para depurar mejor
-            $mensaje = app()->isLocal()
-                ? 'Error al conectar con la pasarela de pago: ' . $e->getMessage()
-                : 'Error al conectar con la pasarela de pago. Inténtalo de nuevo.';
-
-            return back()->with('error', $mensaje);
+            return back()->with('error', 'Error al conectar con la pasarela de pago. Inténtalo de nuevo.');
         }
     }
 
@@ -113,8 +106,8 @@ class StripePaymentController extends Controller
     {
         $sessionId = $request->get('session_id');
 
+        // Si entra sin session_id pero la factura ya está pagada (por refresh, etc.)
         if (!$sessionId) {
-            // Si entra aquí sin session_id pero la factura ya está pagada, mostramos éxito
             if ($factura->estado === FacturaEstadoEnum::PAGADA) {
                 return view('public.payment.success', ['factura' => $factura]);
             }
@@ -125,65 +118,45 @@ class StripePaymentController extends Controller
         try {
             Stripe::setApiKey(env('STRIPE_SECRET'));
 
-            // 🚑 PARCHE SOLO EN LOCAL (misma razón que en pay())
+            // 🚑 PARCHE LOCAL: desactivar verificación SSL solo en entorno local
             if (app()->isLocal()) {
-                Stripe::setVerifySslCerts(false);
+                \Stripe\Stripe::setVerifySslCerts(false);
             }
 
             $session = Session::retrieve($sessionId);
 
             // Verificamos que Stripe diga que está pagado
             if ($session->payment_status === 'paid') {
-                // ✅ ACTUALIZAR ESTADO EN BASE DE DATOS
+
+                // ✅ ACTUALIZAR ESTADO DE LA FACTURA
                 if ($factura->estado !== FacturaEstadoEnum::PAGADA) {
                     $factura->update([
-                        'estado'                    => FacturaEstadoEnum::PAGADA,
-                        'stripe_payment_intent_id'  => $session->payment_intent, // Guardamos el ID de transacción
-                        // 'metodo_pago'            => 'stripe', // Si tienes esa columna, descomenta
+                        'estado'                   => FacturaEstadoEnum::PAGADA,
+                        'stripe_payment_intent_id' => $session->payment_intent,
                     ]);
 
-                    // --- NUEVO: DEJAR RASTRO EN EL LEAD ---
-                    if ($venta = $factura->venta) {
-                        if ($lead = $venta->lead) {
-                            $lead->comentarios()->create([
-                                'user_id'   => 9999, // Bot
-                                'contenido' => "💰 PAGO RECIBIDO: La factura {$factura->numero_factura} (" . number_format($factura->total_factura, 2, ',', '.') . "€) ha sido abonada correctamente por tarjeta.",
-                            ]);
-                            
-                            // Opcional: Notificar al comercial
-                            // \Filament\Notifications\Notification::make()... sendToDatabase($lead->asignado);
+                    Log::info("Factura #{$factura->id} pagada correctamente vía Stripe.");
+
+                    // 🔗 Si la factura pertenece a una venta, la marcamos como COMPLETADA
+                    if ($factura->venta_id) {
+                        $venta = Venta::find($factura->venta_id);
+
+                        if ($venta) {
+                            // Usamos la hora actual como momento de cierre real de la venta
+                            $venta->marcarComoCompletada(now());
                         }
                     }
-                    // --------------------------------------
 
-
-
-                    Log::info("Factura #{$factura->id} pagada correctamente vía Stripe.");
-                    // Aquí podrías disparar notificación/email de "Factura pagada"
-                    // 📧 Email de confirmación simple (sin factura adjunta)
-        if ($factura->cliente && $factura->cliente->email_contacto) {
-            try {
-                Mail::to($factura->cliente->email_contacto)
-                    ->send(new PagoFacturaConfirmado($factura));
-            } catch (\Exception $e) {
-                Log::error("Error enviando email de confirmación de pago: " . $e->getMessage());
-            }
-        }
+                    // 👉 Aquí más adelante añadiremos el email de "pago recibido" SIN factura adjunta
                 }
 
                 return view('public.payment.success', ['factura' => $factura]);
             }
         } catch (\Exception $e) {
             Log::error("Error verificando pago Stripe: " . $e->getMessage());
-
-            if (app()->isLocal()) {
-                return redirect()
-                    ->route('payment.cancel', $factura)
-                    ->with('error', 'Error verificando el pago en Stripe: ' . $e->getMessage());
-            }
         }
 
-        // Si algo falló en la verificación
+        // Si algo falló en la verificación o el estado no es "paid"
         return redirect()->route('payment.cancel', $factura);
     }
 

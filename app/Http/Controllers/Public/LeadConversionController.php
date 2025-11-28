@@ -354,6 +354,13 @@ public function sign(Request $request, string $token)
                     }
                 }
 
+                   // --- 3. ESTADO DE LA VENTA TRAS LA FIRMA ---
+                if (isset($venta) && $venta instanceof \App\Models\Venta) {
+                    // Decide internamente si queda como PENDIENTE o COMPLETADA
+                    $venta->prepararEstadoTrasFirma($signedAt);
+                }
+
+                
                 // --- 4. FIRMA Y PDF ---
                 $signatureDataUri = $request->input('signature');
                 $pngBytes = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $signatureDataUri));
