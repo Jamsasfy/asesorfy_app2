@@ -69,7 +69,12 @@ use Illuminate\Support\Facades\Mail;
 use Filament\Tables\Actions\Action;
 use Filament\Infolists\Components\ViewEntry;
 use App\Enums\FacturaEstadoEnum;
+use App\Models\Venta; // <--- AÑADE ESTA LÍNEA
+use Illuminate\Support\Facades\Storage;
+use App\Mail\ContractSignedMail;
+use Filament\Infolists\Components\Actions;
 
+use App\Filament\Resources\LeadResource\Pages\GestionarConversion;
 
 
 //use Filament\Tables\Actions\Action; // Para acciones personalizadas
@@ -107,6 +112,7 @@ class LeadResource extends Resource implements HasShieldPermissions
             'update',
             'delete',
             'delete_any',
+            'convertir',
         ];
     }
 
@@ -407,11 +413,11 @@ public static function infolist(Infolist $infolist): Infolist
                         ->label(new HtmlString('<span class="font-semibold">🧑‍💻 Creado por</span>')),
 
                     TextEntry::make('created_at')
-                        ->label(new HtmlString('<span class="font-semibold">🕒📅 Fecha de creación</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">🕒📅 Creación</span>'))
                         ->dateTime('d/m/y H:i'),
 
                     TextEntry::make('fecha_gestion')
-                        ->label(new HtmlString('<span class="font-semibold">🔛📅 Comienzo gestión</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">🔛📅 Comienza</span>'))
                         ->dateTime('d/m/y H:i'),
 
                     TextEntry::make('asignado_display')
@@ -622,117 +628,120 @@ public static function infolist(Infolist $infolist): Infolist
         // --- CASO 1: CONVERTIDO ---
         if ($nuevo === LeadEstadoEnum::CONVERTIDO) {
 
-            // A) MODO AUTOMÁTICO
-            if (($data['modo_convertido'] ?? '') === 'automatico') {
-                
-                $formType = 'alta_autonomo_fiscal_recurrente'; // Tipo por defecto
-                
-                // 1. Procesar servicios, obtener precios reales y DETECTAR TIPO DE FORMULARIO
-                $itemsServicios = collect($data['servicios_venta'] ?? [])->map(function ($item) use (&$formType) {
-                    // Buscamos el servicio fresco de la BD (Precio seguro)
-                    $svc = \App\Models\Servicio::find($item['servicio_id']);
-                    
-                    // Valores por defecto si no existe
-                    $precioReal = $svc ? $svc->precio_base : 0;
-                    $nombreSvc  = $svc ? strtolower($svc->nombre) : '';
-                    $unidades   = intval($item['unidades'] ?? 1);
+             // -----------------------------
+ // A) MODO AUTOMÁTICO
+// -----------------------------
+if (($data['modo_convertido'] ?? '') === 'automatico') {
 
-                    // --- LÓGICA DE DETECCIÓN INTELIGENTE ---
-                    // Prioridad 1: Constitución de Sociedad (La más compleja, manda sobre todo)
-                    if (str_contains($nombreSvc, 'sociedad') || str_contains($nombreSvc, 'sl') || str_contains($nombreSvc, 'mercantil') || str_contains($nombreSvc, 'constitución')) {
-                        $formType = 'creacion_sociedad';
-                    }
-                    // Prioridad 2: Capitalización (Si no hemos detectado ya sociedad)
-                    elseif ($formType !== 'creacion_sociedad' && (str_contains($nombreSvc, 'capitaliza') || str_contains($nombreSvc, 'pago único'))) {
-                        $formType = 'capitalizacion';
-                    }
-                    // Prioridad 3: Alta Autónomo (Si es específico de alta y no es lo anterior)
-                    elseif ($formType === 'alta_autonomo_fiscal_recurrente' && str_contains($nombreSvc, 'alta') && str_contains($nombreSvc, 'autónomo')) {
-                        $formType = 'alta_autonomo';
-                    }
+    // No usamos un único formType: se activarán varios formularios según flags
+    $formType = 'automatic_multi'; // solo etiqueta interna, ya no manda
 
-                    return [
-                        'servicio_id'         => $svc->id ?? $item['servicio_id'],
-                        'nombre'              => $svc->nombre ?? 'Servicio',
-                        'tipo'                => $svc->tipo->value ?? 'recurrente',
-                        'precio_base'         => $precioReal, // Precio blindado de la BD
-                        'unidades'            => $unidades,
-                        'total_linea'         => $precioReal * $unidades,
-                        'es_tarifa_principal' => ($svc->tipo->value ?? '') === 'recurrente',
-                        'es_alta_autonomo'    => false,
-                    ];
-                })->toArray();
+    // 1) Construimos los servicios con valores correctos y flags para los formularios
+  $itemsServicios = collect($data['servicios_venta'] ?? [])->map(function ($item) {
 
-                if (empty($itemsServicios)) {
-                    Notification::make()->title('Error')->body('Debes añadir al menos un servicio.')->danger()->send();
-                    return;
-                }
+    $svc = \App\Models\Servicio::find($item['servicio_id']);
+    $nombre = strtolower($svc->nombre ?? '');
+    $unidades = intval($item['unidades'] ?? 1);
+    $precio = $svc->precio_base ?? 0;
 
-                // 2. Crear o Actualizar Link con el form_type detectado
-                $link = LeadConversionLink::active()->where('lead_id', $record->id)->first();
-                
-                if (!$link) {
-                    // Si es nuevo, lo creamos con el tipo detectado
-                    $link = LeadConversionLink::createForLead($record, $formType);
-                } else {
-                    // Si ya existía, actualizamos el tipo
-                    $meta = $link->meta ?? [];
-                    $meta['form_type'] = $formType; // <--- Actualizamos el tipo
-                    $link->meta = $meta;
-                    $link->save();
-                }
+    return [
+        'servicio_id'         => $svc->id,
+        'nombre'              => $svc->nombre,
+        'tipo'                => $svc->tipo->value,
+        'precio_base'         => $precio,
+        'unidades'            => $unidades,
+        'total_linea'         => $precio * $unidades,
+        'es_tarifa_principal' => $svc->tipo->value === 'recurrente',
 
-                // 3. Guardar el Blueprint (Qué se vende) en el Link
-                $meta = $link->meta ?? [];
-                $meta['sale_blueprint'] = [
-                    'modo'      => 'automatico',
-                    'servicios' => $itemsServicios,
-                ];
-                $link->meta = $meta;
-                $link->save();
+        // ⚡ Detectores robustos
+        'es_alta_autonomo' => (
+            str_contains($nombre, 'alta') &&
+            (
+                str_contains($nombre, 'autonom') ||   // sin tilde
+                str_contains($nombre, 'autónom')      // con tilde
+            )
+        ),
 
-                // 4. Actualizar Lead y Enviar
-                $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS;
-                $record->fecha_cierre = null;
-                $record->save();
+        'es_creacion_sociedad' =>
+            str_contains($nombre, 'sociedad') ||
+            str_contains($nombre, 'sl') ||
+            str_contains($nombre, 'constitución'),
 
-                try {
-                    // Enviar Email
-                    \Illuminate\Support\Facades\Mail::to($record->email)
-                        ->send(new LeadConversionLinkMail($record, $link));
-                    
-                    // A) Log Técnico
-                    \App\Models\LeadAutoEmailLog::create([
-                        'lead_id'             => $record->id,
-                        'estado'              => $record->estado->value,
-                        'intento'             => 1,
-                        'template_identifier' => 'conversion_link_auto',
-                        'subject'             => 'Completa tu alta con AsesorFy',
-                        'body_preview'        => 'Enlace al formulario de alta (Automático)...',
-                        'scheduled_at'        => now(),
-                        'sent_at'             => now(),
-                        'status'              => 'sent',
-                        'mail_driver'         => config('mail.default'),
-                        'triggered_by_user_id'=> auth()->id(),
-                        'trigger_source'      => 'manual_action_filament',
-                    ]);
+        'es_capitalizacion' =>
+            str_contains($nombre, 'capitaliz'),
+    ];
+})->toArray();
 
-                    // B) Comentario en el Muro
-                    $record->comentarios()->create([
-                        'user_id'   => 9999,
-                        'contenido' => "🚀 🔗 Enlace de alta (Automático) enviado correctamente a {$record->email}.",
-                    ]);
-                    
-                    Notification::make()
-                        ->title('Proceso Automático Iniciado')
-                        ->body("Formulario enviado tipo: " . strtoupper(str_replace('_', ' ', $formType)))
-                        ->success()
-                        ->send();
-                } catch (\Exception $e) {
-                    Notification::make()->title('Error envío email')->body($e->getMessage())->danger()->send();
-                }
-                return;
-            }
+
+    if (empty($itemsServicios)) {
+        Notification::make()->title('Error')->body('Debes añadir al menos un servicio.')->danger()->send();
+        return;
+    }
+
+    // 2) Crear o actualizar el enlace de conversión
+    $link = LeadConversionLink::active()
+        ->where('lead_id', $record->id)
+        ->first();
+
+    if (!$link) {
+        // ya no dependemos de formType único
+        $link = LeadConversionLink::createForLead($record, 'automatic_multi');
+    }
+
+    // 3) Guardar meta y blueprint
+    $meta = $link->meta ?? [];
+    $meta['form_type'] = 'automatic_multi'; // etiqueta, no controla formularios
+    $meta['sale_blueprint'] = [
+        'modo'      => 'automatico',
+        'servicios' => $itemsServicios,
+    ];
+    $link->meta = $meta;
+    $link->save();
+
+    // 4) Actualizar estado del Lead
+    $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS;
+    $record->fecha_cierre = null;
+    $record->save();
+
+    // 5) Enviar email al cliente con enlace de conversión
+    try {
+        \Illuminate\Support\Facades\Mail::to($record->email)
+            ->send(new \App\Mail\LeadConversionLinkMail($record, $link));
+
+        // Guardar log técnico
+        \App\Models\LeadAutoEmailLog::create([
+            'lead_id'             => $record->id,
+            'estado'              => $record->estado->value,
+            'intento'             => 1,
+            'template_identifier' => 'conversion_link_auto',
+            'subject'             => 'Completa tu alta con AsesorFy',
+            'body_preview'        => 'Enlace al formulario de alta (Automático)...',
+            'scheduled_at'        => now(),
+            'sent_at'             => now(),
+            'status'              => 'sent',
+            'triggered_by_user_id'=> auth()->id(),
+            'trigger_source'      => 'manual_action_filament',
+        ]);
+
+        // Comentario en el muro
+        $record->comentarios()->create([
+            'user_id'   => 9999,
+            'contenido' => "🚀 🔗 Enlace de alta (Automático) enviado correctamente a {$record->email}.",
+        ]);
+
+        Notification::make()
+            ->title('Proceso Automático Iniciado')
+            ->body("Se han enviado los formularios correspondientes a los servicios seleccionados.")
+            ->success()
+            ->send();
+
+    } catch (\Exception $e) {
+        Notification::make()->title('Error envío email')->body($e->getMessage())->danger()->send();
+    }
+
+    return;
+}
+
 
             // B) MODO MANUAL
             return redirect($record->cliente_id 
@@ -761,12 +770,14 @@ public static function infolist(Infolist $infolist): Infolist
         }
 
         $record->save();
-        
-        // Guardar comentario de historial
         $record->comentarios()->create([
-            'user_id' => auth()->id(),
-            'contenido' => $comentarioBase . ($data['observacion_cierre'] ? "\nObs: ".$data['observacion_cierre'] : ''),
-        ]);
+    'user_id'   => auth()->id(),
+    'contenido' => $comentarioBase . (
+        !empty($data['observacion_cierre'] ?? null)
+            ? "\nObs: " . $data['observacion_cierre']
+            : ''
+    ),
+]);
 
         Notification::make()->title('Estado actualizado')->success()->send();
     }),
@@ -798,7 +809,7 @@ public static function infolist(Infolist $infolist): Infolist
             InfoSection::make('Agenda & Gestión')
                 ->schema([
                     TextEntry::make('updated_at')
-                        ->label(new HtmlString('<span class="font-semibold">🔄📅 Lead Actualizado</span>'))
+                        ->label(new HtmlString('<span class="font-semibold">Actualizado</span>'))
                         ->dateTime('d/m/y H:i'),
 
                     TextEntry::make('agenda')
@@ -835,7 +846,7 @@ public static function infolist(Infolist $infolist): Infolist
                         ),
 
                     TextEntry::make('autospam_activo')
-                        ->label('🤖 Autospam IA Boot Fy')
+                        ->label('🤖 IA Boot Fy')
                         ->badge()
                         ->formatStateUsing(fn (?bool $state): string => $state ? 'Activo' : 'Desactivado')
                         ->color(fn (?bool $state): string => $state ? 'success' : 'gray')
@@ -1439,130 +1450,243 @@ public static function infolist(Infolist $infolist): Infolist
             ->collapsible()
             ->collapsed(),
 
-//facturas
+InfoSection::make('Documentación Legal')
+    ->icon('heroicon-o-document-check')
+    ->description('Acceso al contrato firmado y opciones de envío.')
+    ->collapsible()
+    ->collapsed()
+    ->visible(function (Lead $record) {
+        return $record->conversionLinks()
+            ->whereNotNull('used_at')
+            ->whereNotNull('meta->pdf')
+            ->exists();
+    })
+    ->schema(function (Lead $record) {
 
-            // ...
+        // Buscar link usado con PDF
+        $link = $record->conversionLinks()
+            ->whereNotNull('used_at')
+            ->whereNotNull('meta->pdf')
+            ->latest('used_at')
+            ->first();
+
+        if (!$link) {
+            return [
+                TextEntry::make('no_pdf')
+                    ->label(false)
+                    ->default('Sin contrato firmado.'),
+            ];
+        }
+
+        $pdfPath = $link->meta['pdf'];
+        $pdfUrl  = Storage::disk('public')->url($pdfPath);
+
+        return [
+
+            // ACCIONES (botones)
+            \Filament\Infolists\Components\Actions::make([
+                ActionInfolist::make('ver_contrato_pdf')
+                    ->label('Ver contrato')
+                    ->button()
+                    ->color('gray')
+                    ->size('sm')
+                    ->icon('heroicon-m-eye')
+                    ->url($pdfUrl)
+                    ->openUrlInNewTab(),
+
+                ActionInfolist::make('reenviar_email_contrato')
+                    ->label('Enviar copia')
+                    ->button()
+                    ->color('primary')
+                    ->size('sm')
+                    ->icon('heroicon-m-paper-airplane')
+                    ->requiresConfirmation()
+                    ->modalHeading('Enviar copia del contrato')
+                    ->modalDescription("Se enviará una copia del contrato firmado a {$record->email}.")
+                    ->action(function () use ($record, $pdfPath) {
+
+                        $ruta = Storage::disk('public')->path($pdfPath);
+
+                        Mail::to($record->email)
+                            ->send(new \App\Mail\ContractCopyMail($record, $ruta));
+
+                        $record->comentarios()->create([
+                            'user_id' => auth()->id(),
+                            'contenido' => "📧📄 Copia del contrato enviada manualmente."
+                        ]);
+
+                        \Filament\Notifications\Notification::make()
+                            ->title('Copia enviada')
+                            ->success()
+                            ->send();
+                    }),
+            ])
+            ->alignment('start')
+            ->label(false)
+            ->columnSpanFull(),
+
+            // FECHA DE FIRMA BONITA
+            TextEntry::make('fecha_firma')
+                ->label(false)
+                ->html()
+                ->state(fn () =>
+                    "<div style='
+                        margin-top:8px;
+                        padding:6px 12px;
+                        display:inline-flex;
+                        align-items:center;
+                        gap:8px;
+                        border-radius:6px;
+                        background-color:rgba(16,185,129,0.10);
+                        color:rgb(16,185,129);
+                        font-weight:600;
+                    '>
+                        <span>📅 Fecha de firma:</span>
+                        <span>" . $link->used_at->format('d/m/Y \a \l\a\s H:i') . "</span>
+                    </div>"
+                )
+                ->columnSpanFull(),
+
+        ];
+    }),
+
+
+
+
+
+
+            //pagos
+
+         
         
-
-
-InfoSection::make('Facturación y Pagos')
-    ->icon('heroicon-o-currency-euro')
-    ->description('Facturas generadas a partir de las ventas de este lead.')
-    ->visible(fn (Lead $record) => $record->facturas()->exists())
+InfoSection::make('Gestión de Cobro y Ventas')
+    ->icon('heroicon-o-currency-dollar')
+    ->description('Estado de los pagos de las ventas asociadas a este lead.')
+    ->visible(fn (Lead $record) => $record->ventas()->exists()) 
     ->schema([
-        RepeatableEntry::make('facturas') // relación Lead->facturas()
+        RepeatableEntry::make('ventas')
             ->label(false)
             ->contained(false)
             ->schema([
-                Grid::make(6)->schema([
-                    // 1. Número y enlace PDF
-                    TextEntry::make('numero_factura')
-                        ->label('Nº Factura')
-                        ->icon('heroicon-m-document-text')
-                        ->weight('bold')
-                        ->color('primary')
-                        ->url(fn ($record) => route('facturas.generar-pdf', $record)) // $record = Factura
-                        ->openUrlInNewTab(),
+                Grid::make(4)->schema([
+                    
+                    // 1. IDENTIFICACIÓN DE LA VENTA
+                    TextEntry::make('concepto_venta')
+                        ->label('Venta / Servicios')
+                        ->icon('heroicon-m-shopping-bag')
+                        ->formatStateUsing(fn (\App\Models\Venta $record) => "Venta #{$record->id}")
+                        ->helperText(fn (\App\Models\Venta $record) => $record->items
+                            ->filter(fn ($item) => $item->servicio && $item->servicio->tipo->value === 'unico')
+                            ->pluck('servicio.nombre')
+                            ->implode(', ')
+                        )
+                        ->url(fn (\App\Models\Venta $record) => VentaResource::getUrl('edit', ['record' => $record->id]))
+                        ->color('primary'),
 
-                    // 2. Concepto (primer item) + tooltip con todos
-                    TextEntry::make('items.0.descripcion')
-                        ->label('Concepto')
-                        ->limit(30)
-                        ->tooltip(fn ($record) => $record->items
-                            ? $record->items->pluck('descripcion')->filter()->implode(', ')
-                            : null
+                    // 2. IMPORTE Y MÉTODO
+                    TextEntry::make('importe_total')
+                        ->label('Importe / Método')
+                        ->weight('bold')
+                        ->formatStateUsing(function (\App\Models\Venta $record) {
+                            $total = $record->importe_total * 1.21; 
+                            return number_format($total, 2, ',', '.') . ' €';
+                        })
+                        ->helperText(fn (\App\Models\Venta $record) => 
+                            ucfirst($record->pago_inicial_metodo ?? 'No definido')
                         ),
 
-                    // 3. Importe total
-                    TextEntry::make('total_factura')
-                        ->label('Total')
-                        ->money('EUR')
-                        ->weight('bold'),
-
-                    // 4. Estado (badge con label de tu enum)
-                    TextEntry::make('estado')
-                        ->label('Estado pago')
+                    // 3. ESTADO DEL PAGO
+                    TextEntry::make('estado_pago')
+                        ->label('Estado Pago')
                         ->badge()
-                        ->formatStateUsing(fn (FacturaEstadoEnum $state) => $state->getLabel())
-                        ->color(fn (FacturaEstadoEnum $state) => match ($state) {
-                            FacturaEstadoEnum::PAGADA         => 'success',
-                            FacturaEstadoEnum::PENDIENTE_PAGO => 'warning',
-                            FacturaEstadoEnum::IMPAGADA       => 'danger',
-                            FacturaEstadoEnum::ANULADA        => 'gray',
-                        }),
+                        ->state(fn (\App\Models\Venta $record) => $record->tienePagoInicialCompletado() ? 'PAGADO' : 'PENDIENTE')
+                        ->color(fn (string $state) => $state === 'PAGADO' ? 'success' : 'danger')
+                        ->icon(fn (string $state) => $state === 'PAGADO' ? 'heroicon-m-check-circle' : 'heroicon-m-clock'),
 
-                    // 5. Fecha de emisión
-                    TextEntry::make('fecha_emision')
-                        ->label('Fecha')
-                        ->date('d/m/Y')
-                        ->color('gray'),
+                    // 4. ACCIONES (BOTONES REALES)
+                    \Filament\Infolists\Components\Actions::make([
+                        
+                        // 🔔 BOTÓN RECORDATORIO
+                        ActionInfolist::make('enviar_recordatorio')
+                            ->label('Recordar Pago')
+                            ->icon('heroicon-m-paper-airplane')
+                            ->color('warning')
+                            ->size('xs')
+                            ->tooltip('Enviar email con instrucciones de pago')
+                            ->visible(fn (\App\Models\Venta $record) => 
+                                !$record->tienePagoInicialCompletado() && 
+                                $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA
+                            )
+                            ->requiresConfirmation()
+                            ->modalHeading('Enviar recordatorio de pago')
+                            ->modalDescription('Se enviará un email al cliente con las instrucciones de pago (IBAN o enlace Stripe).')
+                            ->action(function (\App\Models\Venta $record) {
+                                if (!$record->cliente || !$record->cliente->email_contacto) {
+                                    Notification::make()->title('Error')->body('El cliente no tiene email.')->danger()->send();
+                                    return;
+                                }
 
-                    // 6. Acciones de pago (bonitas)
-                    ViewEntry::make('acciones_pago')
-                        ->label('Pago')
-                        ->view('filament.resources.leads.partials.acciones-pago'),
+                                try {
+                                    // 👇 CORRECCIÓN AQUÍ: Ruta completa al Mailable
+                                    Mail::to($record->cliente->email_contacto)
+                                        ->send(new \App\Mail\RecordatorioPagoMail($record));
+
+                                    if ($record->lead_id) {
+                                        // 👇 Ruta completa al Modelo Log
+                                        \App\Models\LeadAutoEmailLog::create([
+                                            'lead_id'             => $record->lead_id,
+                                            'estado'              => $record->lead->estado->value ?? 'unknown',
+                                            'intento'             => 1,
+                                            'template_identifier' => 'manual_payment_reminder',
+                                            'subject'             => 'Recordatorio de Pago',
+                                            'body_preview'        => 'Recordatorio manual enviado desde ficha Lead.',
+                                            'scheduled_at'        => now(),
+                                            'sent_at'             => now(),
+                                            'status'              => 'sent',
+                                            'triggered_by_user_id'=> auth()->id(),
+                                            'trigger_source'      => 'lead_infolist_action',
+                                        ]);
+
+                                        $record->lead->comentarios()->create([
+                                            'user_id'   => auth()->id(),
+                                            'contenido' => "📤 Recordatorio de pago enviado manualmente.",
+                                        ]);
+                                    }
+
+                                    Notification::make()->title('Recordatorio enviado')->success()->send();
+
+                                } catch (\Exception $e) {
+                                    Notification::make()->title('Error envío')->body($e->getMessage())->danger()->send();
+                                }
+                            }),
+
+                        // 📄 BOTÓN VER FACTURA
+                        ActionInfolist::make('ver_factura')
+                            ->label('Factura')
+                            ->icon('heroicon-m-document-text')
+                            ->color('gray')
+                            ->size('xs')
+                            ->url(function (\App\Models\Venta $record) {
+                                $factura = $record->facturas()->latest()->first();
+                                return $factura ? route('facturas.generar-pdf', $factura) : null;
+                            })
+                            ->openUrlInNewTab()
+                            ->visible(fn (\App\Models\Venta $record) => 
+                                $record->tienePagoInicialCompletado() && 
+                                $record->facturas()->exists()
+                            ),
+                    ])
+                    ->label('Acciones')
+                    ->alignment(\Filament\Support\Enums\Alignment::Start)
+                    ->verticalAlignment(\Filament\Support\Enums\VerticalAlignment::Center),
                 ]),
             ]),
     ])
     ->collapsible(),
 
-    
-
 // ...
 
-            // SECCIÓN FACTURAS ASOCIADAS
-      /*       InfoSection::make('Facturación y Pagos')
-                ->icon('heroicon-o-currency-euro')
-                ->description('Facturas generadas a partir de las ventas de este lead.')
-                ->visible(fn (Lead $record) => $record->facturas()->exists()) // Solo si hay facturas
-                ->schema([
-                    RepeatableEntry::make('facturas')
-                        ->label(false)
-                        ->contained(false) // Para que quede limpio sin bordes extra
-                        ->schema([
-                            Grid::make(5)->schema([
-                                // 1. Número y Enlace PDF
-                                TextEntry::make('numero_factura')
-                                    ->label('Nº Factura')
-                                    ->icon('heroicon-m-document-text')
-                                    ->weight('bold')
-                                    ->color('primary')
-                                    ->url(fn ($record) => route('facturas.generar-pdf', $record)) // Enlace directo al PDF
-                                    ->openUrlInNewTab(),
 
-                                // 2. Concepto (Resumen rápido)
-                                TextEntry::make('items.0.descripcion') // Cogemos la primera línea como resumen
-                                    ->label('Concepto')
-                                    ->limit(30)
-                                    ->tooltip(fn ($record) => $record->items->pluck('descripcion')->implode(', ')),
-
-                                // 3. Importe
-                                TextEntry::make('total_factura')
-                                    ->label('Total')
-                                    ->money('EUR')
-                                    ->weight('bold'),
-
-                                // 4. Estado (El semáforo)
-                                TextEntry::make('estado')
-                                    ->badge()
-                                    ->label('Estado Pago')
-                                    ->color(fn (\App\Enums\FacturaEstadoEnum $state) => match ($state) {
-                                        \App\Enums\FacturaEstadoEnum::PAGADA         => 'success',
-                                        \App\Enums\FacturaEstadoEnum::PENDIENTE_PAGO => 'danger', // Rojo para que llame la atención
-                                        \App\Enums\FacturaEstadoEnum::ANULADA        => 'gray',
-                                        \App\Enums\FacturaEstadoEnum::RECTIFICATIVA  => 'warning',
-                                        default                                      => 'gray',
-                                    }),
-
-                                // 5. Fecha
-                                TextEntry::make('fecha_emision')
-                                    ->label('Fecha')
-                                    ->date('d/m/Y')
-                                    ->color('gray'),
-                            ]),
-                        ]),
-                ])
-                ->collapsible(), */
 
 
 
@@ -2443,6 +2567,8 @@ protected static function registrarInteraccion(Lead $record, string $campoContad
             'create' => Pages\CreateLead::route('/create'),
             'view' => Pages\ViewLead::route('/{record}'),
             'edit' => Pages\EditLead::route('/{record}/edit'),
+            //conversion nueva
+            'conversion' => Pages\GestionarConversion::route('/{record}/conversion'),
         ];
     }
 }

@@ -22,29 +22,32 @@ class ClienteSuscripcion extends Model
      *
      * @var array<int, string>
      */
-    protected $fillable = [
-        'cliente_id',
-        'servicio_id',
-        'venta_origen_id',
-        'es_tarifa_principal',
-        'precio_acordado',
-        'cantidad',
-        'fecha_inicio',
-        'fecha_fin',
-        'estado',
-        'descuento_tipo',
-        'descuento_valor',
-        'descuento_descripcion',
-        'descuento_valido_hasta',
-        'observaciones',
-        'stripe_subscription_id',
-        'ciclo_facturacion',
-        'proxima_fecha_facturacion',
-        'datos_adicionales',
-         'nombre_personalizado',
-             'descuento_duracion_meses',
+  protected $fillable = [
+    'cliente_id',
+    'servicio_id',
+    'venta_origen_id',
+    'es_tarifa_principal',
+    'precio_acordado',
+    'cantidad',
+    'fecha_inicio',
+    'fecha_fin',
+    'estado',
+    'descuento_tipo',
+    'descuento_valor',
+    'descuento_descripcion',
+    'descuento_valido_hasta',
+    'observaciones',
+    'stripe_subscription_id',
+    'stripe_status',
+    'stripe_current_period_end',
+    'stripe_default_payment_method',
+    'ciclo_facturacion',
+    'proxima_fecha_facturacion',
+    'datos_adicionales',
+    'nombre_personalizado',
+    'descuento_duracion_meses',
+];
 
-    ];
 
     /**
      * The attributes that should be cast.

@@ -264,6 +264,7 @@ public static function recalcularTotales(Get $get, Set $set): void
     public static function table(Table $table): Table
     {
         return $table
+          ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('numero_factura')
                     ->label('Nº Factura') // Etiqueta más legible
@@ -314,6 +315,11 @@ public static function recalcularTotales(Get $get, Set $set): void
                 TextColumn::make('estado')
                     ->label('Estado') // Etiqueta del badge
                     ->badge(), // Utilizará HasLabel y HasColor de tu Enum
+                TextColumn::make('created_at')
+                ->label('Factura creada')
+                    ->dateTime('d/m/y - H:i')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->sortable(),
             ])
             ->filters([
                 // Filtro por Estado (con nuestro Enum)
@@ -446,8 +452,8 @@ public static function recalcularTotales(Get $get, Set $set): void
                     // Eliminamos DeleteBulkAction si preferimos anular
                     // Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ])
-            ->defaultSort('fecha_emision', 'desc'); // Ordenar por fecha de emisión descendente por defecto
+            ]);
+            //->defaultSort('fecha_emision', 'desc'); // Ordenar por fecha de emisión descendente por defecto
     }
 
     public static function getRelations(): array

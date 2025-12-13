@@ -23,7 +23,8 @@ class LeadPolicy
      */
     public function view(User $user, Lead $lead): bool
     {
-        return $user->can('view_lead');
+       return $user->can('view_lead');
+       
     }
 
     /**

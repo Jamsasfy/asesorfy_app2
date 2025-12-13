@@ -52,6 +52,8 @@ use Filament\Tables\Enums\ActionsPosition;
 use App\Enums\VentaEstadoEnum;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
+use Filament\Forms\Components\Hidden;
+use Illuminate\Support\Facades\Log;
 
 
 
@@ -133,6 +135,10 @@ public static function form(Form $form): Form
             Section::make('Datos de la Venta')
                 ->columns(3)
                 ->schema([
+                    Hidden::make('pago_inicial_metodo')
+                    ->default(null),
+                    Hidden::make('pago_inicial_notas')
+                    ->default(null),
                     Select::make('cliente_id')
                         ->label('Cliente')
                         ->relationship('cliente', 'razon_social')
@@ -268,7 +274,7 @@ public static function form(Form $form): Form
                                 ->required()
                                 ->suffix('€')
                                 ->columnSpan(1)
-                                ->live()
+                                ->live(debounce: 600) // 👈 igual, esperamos un poco
                                 ->afterStateUpdated(fn (Get $get, Set $set) => self::updateTotals($get, $set)),
 
                             TextInput::make('subtotal')
@@ -376,7 +382,7 @@ public static function form(Form $form): Form
             ->label('Valor del Descuento')
             ->numeric()->type('text')->inputMode('decimal')
             ->nullable()
-            ->live()
+            ->live(debounce: 600)
             ->columnSpan(2)
             ->visible(fn (Get $get) => !empty($get('descuento_tipo')))
             ->suffix(fn(Get $get):?string => match($get('descuento_tipo')) {
@@ -516,43 +522,64 @@ public static function form(Form $form): Form
 
 
     private static function updateTotals(Get $get, Set $set): void
-{
-    $cantidad = (float)($get('cantidad') ?? 1);
-    $precioUnitario = (float)($get('precio_unitario') ?? 0);
-    $subtotal = round($cantidad * $precioUnitario, 2);
-    $set('subtotal', $subtotal);
+    {
+        $cantidad = (float)($get('cantidad') ?? 1);
+        $precioUnitario = (float)($get('precio_unitario') ?? 0);
+        $subtotal = round($cantidad * $precioUnitario, 2);
+        $set('subtotal', $subtotal);
 
-    // CAMBIO CLAVE AQUÍ: Recuperamos el IVA como 21 (entero)
-    $ivaPorcentaje = ConfiguracionService::get('IVA_general', 21.00); // Esto devolverá 21
+        // -------------------------------------------------------------
+        // 🔥 LÓGICA DE IMPUESTOS DINÁMICA (CEREBRO FISCAL)
+        // -------------------------------------------------------------
+        $impuesto = 21.00; // Valor por defecto (Península)
 
-    // Calculamos el IVA usando el 21% correctamente (21 / 100 = 0.21)
-    $factorIva = (1 + ($ivaPorcentaje / 100)); // (1 + 21/100) = 1.21
-    $subtotalConIva = round($subtotal * $factorIva, 2);
-    $set('subtotal_con_iva', $subtotalConIva);
-
-    $descuentoTipo = $get('descuento_tipo');
-    $descuentoValor = (float)($get('descuento_valor') ?? 0);
-    $precioFinalConDto = $subtotal;
-
-    if (!empty($descuentoTipo) && is_numeric($descuentoValor) && $descuentoValor > 0) {
-        switch ($descuentoTipo) {
-            case 'porcentaje':
-                $precioFinalConDto = round($subtotal - ($subtotal * ($descuentoValor / 100)), 2);
-                break;
-            case 'fijo':
-                $precioFinalConDto = round($subtotal - $descuentoValor, 2);
-                break;
-            case 'precio_final':
-                $precioFinalConDto = round($descuentoValor, 2);
-                break;
+        // Buscamos el cliente seleccionado en el formulario padre
+        // Nota: '../../cliente_id' sube niveles en el repeater para buscar el cliente
+        $clienteId = $get('cliente_id') ?? $get('../../cliente_id');
+        
+        if ($clienteId) {
+            $cliente = \App\Models\Cliente::find($clienteId);
+            if ($cliente) {
+                // El helper decide: 0.00 si es Canarias, variable IVA_general si no
+                $impuesto = \App\Models\Cliente::getPorcentajeImpuesto(
+                    $cliente->codigo_postal, 
+                    $cliente->provincia
+                );
+            }
         }
-    }
-    $precioFinalConDto = max(0, $precioFinalConDto);
 
-    $set('subtotal_aplicado', $precioFinalConDto); 
-    // Y aquí también aplicamos el factor IVA correctamente
-    $set('subtotal_aplicado_con_iva', round($precioFinalConDto * $factorIva, 2));
-}
+        $factorIva = 1 + ($impuesto / 100);
+        // -------------------------------------------------------------
+
+        // Aplicamos el factor detectado
+        $subtotalConIva = round($subtotal * $factorIva, 2);
+        $set('subtotal_con_iva', $subtotalConIva);
+
+        // --- LÓGICA DE DESCUENTOS (Se mantiene igual) ---
+        $descuentoTipo = $get('descuento_tipo');
+        $descuentoValor = (float)($get('descuento_valor') ?? 0);
+        $precioFinalConDto = $subtotal;
+
+        if (!empty($descuentoTipo) && is_numeric($descuentoValor) && $descuentoValor > 0) {
+            switch ($descuentoTipo) {
+                case 'porcentaje':
+                    $precioFinalConDto = round($subtotal - ($subtotal * ($descuentoValor / 100)), 2);
+                    break;
+                case 'fijo':
+                    $precioFinalConDto = round($subtotal - $descuentoValor, 2);
+                    break;
+                case 'precio_final':
+                    $precioFinalConDto = round($descuentoValor, 2);
+                    break;
+            }
+        }
+        $precioFinalConDto = max(0, $precioFinalConDto);
+
+        $set('subtotal_aplicado', $precioFinalConDto); 
+        
+        // Aplicamos el mismo factor de IVA al precio final con descuento
+        $set('subtotal_aplicado_con_iva', round($precioFinalConDto * $factorIva, 2));
+    }
 
     public static function table(Table $table): Table
     {
@@ -585,26 +612,31 @@ public static function form(Form $form): Form
                     default            => null,
                 })
                 ->sortable(),
-                TextColumn::make('confirmada_at')
-    ->label('Venta cerrada')
-    ->badge()
+Tables\Columns\TextColumn::make('confirmada_at')
+    ->label('Fecha Cierre') // Cambio de nombre para ser más preciso
     ->sortable()
-    ->getStateUsing(function (Venta $record): string {
+    ->badge()
+    ->getStateUsing(function (Venta $record): ?string {
+        // Si está completada y tiene fecha, mostramos la fecha
         if ($record->estado === VentaEstadoEnum::COMPLETADA && $record->confirmada_at) {
             return $record->confirmada_at->format('d/m/Y');
         }
 
+        // Si está cancelada
         if ($record->estado === VentaEstadoEnum::CANCELADA) {
             return 'Cancelada';
         }
 
-        return 'Pendiente de cierre';
+        // Si está pendiente, devolvemos null para que Filament ponga un guion '—'
+        // o puedes devolver 'En curso' si prefieres algo distinto a 'Pendiente'.
+        return null; 
     })
-    ->color(fn (string $state) => match ($state) {
-        'Pendiente de cierre' => 'warning',
-        'Cancelada'           => 'danger',
-        default               => 'success', // cuando muestra fecha => cerrada
-    }),
+    ->color(fn ($state) => match ($state) {
+        'Cancelada' => 'danger',
+        null        => 'gray',    // El guion o vacío se verá gris discreto
+        default     => 'success', // La fecha se verá en verde
+    })
+    ->placeholder('—'), // Esto pone el guion elegante cuando es null
                 Tables\Columns\TextColumn::make('cliente.razon_social')
                     ->label('Cliente')
                     ->url(fn (Venta $record): ?string => 
@@ -620,14 +652,18 @@ public static function form(Form $form): Form
                     )
                     ->searchable()
                     ->sortable(),
-                    Tables\Columns\TextColumn::make('lead_id')
+                   Tables\Columns\TextColumn::make('lead_id')
                     ->label('Lead')
-                    ->formatStateUsing(fn ($state, $record) => "#{$record->lead_id}")
+                    ->formatStateUsing(function ($state, Venta $record) {
+                        return $record->lead_id ? "#{$record->lead_id}" : '—';
+                    })
                     ->badge()
-                    ->color('warning')
-                    ->url(fn ($record) => LeadResource::getUrl('view', [
-                        'record' => $record->lead_id,
-                    ]))
+                    ->color(fn (Venta $record) => $record->lead_id ? 'warning' : 'gray')
+                    ->url(fn (Venta $record): ?string =>
+                        $record->lead_id
+                            ? LeadResource::getUrl('view', ['record' => $record->lead_id])
+                            : null
+                    )
                     ->openUrlInNewTab()
                     ->sortable(),
                 Tables\Columns\TextColumn::make('comercial.full_name')
@@ -832,8 +868,179 @@ public static function form(Form $form): Form
                                         ],layout: FiltersLayout::AboveContent)
                                             ->filtersFormColumns(9)
             ->actions([
-              
-                // ... tus otras acciones (ver, editar) ...
+    // 🔄 ACCIÓN: CAMBIAR MÉTODO DE PAGO (Con Log y Comentario)
+Tables\Actions\Action::make('cambiar_metodo_pago')
+    ->label('') 
+    ->tooltip('Cambiar método de pago (Tarjeta/Transferencia)')
+    ->icon('heroicon-o-arrows-right-left')
+    ->color('gray')
+    ->form([
+        Forms\Components\Radio::make('nuevo_metodo')
+            ->label('Selecciona el nuevo método de pago')
+            ->options([
+                'tarjeta'       => 'Tarjeta (Stripe)',
+                'transferencia' => 'Transferencia Bancaria',
+            ])
+            ->required()
+            ->default(fn (Venta $record) => $record->pago_inicial_metodo),
+        
+        Forms\Components\Textarea::make('notas')
+            ->label('Notas internas')
+            ->rows(2),
+
+        Forms\Components\Checkbox::make('notificar_cliente')
+            ->label('Enviar email al cliente con las nuevas instrucciones')
+            ->default(true)
+            ->helperText('Si lo marcas, el cliente recibirá el IBAN o el enlace de pago por correo.'),
+    ])
+    ->action(function (Venta $record, array $data) {
+        // 1. Actualizar BD
+        $record->update([
+            'pago_inicial_metodo' => $data['nuevo_metodo'],
+            'pago_inicial_notas'  => $data['notas'] ?? $record->pago_inicial_notas,
+        ]);
+
+        // 2. Enviar Email y Guardar Log Técnico
+        if ($data['notificar_cliente'] && $record->cliente && $record->cliente->email_contacto) {
+            try {
+                \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
+                    ->send(new \App\Mail\CambioMetodoPagoMail($record));
+                
+                // ✅ LOG TÉCNICO
+                if ($record->lead_id) {
+                    \App\Models\LeadAutoEmailLog::create([
+                        'lead_id'             => $record->lead_id,
+                        'estado'              => $record->lead->estado->value ?? 'unknown',
+                        'intento'             => 1,
+                        'template_identifier' => 'payment_method_change',
+                        'subject'             => 'Actualización Método de Pago',
+                        'body_preview'        => 'Notificación de cambio a ' . $data['nuevo_metodo'],
+                        'scheduled_at'        => now(),
+                        'sent_at'             => now(),
+                        'status'              => 'sent',
+                        'triggered_by_user_id'=> auth()->id(),
+                        'trigger_source'      => 'venta_resource_change_method',
+                    ]);
+                }
+
+                Notification::make()->title('Email de instrucciones enviado')->success()->send();
+            } catch (\Exception $e) {
+                Notification::make()->title('Error enviando email')->body($e->getMessage())->warning()->send();
+            }
+        }
+
+        // 3. ✅ COMENTARIO EN EL LEAD (Historial Visual)
+        if ($record->lead && method_exists($record->lead, 'comentarios')) {
+            $msg = "🔄 Método de pago cambiado a " . strtoupper($data['nuevo_metodo']);
+            if ($data['notificar_cliente']) {
+                $msg .= " y notificado por email al cliente.";
+            } else {
+                $msg .= " (sin notificar al cliente).";
+            }
+
+            $record->lead->comentarios()->create([
+                'user_id'   => auth()->id(), // Usuario que hizo el cambio
+                'contenido' => $msg,
+            ]);
+        }
+
+        Notification::make()
+            ->title('Método de pago actualizado a ' . strtoupper($data['nuevo_metodo']))
+            ->success()
+            ->send();
+    })
+    ->visible(fn (Venta $record) => 
+        !$record->tienePagoInicialCompletado() && 
+        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA
+    ),
+                // ✅ ACCIÓN: CONFIRMAR PAGO TRANSFERENCIA (Con envío de Factura)
+Tables\Actions\Action::make('confirmar_transferencia')
+    ->label('')
+    ->tooltip('Confirmar recepción de Transferencia')
+    ->icon('heroicon-o-banknotes')
+    ->color('success')
+    ->requiresConfirmation()
+    ->modalHeading('¿Confirmar recepción de transferencia?')
+    ->modalDescription(fn (Venta $record) =>
+        "Se generará la factura de " . number_format($record->importe_total, 2, ',', '.') .
+        " €, se activarán los servicios y se enviará la factura por email al cliente."
+    )
+    ->visible(fn (Venta $record) =>
+        $record->pago_inicial_metodo === 'transferencia' &&
+        !$record->tienePagoInicialCompletado() &&
+        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA
+    )
+    ->action(function (Venta $record) {
+
+        // ========================================================
+        // 1️⃣ RECUPERAR extraData DEL FORMULARIO FIRMADO
+        // ========================================================
+        $extraData = [];
+
+        try {
+            $link = \App\Models\LeadConversionLink::where('meta->existing_venta_id', $record->id)
+                ->latest()
+                ->first();
+
+            if ($link) {
+                $extraData = $link->meta['form_data'] ?? [];
+            }
+        } catch (\Exception $e) {
+            // No hacemos nada, simplemente no hay extraData
+        }
+
+        try {
+
+            // ========================================================
+            // 2️⃣ PROCESAR COBRO INICIAL (Proyectos + Suscripciones + Factura)
+            // ========================================================
+            $record->procesarCobroInicial(
+                fechaPago: now(),
+                metodoPago: 'transferencia',
+                paymentIntentId: null,
+                extraData: $extraData
+            );
+
+            // ========================================================
+            // 3️⃣ ENVIAR FACTURA AL CLIENTE (SI EXISTE)
+            // ========================================================
+            $factura = $record->facturas()->latest()->first();
+
+            if ($factura && $record->cliente && $record->cliente->email_contacto) {
+                try {
+                    \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
+                        ->send(new \App\Mail\PagoFacturaConfirmado($factura));
+
+                    \Filament\Notifications\Notification::make()
+                        ->title('Pago confirmado y factura enviada')
+                        ->success()
+                        ->send();
+                } catch (\Exception $e) {
+
+                    \Filament\Notifications\Notification::make()
+                        ->title('Pago confirmado, pero falló el email')
+                        ->body($e->getMessage())
+                        ->warning()
+                        ->send();
+                }
+            } else {
+
+                \Filament\Notifications\Notification::make()
+                    ->title('Pago confirmado correctamente')
+                    ->success()
+                    ->send();
+            }
+
+        } catch (\Exception $e) {
+
+            \Filament\Notifications\Notification::make()
+                ->title('Error')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }),
+
 // 🚀 ENVIAR CONTRATO (Manual)
             Tables\Actions\Action::make('enviar_contrato')
                 ->label('') // <--- SIN TEXTO
@@ -843,42 +1050,77 @@ public static function form(Form $form): Form
                 ->requiresConfirmation()
                 ->modalHeading('Enviar Contrato')
                 ->modalDescription('Se generará un enlace único basado en esta venta. El cliente recibirá un email para firmar.')
-                ->visible(fn (Venta $record) => 
-                    $record->lead_id && $record->lead && is_null($record->lead->contract_signed_at)
-                )
+             ->visible(fn (Venta $record) => 
+                        $record->lead_id && 
+                        $record->lead && 
+                        is_null($record->lead->contract_signed_at) && // Que no haya firmado
+                        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA && // Que no esté cancelada
+                        $record->items()->exists() // Que tenga servicios (evita errores)
+                    )
                 ->action(function (Venta $record) {
+                    Log::info('🔥 ENVIAR CONTRATO MANUAL EJECUTADO');
+
                     if (!$record->lead || !$record->cliente) {
                         Notification::make()->title('Error')->body('Falta Lead o Cliente.')->danger()->send();
                         return;
                     }
 
-                    // Construir Blueprint
-                    $itemsBlueprint = $record->items->map(function ($item) {
-                        $svc = $item->servicio;
-                        return [
-                            'servicio_id'         => $svc->id,
-                            'nombre'              => $item->nombre_personalizado ?: $svc->nombre,
-                            'tipo'                => $svc->tipo->value,
-                            'precio_base'         => $item->precio_unitario_aplicado ?? $item->precio_unitario,
-                            'unidades'            => $item->cantidad,
-                            'total_linea'         => $item->subtotal_aplicado,
-                            'es_tarifa_principal' => $svc->es_tarifa_principal,
-                            'es_alta_autonomo'    => false,
-                        ];
-                    })->toArray();
+                // Construir Blueprint
+                $itemsBlueprint = $record->items->map(function ($item) {
+                    $svc = $item->servicio;
+
+                    // Nombre real a analizar
+                    $nombre = strtoupper($item->nombre_personalizado ?: $svc->nombre);
+
+                    return [
+                        'servicio_id'         => $svc->id,
+                        'nombre'              => $item->nombre_personalizado ?: $svc->nombre,
+                        'tipo'                => $svc->tipo->value,
+                        'precio_base'         => $item->precio_unitario_aplicado ?? $item->precio_unitario,
+                        'unidades'            => $item->cantidad,
+                        'total_linea'         => $item->subtotal_aplicado,
+                        'es_tarifa_principal' => $svc->es_tarifa_principal,
+
+                        // 🔥 Flags REALES que usa getActiveForms()
+                        'es_alta_autonomo'     => (str_contains($nombre, 'ALTA') && str_contains($nombre, 'AUTON')),
+                        'es_creacion_sociedad' => (str_contains($nombre, 'SOCIEDAD') || str_contains($nombre, 'SL')),
+                        'es_capitalizacion'    => (str_contains($nombre, 'CAPITALIZA')),
+                    ];
+                })->toArray();
+                        // 🔥🔥🔥 AÑADIR ESTE LOG AQUÍ
+                         Log::info('BLUEPRINT MANUAL GENERADO', $itemsBlueprint);
+                              // 🔥🔥🔥
+
 
                     if (empty($itemsBlueprint)) {
                         Notification::make()->title('Error')->body('Venta sin servicios.')->danger()->send();
                         return;
                     }
 
-                    // Detectar Formulario
+                    // Detectar Formulario PRINCIPAL
+                    // --------------------------------
+                    // Regla general:
+                    // 1) Si lleva SL → formulario SL
+                    // 2) Si lleva capitalización → formulario capitalización
+                    // 3) Si lleva alta autónomo → formulario alta autónomo
+                    // 4) Si solo lleva fiscal recurrente → el estándar
                     $formType = 'alta_autonomo_fiscal_recurrente';
+
                     foreach ($itemsBlueprint as $bpItem) {
-                        $nombre = strtolower($bpItem['nombre']);
-                        if (str_contains($nombre, 'sociedad') || str_contains($nombre, 'sl')) $formType = 'creacion_sociedad';
-                        elseif ($formType !== 'creacion_sociedad' && (str_contains($nombre, 'capitaliza') || str_contains($nombre, 'pago único'))) $formType = 'capitalizacion';
-                        elseif ($formType === 'alta_autonomo_fiscal_recurrente' && str_contains($nombre, 'alta') && str_contains($nombre, 'autónomo')) $formType = 'alta_autonomo';
+                        if (!empty($bpItem['es_creacion_sociedad'])) {
+                            $formType = 'creacion_sociedad';
+                            break;
+                        }
+
+                        if (!empty($bpItem['es_capitalizacion'])) {
+                            $formType = 'capitalizacion';
+                            // seguimos por si hay SL, pero prioridad después de SL
+                        }
+
+                        if (!empty($bpItem['es_alta_autonomo'])) {
+                            $formType = 'alta_autonomo';
+                            // seguimos por si hay SL o capitalización
+                        }
                     }
 
                     // Pre-rellenar datos
@@ -1191,55 +1433,53 @@ public static function infolist(Infolist $infolist): Infolist
             ]),
             
             // --- BLOQUE 2: Resumen Económico ---
-            InfoSection::make('Resumen Económico')
-                ->columns(2)
-                ->schema([
-                    Grid::make(2)->schema([
-                        TextEntry::make('importe_base_sin_descuento')
-                            ->label('Importe Original (Base)')->money('EUR')
-                            ->helperText('Coste real de los servicios sin descuentos.')
-                            ->state(fn (Venta $record): float => $record->items->sum('subtotal')),
-                        TextEntry::make('descuento_servicios_unicos')
-                            ->label('Dto. Servicios Únicos')->money('EUR')->color('danger')
-                            ->state(function (Venta $record): float {
-                                return $record->items
-                                    ->where('servicio.tipo', ServicioTipoEnum::UNICO)
-                                    ->sum(fn ($item) => ($item->cantidad * $item->precio_unitario) - $item->subtotal_aplicado);
-                            }),
-                        TextEntry::make('importe_total')
-                            ->label('Importe Final (Base)')->money('EUR')
-                            ->helperText('Final sin IVA con descuentos aplicados.')
-                            ->weight('bold'),
-                        TextEntry::make('ahorro_total_recurrente')
-                            ->label('Ahorro Total Recurrente')->money('EUR')->color('danger')->weight('bold')
-                            ->state(function (Venta $record): float {
-                                $ahorroTotal = $record->items
-                                    ->where('servicio.tipo', ServicioTipoEnum::RECURRENTE)
-                                    ->sum(function ($item) {
-                                        $descuentoMensualItem = ($item->cantidad * $item->precio_unitario) - $item->subtotal_aplicado;
-                                        $meses = $item->descuento_duracion_meses ?? 1;
-                                        return $descuentoMensualItem * $meses;
-                                    });
-                                return round($ahorroTotal, 2);
-                            })
-                            ->helperText(function (Venta $record): ?string {
-                                $descuentoMensual = $record->items
-                                    ->where('servicio.tipo', ServicioTipoEnum::RECURRENTE)
-                                    ->sum(fn ($item) => ($item->cantidad * $item->precio_unitario) - $item->subtotal_aplicado);
-
-                                if ($descuentoMensual > 0) {
-                                    return '(-' . number_format($descuentoMensual, 2, ',', '.') . ' €/mes)';
-                                }
-                                return null;
-                            }),
-                    ])->columnSpan(1),
-                    
-                    Grid::make(1)->schema([
-                        TextEntry::make('importe_total_con_iva')
-                            ->label('Total a Facturar (IVA incl.)')->money('EUR')->weight('extrabold')->size('lg')->color('success')
-                            ->state(fn(Venta $record) => round($record->importe_total * 1.21, 2)),
-                    ])->columnSpan(1),
-                ]),
+    InfoSection::make('Resumen Económico')
+                        ->columns(2)
+                        ->schema([
+                            Grid::make(2)->schema([
+                                TextEntry::make('importe_base_sin_descuento')
+                                    ->label('Importe Original (Base)')->money('EUR')
+                                    ->helperText('Coste real de los servicios sin descuentos.')
+                                    ->state(fn (Venta $record): float => $record->items->sum('subtotal')),
+                                
+                                TextEntry::make('descuento_servicios_unicos')
+                                    ->label('Dto. Servicios Únicos')->money('EUR')->color('danger')
+                                    ->state(function (Venta $record): float {
+                                        return $record->items
+                                            ->where('servicio.tipo', ServicioTipoEnum::UNICO)
+                                            ->sum(fn ($item) => ($item->cantidad * $item->precio_unitario) - $item->subtotal_aplicado);
+                                    }),
+                                
+                                TextEntry::make('importe_total')
+                                    ->label('Importe Final (Base)')->money('EUR')
+                                    ->helperText('Final sin Impuestos con descuentos aplicados.')
+                                    ->weight('bold'),
+                                
+                                // ... (Entry de ahorro recurrente igual que antes) ...
+                                TextEntry::make('ahorro_total_recurrente')
+                                    ->label('Ahorro Total Recurrente')->money('EUR')->color('danger')->weight('bold')
+                                    ->state(fn (Venta $record) => round($record->items->where('servicio.tipo', ServicioTipoEnum::RECURRENTE)->sum(fn ($item) => (($item->cantidad * $item->precio_unitario) - $item->subtotal_aplicado) * ($item->descuento_duracion_meses ?? 1)), 2)),
+                            ])->columnSpan(1),
+                            
+                            Grid::make(1)->schema([
+                                // 🔥 CORRECCIÓN AQUI: Total con IVA Dinámico
+                                TextEntry::make('importe_total_con_iva')
+                                    ->label('Total a Facturar (IVA/IGIC incl.)')
+                                    ->money('EUR')->weight('extrabold')->size('lg')->color('success')
+                                    ->state(function (Venta $record) {
+                                        // Detectamos impuesto según el cliente de la venta
+                                        $porcentaje = \App\Models\Cliente::getPorcentajeImpuesto(
+                                            $record->cliente?->codigo_postal, 
+                                            $record->cliente?->provincia
+                                        );
+                                        // Calculamos
+                                        return round($record->importe_total * (1 + ($porcentaje / 100)), 2);
+                                    })
+                                    ->helperText(fn (Venta $record) => 
+                                        "Calculado con " . \App\Models\Cliente::getPorcentajeImpuesto($record->cliente?->codigo_postal, $record->cliente?->provincia) . "% de impuestos."
+                                    ),
+                            ])->columnSpan(1),
+                        ]),
             
             // --- BLOQUE 3: Desglose de Servicios Vendidos ---
             InfoSection::make('Desglose de Servicios Vendidos')

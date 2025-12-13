@@ -58,7 +58,7 @@ return [
        // ESTADO DISPARADOR DE BIENVENIDA
         LeadEstadoEnum::CONVERTIDO_FIRMADO->value => [
             'slug' => 'convertido_firmado', // Asegúrate que este slug existe en tu tabla email_templates
-            'auto' => true,
+            'auto' => false,
             // Sin recordatorios, es un email único
         ],
         // Estados sin email automático

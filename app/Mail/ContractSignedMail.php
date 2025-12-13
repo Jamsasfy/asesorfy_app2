@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Models\Lead;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Attachment;
@@ -13,26 +14,21 @@ class ContractSignedMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public $lead;
-    public $pdfPath;
-    public $factura; // <--- Propiedad para la factura
+    public Lead $lead;
+    public string $pdfPath;
 
     /**
-     * Create a new message instance.
-     *
-     * @param mixed $lead
-     * @param string $pdfPath Ruta absoluta al archivo PDF
-     * @param mixed|null $factura Objeto factura (opcional)
+     * @param Lead   $lead     Lead asociado
+     * @param string $pdfPath  Ruta absoluta al PDF firmado
      */
-    public function __construct($lead, string $pdfPath, $factura = null)
+    public function __construct(Lead $lead, string $pdfPath)
     {
-        $this->lead = $lead;
+        $this->lead    = $lead;
         $this->pdfPath = $pdfPath;
-        $this->factura = $factura;
     }
 
     /**
-     * Get the message envelope.
+     * Encabezado del email
      */
     public function envelope(): Envelope
     {
@@ -42,17 +38,20 @@ class ContractSignedMail extends Mailable
     }
 
     /**
-     * Get the message content definition.
+     * Vista original del email (la tuya)
      */
     public function content(): Content
     {
         return new Content(
             view: 'emails.contract-signed',
+            with: [
+                'lead' => $this->lead,
+            ],
         );
     }
 
     /**
-     * Get the attachments for the message.
+     * Adjuntar PDF del contrato firmado
      */
     public function attachments(): array
     {

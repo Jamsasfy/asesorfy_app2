@@ -7,7 +7,10 @@ namespace App\Models;
 use Filament\Models\Contracts\FilamentUser;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+
+// 👇 IMPORTACIÓN NORMAL DEL TRAIT — SIN BLOQUES {}
 use Illuminate\Notifications\Notifiable;
+
 use Illuminate\Support\Str;
 use Spatie\Permission\Traits\HasRoles;
 use Filament\Panel;
@@ -15,70 +18,59 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Notifications\Notification;
 
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, Notifiable, HasRoles;
+    use HasFactory;
+    use HasRoles;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var list<string>
-     */
+    // 👇 APLICAMOS EL TRAIT CON ALIAS DENTRO DE LA CLASE (AQUÍ SÍ)
+    use Notifiable {
+        Notifiable::notify as protected laravelNotify;
+    }
+
     protected $fillable = [
         'name',
         'email',
         'password',
-         'acceso_app',
+        'acceso_app',
     ];
 
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var list<string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
     ];
 
-    /**
-     * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
             'email_verified_at' => 'datetime',
-            'password' => 'hashed',
+            'password'          => 'hashed',
         ];
     }
-//bootIAfy no puede acceder a panel protegido
+
+    // bootIAFy no puede acceder al panel protegido
     public function canAccessPanel(Panel $panel): bool
     {
-        // 🚫 Bloquear siempre a Boot IA Fy
-    if ($this->id === 9999) {
-        return false;
+        if ($this->id === 9999) {
+            return false;
+        }
+
+        return true;
     }
 
-    return true;
-    }
-//protegemos que nunca le llegen ni mande notificaciones
-public function notify(Notification $notification): void
+    // ⛔ Override notify() para que el bot no reciba notificaciones
+    public function notify($notification): void
     {
-        // 👇 El bot NO recibe notificaciones nunca
         if ($this->id === 9999) {
             return;
         }
 
-        parent::notify($notification);
+        // Llamamos al método original del trait
+        $this->laravelNotify($notification);
     }
-    /**
-     * Get the user's initials
-     */
+
     public function initials(): string
     {
         return Str::of($this->name)
@@ -87,55 +79,46 @@ public function notify(Notification $notification): void
             ->implode('');
     }
 
-    //relacciones
-
-    public function oficina() :BelongsTo{
+    public function oficina(): BelongsTo
+    {
         return $this->belongsTo(Oficina::class);
     }
-     // Relación one-to-one con Trabajador
-     public function trabajador() :HasOne
-     {
-         return $this->hasOne(Trabajador::class);
-     }
-   
-     public function getFullNameAttribute(): string
-     {
-         $apellidos = $this->trabajador?->apellidos ?? '';
-         return trim("{$this->name} {$apellidos}");
-     }
 
-     public function clientes(): BelongsToMany
+    public function trabajador(): HasOne
+    {
+        return $this->hasOne(Trabajador::class);
+    }
+
+    public function getFullNameAttribute(): string
+    {
+        $apellidos = $this->trabajador?->apellidos ?? '';
+        return trim("{$this->name} {$apellidos}");
+    }
+
+    public function clientes(): BelongsToMany
     {
         return $this->belongsToMany(Cliente::class, 'cliente_user');
     }
 
-    //usado para ver el tipo de usuario que ha subido el documento
     public function tipoDeUsuario(): string
-{
-    // Primero comprobamos si es super_admin (con Shield o Spatie)
-    if ($this->hasRole('super_admin')) {
-        return 'Super Admin';
+    {
+        if ($this->hasRole('super_admin')) {
+            return 'Super Admin';
+        }
+
+        if ($this->trabajador) {
+            return 'Trabajador';
+        }
+
+        if ($this->clientes()->exists()) {
+            return 'Cliente';
+        }
+
+        return 'Desconocido';
     }
 
-    // Luego comprobamos si es trabajador
-    if ($this->trabajador) {
-        return 'Trabajador';
+    public function ventas(): HasMany
+    {
+        return $this->hasMany(Venta::class);
     }
-
-    // Luego si está vinculado a algún cliente
-    if ($this->clientes()->exists()) {
-        return 'Cliente';
-    }
-
-    return 'Desconocido';
-}
-
-  // Relación uno-a-muchos con Ventas (las ventas cerradas por este usuario)
-  public function ventas(): HasMany
-  {
-      return $this->hasMany(Venta::class);
-  }
-
-
-
 }

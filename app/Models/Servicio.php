@@ -25,11 +25,13 @@ class Servicio extends Model
         'tipo',
         'precio_base',
         'activo',
-         'es_editable',
+        'es_editable',
         'es_tarifa_principal', 
         'requiere_proyecto_activacion', 
         'ciclo_facturacion',
         'departamento_id',
+        'stripe_product_id',
+        'stripe_price_id',
 
     ];
 

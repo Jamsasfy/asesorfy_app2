@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Enums\ClienteEstadoEnum;
+use App\Services\ConfiguracionService; 
+
 
 
 class Cliente extends Model
@@ -21,6 +23,7 @@ class Cliente extends Model
         'nombre',
         'apellidos',
         'razon_social',
+        'nombre_comercial',  // NUEVO: La marca o rótulo
         'dni_cif',
         'email_contacto',
         'telefono_contacto',
@@ -39,6 +42,8 @@ class Cliente extends Model
         'fecha_baja',
         'lead_id',
         'comercial_id',
+        'stripe_customer_id',
+        'preferencia_pago_recurrente',  
        
     ];
 
@@ -176,7 +181,68 @@ protected static function booted(): void
         $cliente->usuarios()->detach();
     });
 }
+public function tieneMetodoPagoStripe(): bool
+{
+    if (!$this->stripe_customer_id) {
+        return false;
+    }
+
+    try {
+        \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
+
+        $customer = \Stripe\Customer::retrieve($this->stripe_customer_id);
+
+        return !empty($customer->invoice_settings->default_payment_method);
+
+    } catch (\Exception $e) {
+        \Log::error("Stripe ERROR comprobando método de pago cliente {$this->id}: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Al principio del archivo Cliente.php, con los otros use:
 
 
+    /**
+     * Devuelve el porcentaje de impuestos aplicable.
+     * - Si es Canarias (Provincia o CP): Devuelve 0.00.
+     * - Si es resto: Devuelve el valor de la variable 'IVA_general' (por defecto 21.00).
+     */
+  public static function getPorcentajeImpuesto(?string $codPostal = null, ?string $provincia = null): float
+    {
+        // 1. PRIORIDAD: CÓDIGO POSTAL (Es lo más fiable porque es numérico)
+        // 35 = Las Palmas, 38 = Santa Cruz de Tenerife, 51 = Ceuta, 52 = Melilla
+        $cpLimpio = preg_replace('/[^0-9]/', '', $codPostal ?? '');
+        
+        if (strlen($cpLimpio) >= 2) {
+            $prefijo = (int) substr($cpLimpio, 0, 2);
+            if (in_array($prefijo, [35, 38, 51, 52])) {
+                return 0.00; // Exento
+            }
+        }
 
+        // 2. RESPALDO: PROVINCIA (Lista Cerrada)
+        // Comprobamos exactamente contra los nombres de tu array de configuración
+        if (!empty($provincia)) {
+            // Array de provincias/ciudades exentas de IVA (IGIC/IPSI)
+            // Nota: Ceuta y Melilla no están en tu lista, pero las dejo por seguridad
+            $zonasExentas = [
+                'Las Palmas',
+                'Santa Cruz de Tenerife',
+                'Ceuta',
+                'Melilla'
+            ];
+
+            if (in_array(trim($provincia), $zonasExentas)) {
+                return 0.00;
+            }
+        }
+
+        // 3. RESTO DE ESPAÑA: 21%
+        if (class_exists(\App\Services\ConfiguracionService::class)) {
+             return (float) \App\Services\ConfiguracionService::get('IVA_general', 21.00);
+        }
+
+        return 21.00;
+    }
 }

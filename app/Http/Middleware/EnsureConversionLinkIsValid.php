@@ -6,39 +6,58 @@ use App\Models\LeadConversionLink;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log;
 
 class EnsureConversionLinkIsValid
 {
     /**
      * Maneja la petición entrante para validar el token y el estado del link.
      */
-    public function handle(Request $request, Closure $next): Response
-    {
-        $token = $request->route('token');
+public function handle(Request $request, Closure $next): Response
+{
+   
 
-        // 1. Buscar el link y su lead asociado
-        $link = LeadConversionLink::where('token', $token)
-            ->with('lead')
-            ->first();
+    $token = $request->route('token');
 
-        if (!$link || !$link->lead) {
-            return $this->linkError('invalid');
-        }
+    // Buscar link
+    $link = LeadConversionLink::where('token', $token)
+        ->with('lead')
+        ->first();
 
-        // 2. Comprobar el estado del link
-        if ($link->isUsed()) {
-            return $this->linkError('used', $link);
-        }
+    if (!$link || !$link->lead) {
+          
+        return $this->linkError('invalid');
+    }
 
-        if ($link->isExpired()) {
-            return $this->linkError('expired', $link);
-        }
+    // ⚠️ SI ES LA RUTA DE GRACIAS → PERMITIR Y ADEMÁS INYECTAR EL LINK
+    if ($request->route()->getName() === 'conversion.finished') {
+        
 
-        // 3. Inyectar el link válido en la petición para que el controlador lo use
+        // Inyectamos para que finished() reciba el link
         $request->attributes->set('conversion_link', $link);
 
         return $next($request);
     }
+
+    // Link usado → BLOQUEAR en formularios, NO en pantalla gracias
+    if ($link->isUsed()) {
+       
+        return $this->linkError('used', $link);
+    }
+
+    // Link caducado
+    if ($link->isExpired()) {
+       
+        return $this->linkError('expired', $link);
+    }
+
+    // Link OK → continuar e inyectar
+    $request->attributes->set('conversion_link', $link);
+ 
+    return $next($request);
+}
+
+
     
     /**
      * Genera la respuesta de error 410 (Gone) reutilizando la vista.

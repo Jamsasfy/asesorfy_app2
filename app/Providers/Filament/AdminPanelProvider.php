@@ -44,7 +44,7 @@ class AdminPanelProvider extends PanelProvider
         ->colors([
             'primary' => '#41c0e9',
         ])
-         
+        ->theme(asset('css/filament/admin/theme.css'))
         ->font('Varela Round')
         ->breadcrumbs(false)
         ->maxContentWidth(MaxWidth::Full)

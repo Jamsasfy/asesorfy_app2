@@ -10,6 +10,7 @@ use Filament\Infolists\Components\KeyValueEntry;
 use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\IconEntry;
+use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -17,19 +18,20 @@ use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-
+use Illuminate\Support\Str;
+use Filament\Support\Enums\FontFamily;
 
 class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = LeadAutoEmailLog::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-bug-ant';
+    protected static ?string $navigationIcon = 'heroicon-o-inbox-stack';
     protected static ?string $navigationGroup = 'Comunicación';
-    protected static ?string $navigationLabel = 'Log Envíos  Boot IA Fy🤖';
-    protected static ?string $modelLabel = 'Log envío automático 🤖';
-    protected static ?string $pluralModelLabel = 'Log envíos automáticos 🤖';
+    protected static ?string $navigationLabel = 'Historial de Envíos 🤖';
+    protected static ?string $modelLabel = 'Envío';
+    protected static ?string $pluralModelLabel = 'Historial de Envíos';
 
-     public static function getPermissionPrefixes(): array
+    public static function getPermissionPrefixes(): array
     {
         return [
             'view',
@@ -43,257 +45,214 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
 
     public static function form(Form $form): Form
     {
-        // No queremos crear/editar desde aquí,
-        // solo ver (List + View).
         return $form->schema([]);
     }
 
-    /**
-     * ======================
-     *   LISTADO (TABLE)
-     * ======================
-     */
     public static function table(Table $table): Table
     {
         return $table
-           ->defaultSort('sent_at', 'desc')   // Primero por sent_at DESC
-        ->defaultSort('created_at', 'desc') // Luego por created_at DESC
+            ->defaultSort('created_at', 'desc')
             ->columns([
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Estado')
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'sent'         => 'Enviado',
+                        'pending'      => 'Pendiente',
+                        'failed'       => 'Fallido',
+                        'rate_limited' => 'Límite excedido',
+                        'skipped'      => 'Omitido',
+                        default        => ucfirst($state),
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'sent'         => 'success',
+                        'pending'      => 'warning',
+                        'failed'       => 'danger',
+                        'rate_limited' => 'info',
+                        'skipped'      => 'gray',
+                        default        => 'gray',
+                    })
+                    ->icon(fn (string $state): string => match ($state) {
+                        'sent'         => 'heroicon-m-check-circle',
+                        'failed'       => 'heroicon-m-x-circle',
+                        'pending'      => 'heroicon-m-clock',
+                        'rate_limited' => 'heroicon-m-exclamation-triangle',
+                        default        => 'heroicon-m-question-mark-circle',
+                    })
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('lead.nombre')
-                    ->label('Lead')
-                     ->searchable(isIndividual: true)
-                    ->sortable()
-                    ->url(fn ($record) => LeadResource::getUrl('edit', ['record' => $record->lead]))
-                    ->openUrlInNewTab(),
-
-                Tables\Columns\TextColumn::make('lead.email')
-                    ->label('Email')
-                    ->searchable(isIndividual: true)
-                    ->toggleable(),
-
-                Tables\Columns\BadgeColumn::make('estado')
-                    ->label('Estado lead')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('intento')
-                    ->label('Intento')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('template_identifier')
-                    ->label('Plantilla')
-                    ->toggleable(),
+                    ->label('Destinatario')
+                    ->weight('bold')
+                    ->description(fn (LeadAutoEmailLog $record) => $record->lead?->email)
+                    ->searchable(['nombre', 'email'])
+                    ->url(fn ($record) => $record->lead ? LeadResource::getUrl('edit', ['record' => $record->lead]) : null)
+                    ->openUrlInNewTab()
+                    ->color('primary'),
 
                 Tables\Columns\TextColumn::make('subject')
                     ->label('Asunto')
                     ->limit(40)
-                    ->searchable(),
+                    ->searchable()
+                    ->weight('medium'),
 
-                Tables\Columns\BadgeColumn::make('status')
-                    ->label('Estado envío')
-                    ->colors([
-                        'success' => 'sent',
-                        'warning' => 'pending',
-                        'danger'  => 'failed',
-                        'info'    => 'rate_limited',
-                    ])
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('scheduled_at')
-                    ->label('Programado')
-                    ->dateTime()
-                    ->sortable()
+                Tables\Columns\TextColumn::make('template_identifier')
+                    ->label('Tipo')
+                    ->formatStateUsing(fn (string $state) => Str::headline(str_replace('_', ' ', $state)))
+                    ->badge()
+                    ->color('gray')
                     ->toggleable(),
 
                 Tables\Columns\TextColumn::make('sent_at')
                     ->label('Enviado')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(),
-
-                Tables\Columns\TextColumn::make('provider')
-                    ->label('Proveedor')
-                    ->toggleable(),
-
-                Tables\Columns\IconColumn::make('rate_limited')
-                    ->label('Rate limited')
-                    ->boolean()
-                    ->toggleable(),
-
-                Tables\Columns\TextColumn::make('error_code')
-                    ->label('Error')
-                    ->limit(20)
-                    ->toggleable(),
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable(),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('estado')
-                    ->label('Estado lead')
-                    ->options(fn () => LeadAutoEmailLog::query()
-                        ->select('estado')
-                        ->distinct()
-                        ->pluck('estado', 'estado')
-                        ->toArray()
-                    ),
-
                 Tables\Filters\SelectFilter::make('status')
-                    ->label('Estado envío')
+                    ->label('Estado')
                     ->options([
-                        'pending'      => 'Pendiente',
-                        'sent'         => 'Enviado',
-                        'failed'       => 'Fallido',
-                        'skipped'      => 'Omitido',
-                        'rate_limited' => 'Rate limited',
+                        'sent' => 'Enviados',
+                        'failed' => 'Fallidos',
+                        'pending' => 'Pendientes',
                     ]),
-
-                Tables\Filters\TernaryFilter::make('rate_limited')
-                    ->label('Solo rate-limited'),
-
-                Tables\Filters\Filter::make('sent_between')
+                Tables\Filters\Filter::make('created_at')
                     ->form([
-                        \Filament\Forms\Components\DatePicker::make('from')->label('Desde'),
-                        \Filament\Forms\Components\DatePicker::make('until')->label('Hasta'),
+                        \Filament\Forms\Components\DatePicker::make('desde'),
+                        \Filament\Forms\Components\DatePicker::make('hasta'),
                     ])
-                    ->query(function ($query, array $data) {
+                    ->query(function (Builder $query, array $data): Builder {
                         return $query
-                            ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('sent_at', '>=', $date))
-                            ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('sent_at', '<=', $date));
+                            ->when($data['desde'], fn (Builder $query, $date) => $query->whereDate('created_at', '>=', $date))
+                            ->when($data['hasta'], fn (Builder $query, $date) => $query->whereDate('created_at', '<=', $date));
                     }),
-                      
-                  Tables\Filters\Filter::make('sent_today')
-                        ->label('Enviados hoy')
-                        ->toggle()
-                        ->query(fn (Builder $query): Builder =>
-                            $query->whereDate('sent_at', today())
-                        ),
-            ], layout: FiltersLayout::AboveContent) // Mantener layout
-        ->filtersFormColumns(5)
+            ], layout: FiltersLayout::AboveContent)
             ->actions([
-                Tables\Actions\ViewAction::make(),
-            ])
-            ->bulkActions([]);
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Ver detalle'),
+            ]);
     }
-
-    /**
-     * ======================
-     *   VISTA (INFOLIST)
-     * ======================
-     */
-    public static function infolist(Infolist $infolist): Infolist
+public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist
             ->schema([
-                Section::make('Lead relacionado')
-                    ->description('Información del lead al que pertenece este envío automático.')
+                
+                // --- CABECERA DE ESTADO ---
+                Section::make()
                     ->schema([
-                        TextEntry::make('lead.nombre')
-                            ->label('Nombre')
-                            ->url(fn ($record) => LeadResource::getUrl('edit', ['record' => $record->lead]))
-                            ->openUrlInNewTab()
-                            ->extraAttributes(['class' => 'text-primary font-semibold']),
+                        Grid::make(4)->schema([
+                            TextEntry::make('status')
+                                ->label('Estado Actual')
+                                ->badge()
+                                ->size('lg')
+                                ->formatStateUsing(fn (string $state): string => match ($state) {
+                                    'sent' => 'ENVIADO',
+                                    'failed' => 'FALLIDO',
+                                    'pending' => 'PENDIENTE',
+                                    default => strtoupper($state),
+                                })
+                                ->color(fn (string $state): string => match ($state) {
+                                    'sent' => 'success',
+                                    'failed' => 'danger',
+                                    'pending' => 'warning',
+                                    default => 'gray',
+                                }),
 
-                        TextEntry::make('lead.email')
-                            ->label('Email'),
+                            TextEntry::make('sent_at')
+                                ->label('Fecha Envío')
+                                ->dateTime('d/m/Y H:i:s'),
 
-                        TextEntry::make('estado')
-                            ->label('Estado del lead')
-                            ->badge()
-                            ->color(fn ($state) => match ($state) {
-                                'intento_contacto'      => 'warning',
-                                'esperando_informacion' => 'info',
-                                default                 => 'gray',
-                            }),
-                    ])
-                    ->columns(3)
-                    ->collapsible(),
+                            TextEntry::make('lead.nombre')
+                                ->label('Destinatario')
+                                ->url(fn ($record) => $record->lead ? LeadResource::getUrl('edit', ['record' => $record->lead]) : null)
+                                ->color('primary')
+                                ->weight('bold'),
+                            
+                            TextEntry::make('template_identifier')
+                                ->label('Plantilla')
+                                ->badge()
+                                ->color('gray'),
+                        ]),
+                    ]),
 
-                Section::make('Detalles del envío')
+                // --- SI HAY ERROR ---
+                Section::make('Error')
+                    ->icon('heroicon-m-exclamation-triangle')
+                    ->iconColor('danger')
+                    ->visible(fn ($record) => $record->status === 'failed' || $record->error_message)
                     ->schema([
-                        TextEntry::make('intento')
-                            ->label('Intento')
-                            ->badge()
-                            ->color('primary'),
+                        TextEntry::make('error_message')
+                            ->label('Mensaje')
+                            ->color('danger')
+                            ->weight('bold')
+                            ->columnSpanFull(),
+                    ]),
 
-                        TextEntry::make('template_identifier')
-                            ->label('Plantilla usada'),
-
+                // --- CONTENIDO ---
+              // --- CONTENIDO DEL EMAIL ---
+                Section::make('Contenido del Mensaje')
+                    ->icon('heroicon-m-envelope-open')
+                    ->collapsible()
+                    ->schema([
                         TextEntry::make('subject')
                             ->label('Asunto')
-                            ->extraAttributes(['class' => 'font-semibold']),
+                            ->size('lg')
+                            ->weight('bold')
+                            ->columnSpanFull(),
 
-                        TextEntry::make('status')
-                            ->label('Estado del envío')
-                            ->badge()
-                            ->color(fn ($state) => match ($state) {
-                                'sent'         => 'success',
-                                'failed'       => 'danger',
-                                'rate_limited' => 'info',
-                                'pending'      => 'warning',
-                                default        => 'gray',
-                            }),
-
-                        TextEntry::make('scheduled_at')
-                            ->label('Programado para')
-                            ->dateTime(),
-
-                        TextEntry::make('sent_at')
-                            ->label('Enviado el')
-                            ->dateTime()
-                            ->placeholder('—'),
-                    ])
-                    ->columns(3)
-                    ->collapsible(),
-
-                Section::make('Contenido del email')
-                    ->schema([
                         TextEntry::make('body_preview')
-                            ->label('Vista previa')
-                            ->markdown()
-                            ->columnSpanFull(),
-                    ])
-                    ->collapsible(),
+                            ->label('') // Quitamos etiqueta para ganar espacio
+                            ->html()    // 👈 IMPORTANTE: Renderizar como HTML, no Markdown
+                            ->columnSpanFull()
+                            ->extraAttributes([
+                                'class' => '
+                                    p-6 rounded-lg border
+                                    bg-white text-gray-900 border-gray-200 
+                                    dark:bg-gray-900 dark:text-gray-100 dark:border-gray-700
+                                    prose max-w-none 
+                                ',
+                                // Esto asegura que si el HTML es complejo, no rompa el layout
+                                'style' => 'font-family: sans-serif; line-height: 1.5;',
+                            ]),
+                    ]),
 
-                Section::make('Información técnica')
+                // --- DATOS TÉCNICOS ---
+                Section::make('Información Técnica Avanzada')
+                    ->icon('heroicon-m-cpu-chip')
+                    ->collapsible()
+                    ->collapsed()
+                    ->compact()
                     ->schema([
-                        TextEntry::make('mail_driver')
-                            ->label('Mail Driver')
-                            ->badge()
-                            ->color('gray'),
+                        Grid::make(3)->schema([
+                            TextEntry::make('mail_driver')
+                                ->label('Driver')
+                                ->badge()
+                                ->color('gray'),
 
-                        TextEntry::make('provider')
-                            ->label('Proveedor')
-                            ->badge()
-                            ->color('gray')
-                            ->placeholder('—'),
+                            TextEntry::make('provider')
+                                ->label('Proveedor')
+                                ->placeholder('-'),
 
-                        TextEntry::make('provider_message_id')
-                            ->label('Message ID')
-                            ->placeholder('—'),
+                            TextEntry::make('intento')
+                                ->label('Intento Nº'),
 
-                        IconEntry::make('rate_limited')
-                            ->label('Rate limited')
-                            ->boolean()
-                            ->trueIcon('heroicon-o-shield-exclamation')
-                            ->falseIcon('heroicon-o-check-circle'),
-
-                        TextEntry::make('error_code')
-                            ->label('Código error')
-                            ->placeholder('—'),
-
-                        TextEntry::make('error_message')
-                            ->label('Mensaje error')
-                            ->placeholder('—')
-                            ->columnSpanFull(),
-                    ])
-                    ->columns(3)
-                    ->collapsible(),
-
-                Section::make('Meta adicional')
-                    ->schema([
+                            TextEntry::make('scheduled_at')
+                                ->label('Programado')
+                                ->dateTime(),
+                            
+                            TextEntry::make('provider_message_id')
+                                ->label('ID Mensaje')
+                                ->fontFamily(FontFamily::Mono)
+                                ->copyable(),
+                            
+                            IconEntry::make('rate_limited')
+                                ->label('Límite excedido')
+                                ->boolean(),
+                        ]),
+                        
                         KeyValueEntry::make('meta')
-                            ->label('Meta')
+                            ->label('Metadatos Adicionales')
                             ->columnSpanFull(),
-                    ])
-                    ->visible(fn ($record) => !empty($record->meta))
-                    ->collapsible(),
+                    ]),
             ]);
     }
 

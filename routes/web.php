@@ -11,6 +11,10 @@ use App\Http\Controllers\Public\LeadConversionController;
 use App\Http\Controllers\Public\StripePaymentController;
 use App\Http\Controllers\Public\PaymentLinkController;
 
+use App\Http\Controllers\Public\StripeSetupController;
+
+use App\Http\Controllers\Webhooks\StripeWebhookController;
+
 
 
 //eliminar
@@ -42,41 +46,63 @@ Route::get('/facturas/generar-pdf/{factura}', [FacturaPdfController::class, 'gen
     ->name('file.view')
     ->middleware('auth'); // <-- AÑADIR ESTA LÍNEA
 
-
-    
-// --- GRUPO DE CONVERSIÓN DE LEADS ---
 Route::prefix('conversion')->name('conversion.')->group(function () {
 
-    // 1. Rutas que requieren que el link sea VÁLIDO (no usado y no caducado)
     Route::middleware('conversion.link.valid')->group(function () {
-        // GET /conversion/{token} (Muestra formulario)
-        Route::get('{token}', [LeadConversionController::class, 'show'])->name('show')->whereUuid('token');
-        
-        // POST /conversion/{token} (Guarda datos y va a contrato)
-        Route::post('{token}', [LeadConversionController::class, 'submit'])->name('submit')->whereUuid('token');
 
-        // GET /conversion/{token}/contrato (Muestra contrato scrollable)
-        Route::get('{token}/contrato', [LeadConversionController::class, 'contract'])->name('contract')->whereUuid('token');
+        // 1) Mostrar formulario
+        Route::get('{token}', [LeadConversionController::class, 'show'])
+            ->name('show');
 
-        // POST /conversion/{token}/firmar (Firma, genera PDF y marca como usado)
-        Route::post('{token}/firmar', [LeadConversionController::class, 'sign'])->name('sign')->whereUuid('token');
-    });
+        // 2) Enviar formulario
+        Route::post('{token}/submit', [LeadConversionController::class, 'submit'])
+            ->name('submit');
 
-    // 2. Ruta de agradecimiento (Permite acceso aunque el link esté usado o caducado, para ver el resultado final)
-    Route::get('{token}/gracias', [LeadConversionController::class, 'thankyou'])->name('thanks')->whereUuid('token');
+        // 3) Mostrar contrato
+        Route::get('{token}/contract', [LeadConversionController::class, 'contract'])
+            ->name('contract');
+
+        // 4) Firmar contrato
+        Route::post('{token}/sign', [LeadConversionController::class, 'sign'])
+            ->name('sign');
+
+        // 5) Vista final
+        Route::get('{token}/finished', [LeadConversionController::class, 'finished'])
+            ->middleware('check.recurrent')
+            ->name('finished');
+    });  
+
 });
-// rutas publicas stripe
+
+ Route::get('/stripe/setup-card/{token}', [StripeSetupController::class, 'setupCard'])
+    ->name('stripe.setup-card');
+
+Route::post('/stripe/setup-card/{token}/process', [StripeSetupController::class, 'processCard'])
+    ->name('stripe.process-card');
+
+Route::get('/stripe/setup-sepa/{token}', [StripeSetupController::class, 'setupSepa'])
+    ->name('stripe.setup-sepa');
+
+Route::post('/stripe/setup-sepa/{token}/process', [StripeSetupController::class, 'processSepa'])
+    ->name('stripe.process-sepa');
+
+
+// rutas publicas stripe (ahora por VENTA)
 Route::prefix('pagos')->name('payment.')->group(function () {
-    Route::get('{factura}/pagar', [StripePaymentController::class, 'pay'])->name('pay');
-    Route::get('{factura}/ok', [StripePaymentController::class, 'success'])->name('success');
-    Route::get('{factura}/ko', [StripePaymentController::class, 'cancel'])->name('cancel');
+    Route::get('{venta}/pagar', [StripePaymentController::class, 'pay'])->name('pay');
+    Route::get('{venta}/ok', [StripePaymentController::class, 'success'])->name('success');
+    Route::get('{venta}/ko', [StripePaymentController::class, 'cancel'])->name('cancel');
 });
 
-//ruta de boton enviar enlace pro email
+//ruta de boton enviar enlace pro email (LEGACY por factura, lo dejo igual)
 Route::middleware(['auth'])->group(function () {
     Route::post('/admin/facturas/{factura}/enviar-enlace-pago', [PaymentLinkController::class, 'send'])
         ->name('payment.send-link');
 });
+
+
+
+Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle'])->name('stripe.webhook');
 
 
 require __DIR__.'/auth.php';

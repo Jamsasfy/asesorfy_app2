@@ -11,6 +11,8 @@ use App\Models\Proyecto;              // <-- Añadir
 use App\Observers\ProyectoObserver;   // <-- Añadir
 use App\Models\Lead;
 use App\Observers\LeadObserver;
+use App\Models\Servicio;
+use App\Observers\ServicioObserver;
 
 use Illuminate\Support\ServiceProvider;
 
@@ -40,5 +42,6 @@ class AppServiceProvider extends ServiceProvider
         ClienteSuscripcion::observe(\App\Observers\ClienteSuscripcionObserver::class);
         Cliente::observe(\App\Observers\ClienteObserver::class);
          Lead::observe(LeadObserver::class);
+         Servicio::observe(ServicioObserver::class);
     }
 }

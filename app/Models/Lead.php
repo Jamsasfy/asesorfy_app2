@@ -285,6 +285,10 @@ public function estaEsperandoFirma(): bool
     return $this->estado === \App\Enums\LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
 }
 
+public function conversionLinks()
+{
+    return $this->hasMany(\App\Models\LeadConversionLink::class, 'lead_id');
+}
 
 
 
