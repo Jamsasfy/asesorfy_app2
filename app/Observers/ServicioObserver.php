@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use Exception;
 use App\Models\Servicio;
 use App\Enums\ServicioTipoEnum;
 use Stripe\Stripe;
@@ -42,7 +43,7 @@ class ServicioObserver
         }
 
         Stripe::setApiKey(config('services.stripe.secret'));
-        if (app()->isLocal()) \Stripe\Stripe::setVerifySslCerts(false);
+        if (app()->isLocal()) Stripe::setVerifySslCerts(false);
 
         try {
             // A) CREAR PRODUCTO (Si falta)
@@ -90,7 +91,7 @@ class ServicioObserver
                 Log::info("✅ Precio Base Stripe creado: {$servicio->precio_base}€");
             }
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("❌ Error sync Stripe en Observer (ID {$servicio->id}): " . $e->getMessage());
         }
     }

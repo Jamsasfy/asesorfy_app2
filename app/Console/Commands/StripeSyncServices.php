@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use Exception;
 use Illuminate\Console\Command;
 use App\Models\Servicio;
 use App\Enums\ServicioTipoEnum;
@@ -21,7 +22,7 @@ class StripeSyncServices extends Command
 
         // 🚑 PARCHE LOCAL: Desactivar verificación SSL para que funcione en WAMP
         if (app()->isLocal()) {
-            \Stripe\Stripe::setVerifySslCerts(false);
+            Stripe::setVerifySslCerts(false);
         }
 
         $servicios = Servicio::whereNull('stripe_product_id')
@@ -68,7 +69,7 @@ foreach ($servicios as $servicio) {
                 $servicio->saveQuietly();
                 $bar->advance();
 
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->error("Error en servicio ID {$servicio->id}: " . $e->getMessage());
             }
         }

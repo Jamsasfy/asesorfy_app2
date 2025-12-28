@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
-
 class LeadConversionLink extends Model
 {
     protected $guarded = [];
@@ -23,38 +22,111 @@ class LeadConversionLink extends Model
     }
 
     public function isExpired(): bool
-    {
-        return $this->expires_at !== null && now()->greaterThan($this->expires_at);
+{
+    // Si está usado, para el sistema ya no es válido aunque queden días.
+    if ($this->isUsed()) {
+        return true;
     }
+
+    // Si está revocado, también lo consideramos inválido
+    if ($this->isRevoked()) {
+        return true;
+    }
+
+    return $this->expires_at !== null && now()->greaterThan($this->expires_at);
+}
+
 
     public function isUsed(): bool
     {
         return $this->used_at !== null;
     }
 
-    public function scopeActive($q)
+    public function scopeActive($query)
+{
+    return $query
+        ->whereNull('used_at') // ✅ NO usados
+        ->where(function ($q) {
+            $q->whereNull('expires_at')
+              ->orWhere('expires_at', '>', now());
+        })
+        ->where(function ($q) {
+            // ✅ NO revocados (meta JSON)
+            $q->whereNull('meta->revoked_at')
+              ->orWhere('meta->revoked_at', '=', '');
+        });
+}
+
+
+
+    public function scopeLatestForLead($q, int $leadId)
     {
-        return $q->whereNull('used_at')
-                 ->where(function ($qq) {
-                     $qq->whereNull('expires_at')
-                        ->orWhere('expires_at', '>', now());
-                 });
+        return $q->where('lead_id', $leadId)->latest('id');
     }
 
-     /**
-     * Crea un link de conversión estándar para este lead (formulario 1: alta autónomo recurrente).
+    /**
+     * Crea un link de conversión para un lead.
      */
-    public static function createForLead(Lead $lead, string $formType = 'alta_autonomo_fiscal_recurrente'): self
+    public static function createForLead(Lead $lead, string $formType = 'automatic_multi', array $metaExtra = []): self
+    {
+        return self::create([
+            'lead_id'    => $lead->id,
+            'token'      => (string) Str::uuid(),
+            'expires_at' => now()->addDays(7),
+            'mode'       => 'automatic',
+            'meta'       => array_merge([
+                'form_type' => $formType,
+            ], $metaExtra),
+        ]);
+    }
+
+    /**
+     * Regenera token: invalida el anterior y crea uno nuevo copiando meta.
+     * (Recomendado para caducidad / reenvíos “limpios”)
+     */
+    public static function regenerateForLead(Lead $lead, ?self $previous = null, int $days = 7): self
+    {
+        $meta = $previous?->meta ?? [];
+
+        if ($previous) {
+            // No lo marcamos usado; simplemente lo invalidamos por caducidad
+            $previous->expires_at = now()->subSecond();
+            $previous->save();
+        }
+
+        return self::create([
+            'lead_id'    => $lead->id,
+            'token'      => (string) Str::uuid(),
+            'expires_at' => now()->addDays($days),
+            'mode'       => $previous?->mode ?? 'automatic',
+            'meta'       => $meta,
+        ]);
+    }
+
+    // App\Models\LeadConversionLink.php
+
+public function isRevoked(): bool
 {
-    return self::create([
-        'lead_id'    => $lead->id,
-        'token'      => (string) \Illuminate\Support\Str::uuid(),
-        'expires_at' => now()->addDays(7),
-        'mode'       => 'automatic', // 👈 o el valor que uses en tu enum/campo
-        'meta'       => [
-            'form_type' => $formType,
-        ],
-    ]);
+    return !empty(data_get($this->meta, 'revoked_at'));
+}
+
+public function revoke(?int $userId = null, ?string $reason = null): void
+{
+    $meta = $this->meta ?? [];
+
+    $meta['revoked_at'] = now()->toDateTimeString();
+    if ($userId) {
+        $meta['revoked_by_user_id'] = $userId;
+    }
+    if ($reason) {
+        $meta['revoked_reason'] = $reason;
+    }
+
+    $this->meta = $meta;
+
+    // lo invalidamos SIEMPRE
+    $this->expires_at = now()->subSecond();
+    $this->save();
 }
 
 

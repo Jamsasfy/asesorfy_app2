@@ -2,16 +2,22 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\ProcedenciaResource\Pages\ListProcedencias;
+use App\Filament\Resources\ProcedenciaResource\Pages\CreateProcedencia;
+use App\Filament\Resources\ProcedenciaResource\Pages\EditProcedencia;
 use App\Filament\Resources\ProcedenciaResource\Pages;
 use App\Filament\Resources\ProcedenciaResource\RelationManagers;
 use App\Models\Procedencia;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -23,8 +29,8 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Procedencia::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-arrow-down-tray';
-    protected static ?string $navigationGroup = 'Gestión LEADS';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-arrow-down-tray';
+    protected static string | \UnitEnum | null $navigationGroup = 'Gestión LEADS';
     protected static ?string $navigationLabel = 'Procedencia Leads';
     protected static ?string $modelLabel = 'Procedencia';
     protected static ?string $pluralModelLabel = 'Procedencia de los Leads';
@@ -43,10 +49,10 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Section::make('Detalles de la Procedencia')
                     ->columns(2) // Usar 2 columnas para mejor distribución
                     ->schema([
@@ -86,7 +92,7 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('procedencia')
+                TextColumn::make('procedencia')
                     ->searchable(),
                     TextColumn::make('created_at')
                     ->label('Fecha creación')
@@ -101,12 +107,12 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -121,9 +127,9 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListProcedencias::route('/'),
-            'create' => Pages\CreateProcedencia::route('/create'),
-            'edit' => Pages\EditProcedencia::route('/{record}/edit'),
+            'index' => ListProcedencias::route('/'),
+            'create' => CreateProcedencia::route('/create'),
+            'edit' => EditProcedencia::route('/{record}/edit'),
         ];
     }
 }

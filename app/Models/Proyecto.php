@@ -94,8 +94,8 @@ class Proyecto extends Model
     public function clienteSuscripcion(): HasOneThrough
 {
     return $this->hasOneThrough(
-        \App\Models\ClienteSuscripcion::class,    // Modelo final
-        \App\Models\VentaItem::class,             // Modelo intermedio
+        ClienteSuscripcion::class,    // Modelo final
+        VentaItem::class,             // Modelo intermedio
         'id',                                     // Clave local en VentaItem (intermedia)
         'id',                                     // Clave local en ClienteSuscripcion
         'venta_item_id',                          // Foreign key en Proyecto
@@ -109,7 +109,7 @@ class Proyecto extends Model
 
         public function documentosPolimorficos()
         {
-            return $this->morphMany(\App\Models\Documento::class, 'documentable');
+            return $this->morphMany(Documento::class, 'documentable');
         }
 
 

@@ -3,46 +3,103 @@
 namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
-use App\Models\LeadConversionLink;
 use App\Models\Cliente;
+use App\Models\LeadConversionLink;
+use App\Models\Venta;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Stripe\Stripe;
-use Stripe\SetupIntent;
-use Stripe\PaymentMethod;
 use Stripe\Customer;
+use Stripe\Invoice;
+use Stripe\PaymentMethod;
+use Stripe\SetupIntent;
+use Stripe\Stripe;
+use Throwable;
 
 class StripeSetupController extends Controller
 {
     /**
      * Helper privado para iniciar Stripe con configuración segura/local
      */
-    private function initStripe()
+    private function initStripe(): void
     {
+        Stripe::setApiKey(config('services.stripe.secret'));
+
         if (app()->isLocal()) {
             Stripe::setVerifySslCerts(false);
         }
-        Stripe::setApiKey(config('services.stripe.secret'));
+    }
+
+    /**
+     * Resolver link + cliente de forma robusta (cliente_id | existing_cliente_id | existing_venta_id)
+     */
+    private function resolveLinkAndCliente(string $token): array
+    {
+        $link = LeadConversionLink::where('token', $token)->firstOrFail();
+
+        $clienteId =
+            data_get($link->meta, 'cliente_id')
+            ?? data_get($link->meta, 'existing_cliente_id');
+
+        $cliente = null;
+
+        if ($clienteId) {
+            $cliente = Cliente::find($clienteId);
+        }
+
+        // Fallback por venta
+        if (! $cliente) {
+            $ventaId = data_get($link->meta, 'existing_venta_id');
+            if ($ventaId) {
+                $venta = Venta::with('cliente')->find($ventaId);
+                $cliente = $venta?->cliente;
+            }
+        }
+
+        if (! $cliente) {
+            abort(500, "No se pudo resolver el cliente para este enlace de conversión.");
+        }
+
+        return [$link, $cliente];
+    }
+
+    /**
+     * Asegura que el cliente tiene stripe_customer_id (por seguridad)
+     */
+    private function ensureStripeCustomer(Cliente $cliente): Cliente
+    {
+        $this->initStripe();
+
+        if ($cliente->stripe_customer_id) {
+            return $cliente;
+        }
+
+        $stripeCustomer = Customer::create([
+            'email' => $cliente->email_contacto,
+            'name'  => $cliente->razon_social,
+            'metadata' => [
+                'cliente_id' => $cliente->id,
+                'dni_cif'    => $cliente->dni_cif,
+            ],
+        ]);
+
+        $cliente->stripe_customer_id = $stripeCustomer->id;
+        $cliente->saveQuietly();
+
+        return $cliente;
     }
 
     /**
      * Mostrar pantalla de setup de tarjeta
      */
-    public function setupCard($token)
+    public function setupCard(string $token)
     {
-        $link = LeadConversionLink::where('token', $token)->firstOrFail();
-        
-        $clienteId = $link->meta['cliente_id'] ?? null;
-        if (!$clienteId) {
-            abort(500, "Falta cliente_id en meta del link");
-        }
-
-        $cliente = Cliente::findOrFail($clienteId);
+        [$link, $cliente] = $this->resolveLinkAndCliente($token);
+        $cliente = $this->ensureStripeCustomer($cliente);
 
         $this->initStripe();
 
         try {
-            // Crear SetupIntent
             $intent = SetupIntent::create([
                 'customer' => $cliente->stripe_customer_id,
                 'payment_method_types' => ['card'],
@@ -53,99 +110,102 @@ class StripeSetupController extends Controller
                 'token'        => $token,
                 'cliente'      => $cliente,
             ]);
-
-        } catch (\Throwable $e) {
-            Log::error("Error Stripe SetupCard: " . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error("Error Stripe setupCard: " . $e->getMessage());
             abort(500, "Error al conectar con la pasarela de pago.");
         }
     }
 
-  /**
+    /**
      * Procesar tarjeta guardada
      */
-    public function processCard(Request $request, $token)
+    public function processCard(Request $request, string $token)
     {
-        $link = LeadConversionLink::where('token', $token)->firstOrFail();
+        [$link, $cliente] = $this->resolveLinkAndCliente($token);
+        $cliente = $this->ensureStripeCustomer($cliente);
 
-        $clienteId = $link->meta['cliente_id'] ?? null;
-        if (!$clienteId) {
-            abort(500, "Falta cliente_id en meta del link");
-        }
-
-        $cliente = Cliente::findOrFail($clienteId);
-
-        $paymentMethodId = $request->payment_method;
-        if (!$paymentMethodId) {
+        $paymentMethodId = $request->input('payment_method');
+        if (! $paymentMethodId) {
             return back()->with('error', 'No se recibió un método de pago válido.');
         }
 
         $this->initStripe();
 
         try {
-            // 1. Recuperar y adjuntar método de pago al Customer
-            $pm = \Stripe\PaymentMethod::retrieve($paymentMethodId);
-            $pm->attach([
-                'customer' => $cliente->stripe_customer_id,
-            ]);
+            // 1) Recuperar y adjuntar método de pago al Customer (si no lo está ya)
+            $pm = PaymentMethod::retrieve($paymentMethodId);
 
-            // 2. 🔥 FORZAR método predeterminado en Invoice Settings
-            // Esto asegura que los futuros cobros automáticos usen esta tarjeta
-            \Stripe\Customer::update($cliente->stripe_customer_id, [
+            try {
+                $pm->attach(['customer' => $cliente->stripe_customer_id]);
+            } catch (Throwable $e) {
+                // Si ya estaba attached, Stripe puede devolver error; lo ignoramos.
+            }
+
+            // 2) Forzar método predeterminado
+            Customer::update($cliente->stripe_customer_id, [
                 'invoice_settings' => [
                     'default_payment_method' => $pm->id,
-                ]
+                ],
+                'name'  => trim((string) $cliente->razon_social),
+                'email' => (string) $cliente->email_contacto,
+                'metadata' => [
+                    'cliente_id' => $cliente->id,
+                    'dni_cif'    => $cliente->dni_cif,
+                ],
             ]);
 
-            // 3. Limpiar payment methods anteriores (Mantenimiento)
-            $methods = \Stripe\PaymentMethod::all([
+            // 3) Limpiar métodos antiguos (solo tarjetas)
+            $methods = PaymentMethod::all([
                 'customer' => $cliente->stripe_customer_id,
-                'type' => 'card',
+                'type'     => 'card',
             ]);
 
             foreach ($methods->data as $method) {
                 if ($method->id !== $pm->id) {
                     try {
                         $method->detach();
-                    } catch (\Throwable $e) {
-                        // Ignorar error al desvincular antiguos
+                    } catch (Throwable $e) {
+                        // Ignorar
                     }
                 }
             }
 
-            // =========================================================
-            // 4. 🚀 NUEVO: REACTIVAR COBROS PENDIENTES (FIX INCOMPLETOS)
-            // =========================================================
-            // Buscamos las facturas que se quedaron 'open' al crear la suscripción
-            // y las forzamos a pagarse con la tarjeta que acabamos de guardar.
+            // 4) Reintentar cobro de invoices abiertas (solo tarjeta)
             try {
-                $openInvoices = \Stripe\Invoice::all([
+                $openInvoices = Invoice::all([
                     'customer' => $cliente->stripe_customer_id,
                     'status'   => 'open',
+                    'limit'    => 10,
                 ]);
 
-                foreach ($openInvoices->data as $invoice) {
-                    $invoice->pay([
-                        'payment_method' => $pm->id,
-                    ]);
-                    \Illuminate\Support\Facades\Log::info("✅ Factura pendiente {$invoice->id} cobrada tras añadir tarjeta.");
+                foreach ($openInvoices->data as $inv) {
+                    try {
+                        $inv->pay(['payment_method' => $pm->id]);
+                        Log::info("✅ Invoice open {$inv->id} pagada tras guardar tarjeta.");
+                    } catch (Throwable $e) {
+                        Log::warning("No se pudo pagar invoice {$inv->id}: " . $e->getMessage());
+                    }
                 }
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::error("Error reintentando cobro facturas pendientes: " . $e->getMessage());
-                // No detenemos el proceso, lo importante es que la tarjeta ya está guardada.
+            } catch (Throwable $e) {
+                Log::warning("No se pudieron listar invoices open: " . $e->getMessage());
             }
-            // =========================================================
 
-            // 5. Guardar preferencia en BBDD local
+            // 5) Preferencia local
             $cliente->preferencia_pago_recurrente = 'tarjeta';
-            $cliente->save();
+            $cliente->saveQuietly();
 
-            // ✅ REDIRECCIÓN CON FLAG DE ÉXITO
+            // ✅ Guardar en meta del link (flujo público)
+            $meta = $link->meta ?? [];
+            $meta['recurrente_metodo'] = 'tarjeta';
+            $link->meta = $meta;
+            $link->save();
+
             return redirect()
                 ->route('conversion.finished', ['token' => $token])
-                ->with('payment_setup_success', true);
-
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error("Error Stripe ProcessCard: " . $e->getMessage());
+                ->with('payment_setup_success', true)
+                ->with('success', 'Tarjeta guardada correctamente.');
+        } catch (Throwable $e) {
+            Log::error("Error Stripe processCard: " . $e->getMessage());
             return back()->with('error', 'Error al guardar la tarjeta: ' . $e->getMessage());
         }
     }
@@ -153,16 +213,10 @@ class StripeSetupController extends Controller
     /**
      * Mostrar pantalla SetupIntent SEPA
      */
-    public function setupSepa($token)
+    public function setupSepa(string $token)
     {
-        $link = LeadConversionLink::where('token', $token)->firstOrFail();
-
-        $clienteId = $link->meta['cliente_id'] ?? null;
-        if (!$clienteId) {
-            abort(500, "Falta cliente_id en meta del link");
-        }
-
-        $cliente = Cliente::findOrFail($clienteId);
+        [$link, $cliente] = $this->resolveLinkAndCliente($token);
+        $cliente = $this->ensureStripeCustomer($cliente);
 
         $this->initStripe();
 
@@ -177,8 +231,8 @@ class StripeSetupController extends Controller
                 'token'        => $token,
                 'cliente'      => $cliente,
             ]);
-        } catch (\Throwable $e) {
-            Log::error("Error Stripe SetupSepa: " . $e->getMessage());
+        } catch (Throwable $e) {
+            Log::error("Error Stripe setupSepa: " . $e->getMessage());
             abort(500, "Error al iniciar configuración SEPA.");
         }
     }
@@ -186,49 +240,57 @@ class StripeSetupController extends Controller
     /**
      * Procesar SEPA Débito
      */
-    public function processSepa(Request $request, $token)
+    public function processSepa(Request $request, string $token)
     {
-        $link = LeadConversionLink::where('token', $token)->firstOrFail();
+        [$link, $cliente] = $this->resolveLinkAndCliente($token);
+        $cliente = $this->ensureStripeCustomer($cliente);
 
-        $clienteId = $link->meta['cliente_id'] ?? null;
-        if (!$clienteId) {
-            abort(500, "Falta cliente_id en meta del link");
-        }
-
-        $cliente = Cliente::findOrFail($clienteId);
-
-        $paymentMethodId = $request->payment_method;
-        if (!$paymentMethodId) {
+        $paymentMethodId = $request->input('payment_method');
+        if (! $paymentMethodId) {
             return back()->with('error', 'No se recibió el IBAN / método SEPA.');
         }
 
         $this->initStripe();
 
         try {
-            // 1. Adjuntar
+            // 1) Adjuntar
             $pm = PaymentMethod::retrieve($paymentMethodId);
-            $pm->attach([
-                'customer' => $cliente->stripe_customer_id,
-            ]);
 
-            // 2. Establecer Default
+            try {
+                $pm->attach(['customer' => $cliente->stripe_customer_id]);
+            } catch (Throwable $e) {
+                // Si ya estaba attached, ignoramos.
+            }
+
+            // 2) Default
             Customer::update($cliente->stripe_customer_id, [
                 'invoice_settings' => [
                     'default_payment_method' => $paymentMethodId,
-                ]
+                ],
+                'name'  => trim((string) $cliente->razon_social),
+                'email' => (string) $cliente->email_contacto,
+                'metadata' => [
+                    'cliente_id' => $cliente->id,
+                    'dni_cif'    => $cliente->dni_cif,
+                ],
             ]);
 
-            // 3. Guardar preferencia local
+            // 3) Preferencia local
             $cliente->preferencia_pago_recurrente = 'domiciliacion';
-            $cliente->save();
+            $cliente->saveQuietly();
 
-            // ✅ REDIRECCIÓN CON FLAG DE ÉXITO
+            // ✅ Guardar en meta del link (flujo público)
+            $meta = $link->meta ?? [];
+            $meta['recurrente_metodo'] = 'domiciliacion';
+            $link->meta = $meta;
+            $link->save();
+
             return redirect()
                 ->route('conversion.finished', ['token' => $token])
-                ->with('payment_setup_success', true);
-
-        } catch (\Throwable $e) {
-            Log::error("Error Stripe ProcessSepa: " . $e->getMessage());
+                ->with('payment_setup_success', true)
+                ->with('success', 'Domiciliación configurada correctamente.');
+        } catch (Throwable $e) {
+            Log::error("Error Stripe processSepa: " . $e->getMessage());
             return back()->with('error', 'Error al guardar SEPA: ' . $e->getMessage());
         }
     }

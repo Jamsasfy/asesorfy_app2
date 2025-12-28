@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\LeadAutoEmailLogResource\Pages;
 
+use Filament\Actions\Action;
 use App\Filament\Resources\LeadAutoEmailLogResource;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Infolists\Infolist;
@@ -13,7 +14,7 @@ class ViewLeadAutoEmailLog extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            \Filament\Actions\Action::make('back')
+            Action::make('back')
                 ->label('Volver')
                 ->color('primary')
                 ->icon('heroicon-o-arrow-left')

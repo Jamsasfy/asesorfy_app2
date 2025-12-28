@@ -1,108 +1,45 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Policies;
 
-use App\Models\User;
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\DocumentoSubtipo;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class DocumentoSubtipoPolicy
 {
     use HandlesAuthorization;
-
-    /**
-     * Determine whether the user can view any models.
-     */
-    public function viewAny(User $user): bool
+    
+    public function viewAny(AuthUser $authUser): bool
     {
-        return $user->can('view_any_documento::subtipo');
+        return $authUser->can('ViewAny:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
-    public function view(User $user, DocumentoSubtipo $documentoSubtipo): bool
+    public function view(AuthUser $authUser, DocumentoSubtipo $documentoSubtipo): bool
     {
-        return $user->can('view_documento::subtipo');
+        return $authUser->can('View:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
-    public function create(User $user): bool
+    public function create(AuthUser $authUser): bool
     {
-        return $user->can('create_documento::subtipo');
+        return $authUser->can('Create:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
-    public function update(User $user, DocumentoSubtipo $documentoSubtipo): bool
+    public function update(AuthUser $authUser, DocumentoSubtipo $documentoSubtipo): bool
     {
-        return $user->can('update_documento::subtipo');
+        return $authUser->can('Update:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
-    public function delete(User $user, DocumentoSubtipo $documentoSubtipo): bool
+    public function delete(AuthUser $authUser, DocumentoSubtipo $documentoSubtipo): bool
     {
-        return $user->can('delete_documento::subtipo');
+        return $authUser->can('Delete:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can bulk delete.
-     */
-    public function deleteAny(User $user): bool
+    public function deleteAny(AuthUser $authUser): bool
     {
-        return $user->can('delete_any_documento::subtipo');
+        return $authUser->can('DeleteAny:DocumentoSubtipo');
     }
 
-    /**
-     * Determine whether the user can permanently delete.
-     */
-    public function forceDelete(User $user, DocumentoSubtipo $documentoSubtipo): bool
-    {
-        return $user->can('{{ ForceDelete }}');
-    }
-
-    /**
-     * Determine whether the user can permanently bulk delete.
-     */
-    public function forceDeleteAny(User $user): bool
-    {
-        return $user->can('{{ ForceDeleteAny }}');
-    }
-
-    /**
-     * Determine whether the user can restore.
-     */
-    public function restore(User $user, DocumentoSubtipo $documentoSubtipo): bool
-    {
-        return $user->can('{{ Restore }}');
-    }
-
-    /**
-     * Determine whether the user can bulk restore.
-     */
-    public function restoreAny(User $user): bool
-    {
-        return $user->can('{{ RestoreAny }}');
-    }
-
-    /**
-     * Determine whether the user can replicate.
-     */
-    public function replicate(User $user, DocumentoSubtipo $documentoSubtipo): bool
-    {
-        return $user->can('{{ Replicate }}');
-    }
-
-    /**
-     * Determine whether the user can reorder.
-     */
-    public function reorder(User $user): bool
-    {
-        return $user->can('{{ Reorder }}');
-    }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Cliente;
+use App\Models\ClienteSuscripcion;
 use App\Models\ContadorFactura;
 use App\Models\Factura;
 use App\Enums\FacturaEstadoEnum;
@@ -52,30 +54,38 @@ class FacturacionService
      * 🟢 MÉTODO 1: Para Ventas CONFIRMADAS Y PAGADAS (Flujo Automático/Stripe)
      * Genera la factura directamente como PAGADA.
      */
-    public static function generarFacturaInicial(
-        Venta $venta, 
-        Carbon $fechaPago, 
-        ?string $metodoPago = 'manual'
-    ): ?Factura {
-        
-        $ventaItems = $venta->items()->whereHas('servicio', function ($q) {
-            $q->where('tipo', ServicioTipoEnum::UNICO->value);
-        })->get();
+public static function generarFacturaInicial(
+    Venta $venta,
+    Carbon $fechaPago,
+    ?string $metodoPago = 'manual',
+    ?\App\Enums\FacturaEstadoEnum $estado = null
+): ?Factura {
+    $estado = $estado ?? \App\Enums\FacturaEstadoEnum::PAGADA;
 
-        if ($ventaItems->isEmpty()) {
-            return null;
-        }
+    $ventaItems = $venta->items()->whereHas('servicio', function ($q) {
+        $q->where('tipo', ServicioTipoEnum::UNICO->value);
+    })->get();
 
-        $facturaExistente = $venta->facturas()
-            ->where('estado', FacturaEstadoEnum::PAGADA)
-            ->exists();
-
-        if ($facturaExistente) {
-            return $venta->facturas()->where('estado', FacturaEstadoEnum::PAGADA)->first();
-        }
-
-        return self::crearFacturaConItems($venta, $ventaItems, FacturaEstadoEnum::PAGADA, $fechaPago, $metodoPago);
+    if ($ventaItems->isEmpty()) {
+        return null;
     }
+
+    if (! self::tieneImporteUnicoReal($ventaItems)) {
+        return null;
+    }
+
+    $facturaExistente = $venta->facturas()
+        ->where('estado', $estado)
+        ->exists();
+
+    if ($facturaExistente) {
+        return $venta->facturas()->where('estado', $estado)->first();
+    }
+
+    return self::crearFacturaConItems($venta, $ventaItems, $estado, $fechaPago, $metodoPago);
+}
+
+
 
     /**
      * 🟡 MÉTODO 2: Para Correcciones o Generación Manual (Flujo Admin)
@@ -83,133 +93,154 @@ class FacturacionService
      * Mantenemos este método porque lo usan CorreccionVentaService y EditVenta.
      */
     public static function generarFacturaParaVenta(Venta $venta): ?Factura
-    {
-        $ventaItems = $venta->items()->whereHas('servicio', function ($q) {
-            $q->where('tipo', ServicioTipoEnum::UNICO->value);
-        })->get();
+{
+    $ventaItems = $venta->items()->whereHas('servicio', function ($q) {
+        $q->where('tipo', ServicioTipoEnum::UNICO->value);
+    })->get();
 
-        if ($ventaItems->isEmpty()) {
-            return null;
+    if ($ventaItems->isEmpty()) {
+        return null;
+    }
+
+    if (! self::tieneImporteUnicoReal($ventaItems)) {
+        return null;
+    }
+
+    return self::crearFacturaConItems($venta, $ventaItems, FacturaEstadoEnum::PENDIENTE_PAGO, now(), null);
+}
+
+private static function tieneImporteUnicoReal($items): bool
+{
+    $total = 0.0;
+
+    foreach ($items as $item) {
+        $subtotal = $item->subtotal_aplicado;
+
+        if ($subtotal === null) {
+            $precioAplicado = $item->precio_unitario_aplicado ?? $item->precio_unitario ?? 0;
+            $cantidad = (float) ($item->cantidad ?? 1);
+            $subtotal = (float) $precioAplicado * $cantidad;
         }
 
-        // Generamos con estado PENDIENTE y fecha de hoy
-        return self::crearFacturaConItems($venta, $ventaItems, FacturaEstadoEnum::PENDIENTE_PAGO, now(), null);
+        $total += (float) $subtotal;
     }
+
+    return round($total, 2) > 0;
+}
 
     /**
      * ⚙️ MÉTODO PRIVADO COMÚN (Para no repetir código fiscal)
      * Aquí es donde aplicamos la lógica de Canarias 0% para ambos casos.
      */
     private static function crearFacturaConItems(
-        Venta $venta, 
-        $items, 
-        FacturaEstadoEnum $estado, 
-        Carbon $fechaEmision,
-        ?string $metodoPago
-    ): Factura {
-        
-        return DB::transaction(function () use ($venta, $items, $estado, $fechaEmision, $metodoPago) {
-            
-            $datosFactura = self::generarSiguienteNumeroFactura();
-            $fechaEmision = $fechaEmision->copy()->startOfDay();
-            $fechaVencimiento = $fechaEmision->copy()->addDays(15);
-            
-            // 🔥 CEREBRO FISCAL: Detectamos impuestos aquí
-            $cliente = $venta->cliente;
-            $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto(
-                $cliente->codigo_postal, 
-                $cliente->provincia
-            );
+    Venta $venta,
+    $items,
+    FacturaEstadoEnum $estado,
+    Carbon $fechaEmision,
+    ?string $metodoPago
+): Factura {
 
-            $factura = Factura::create([
-                'cliente_id'        => $venta->cliente_id,
-                'venta_id'          => $venta->id,
-                'serie'             => $datosFactura['serie'],
-                'numero_factura'    => $datosFactura['numero_factura'],
-                'estado'            => $estado,
-                'metodo_pago'       => $metodoPago,
-                'fecha_emision'     => $fechaEmision,
-                'fecha_vencimiento' => $fechaVencimiento,
-                'base_imponible'    => 0,
-                'total_iva'         => 0,
-                'total_factura'     => 0,
-            ]);
+    return DB::transaction(function () use ($venta, $items, $estado, $fechaEmision, $metodoPago) {
 
-            $baseImponibleTotal = 0;
-            $totalIva           = 0;
+        $datosFactura  = self::generarSiguienteNumeroFactura();
+        $fechaEmision  = $fechaEmision->copy()->startOfDay();
+        $diasVencimiento = 30;
 
-            foreach ($items as $item) {
-                $cantidad        = $item->cantidad;
-                $precioOriginal  = $item->precio_unitario;
-                
-                // Lógica de descuentos
-                $precioAplicado   = $item->precio_unitario_aplicado ?? $item->precio_unitario;
-                $importeDescuento = 0;
+        $fechaVencimiento = $estado === FacturaEstadoEnum::PAGADA
+            ? $fechaEmision->copy()
+            : $fechaEmision->copy()->addDays($diasVencimiento);
 
-                // Si no venía calculado, lo calculamos (seguridad)
-                if ($item->descuento_tipo && $item->descuento_valor && is_null($item->precio_unitario_aplicado)) {
-                     if ($item->descuento_tipo === 'porcentaje') {
-                        $importeDescuento = round($precioOriginal * ($item->descuento_valor / 100), 2);
-                        $precioAplicado   = $precioOriginal - $importeDescuento;
-                    } elseif ($item->descuento_tipo === 'fijo') {
-                        $importeDescuento = round($item->descuento_valor, 2);
-                        $precioAplicado   = max(0, $precioOriginal - $importeDescuento);
-                    } elseif ($item->descuento_tipo === 'precio_final') {
-                        $precioAplicado   = round($item->descuento_valor, 2);
-                        $importeDescuento = $precioOriginal - $precioAplicado;
-                    }
-                } elseif ($item->precio_unitario_aplicado !== null) {
+        $cliente = $venta->cliente;
+
+        $porcentajeIva = Cliente::getPorcentajeImpuesto(
+            $cliente->codigo_postal,
+            $cliente->provincia
+        );
+
+        $factura = Factura::create([
+            'cliente_id'        => $venta->cliente_id,
+            'venta_id'          => $venta->id,
+            'serie'             => $datosFactura['serie'],
+            'numero_factura'    => $datosFactura['numero_factura'],
+            'estado'            => $estado,
+            'metodo_pago'       => $metodoPago,
+            'fecha_emision'     => $fechaEmision,
+            'fecha_vencimiento' => $fechaVencimiento,
+            'base_imponible'    => 0,
+            'total_iva'         => 0,
+            'total_factura'     => 0,
+        ]);
+
+        $baseImponibleTotal = 0;
+        $totalIva           = 0;
+
+        foreach ($items as $item) {
+            $cantidad       = (float) ($item->cantidad ?? 1);
+            $precioOriginal = (float) ($item->precio_unitario ?? 0);
+
+            $precioAplicado   = $item->precio_unitario_aplicado ?? $item->precio_unitario ?? 0;
+            $precioAplicado   = (float) $precioAplicado;
+
+            $importeDescuento = 0;
+
+            if ($item->descuento_tipo && $item->descuento_valor && is_null($item->precio_unitario_aplicado)) {
+                if ($item->descuento_tipo === 'porcentaje') {
+                    $importeDescuento = round($precioOriginal * ((float)$item->descuento_valor / 100), 2);
+                    $precioAplicado   = $precioOriginal - $importeDescuento;
+                } elseif ($item->descuento_tipo === 'fijo') {
+                    $importeDescuento = round((float)$item->descuento_valor, 2);
+                    $precioAplicado   = max(0, $precioOriginal - $importeDescuento);
+                } elseif ($item->descuento_tipo === 'precio_final') {
+                    $precioAplicado   = round((float)$item->descuento_valor, 2);
                     $importeDescuento = $precioOriginal - $precioAplicado;
                 }
-
-                $subtotalLinea = round($precioAplicado * $cantidad, 2);
-                
-                // 🔥 APLICAR IMPUESTO DETECTADO (0% o 21%)
-                $ivaLinea = round($subtotalLinea * ($porcentajeIva / 100), 2);
-
-                $baseImponibleTotal += $subtotalLinea;
-                $totalIva           += $ivaLinea;
-
-                $factura->items()->create([
-                    'venta_item_id'            => $item->id,
-                    'servicio_id'              => $item->servicio_id,
-                    'descripcion'              => $item->nombre_personalizado ?: ($item->servicio->nombre ?? 'Servicio'),
-                    'cantidad'                 => $cantidad,
-                    'precio_unitario'          => round($precioOriginal, 2),
-                    'precio_unitario_aplicado' => round($precioAplicado, 2),
-                    'importe_descuento'        => round($importeDescuento * $cantidad, 2),
-                    
-                    // Guardamos el 0.00 o 21.00
-                    'porcentaje_iva'           => $porcentajeIva, 
-                    'cuota_iva'                => $ivaLinea,
-                    'subtotal'                 => $subtotalLinea,
-                    'total'                    => $subtotalLinea + $ivaLinea,
-                    
-                    'cliente_suscripcion_id'   => $item->cliente_suscripcion_id,
-                    'descuento_tipo'           => $item->descuento_tipo,
-                    'descuento_valor'          => $item->descuento_valor,
-                ]);
+            } elseif ($item->precio_unitario_aplicado !== null) {
+                $importeDescuento = $precioOriginal - $precioAplicado;
             }
 
-            $factura->update([
-                'base_imponible' => round($baseImponibleTotal, 2),
-                'total_iva'      => round($totalIva, 2),
-                'total_factura'  => round($baseImponibleTotal + $totalIva, 2),
-            ]);
+            $subtotalLinea = round($precioAplicado * $cantidad, 2);
+            $ivaLinea      = round($subtotalLinea * ((float)$porcentajeIva / 100), 2);
 
-            return $factura;
-        });
-    }
+            $baseImponibleTotal += $subtotalLinea;
+            $totalIva           += $ivaLinea;
+
+            $factura->items()->create([
+                'venta_item_id'            => $item->id,
+                'servicio_id'              => $item->servicio_id,
+                'descripcion'              => $item->nombre_personalizado ?: ($item->servicio->nombre ?? 'Servicio'),
+                'cantidad'                 => $cantidad,
+                'precio_unitario'          => round($precioOriginal, 2),
+                'precio_unitario_aplicado' => round($precioAplicado, 2),
+                'importe_descuento'        => round($importeDescuento * $cantidad, 2),
+                'porcentaje_iva'           => $porcentajeIva,
+                'cuota_iva'                => $ivaLinea,
+                'subtotal'                 => $subtotalLinea,
+                'total'                    => $subtotalLinea + $ivaLinea,
+                'cliente_suscripcion_id'   => $item->cliente_suscripcion_id,
+                'descuento_tipo'           => $item->descuento_tipo,
+                'descuento_valor'          => $item->descuento_valor,
+            ]);
+        }
+
+        $factura->update([
+            'base_imponible' => round($baseImponibleTotal, 2),
+            'total_iva'      => round($totalIva, 2),
+            'total_factura'  => round($baseImponibleTotal + $totalIva, 2),
+        ]);
+
+        return $factura;
+    });
+}
     /**
      * Genera una factura para un cobro recurrente de Stripe (Webhook).
      */
     public static function crearFacturaRecurrente(
-        \App\Models\Cliente $cliente,
-        \App\Models\ClienteSuscripcion $suscripcion,
+        Cliente $cliente,
+        ClienteSuscripcion $suscripcion,
         int $amountCents,
-        \Carbon\Carbon $fechaPago,
+        Carbon $fechaPago,
         string $stripeInvoiceNumber
-    ): \App\Models\Factura {
+    ): Factura {
         
         return DB::transaction(function () use ($cliente, $suscripcion, $amountCents, $fechaPago, $stripeInvoiceNumber) {
             
@@ -217,7 +248,7 @@ class FacturacionService
             $datosFactura = self::generarSiguienteNumeroFactura();
             
             // 2. Cerebro Fiscal: Detectar impuestos
-            $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto(
+            $porcentajeIva = Cliente::getPorcentajeImpuesto(
                 $cliente->codigo_postal, 
                 $cliente->provincia
             );
@@ -227,6 +258,9 @@ class FacturacionService
             $totalPagado    = $amountCents / 100; // a Euros
             $baseImponible  = round($totalPagado / $factor, 2);
             $iva            = round($totalPagado - $baseImponible, 2);
+
+            $fechaEmision = $fechaPago->copy()->startOfDay();
+
 
             // 4. Crear Cabecera
             $factura = Factura::create([
@@ -272,13 +306,13 @@ class FacturacionService
  * - SEPA pendiente
  * - Tarjeta pagada
  */
-public static function crearFacturaRecurrenteManual(
-    \App\Models\ClienteSuscripcion $suscripcion,
-    \Carbon\Carbon $fechaFactura,
+/* public static function crearFacturaRecurrenteManual(
+    ClienteSuscripcion $suscripcion,
+    Carbon $fechaFactura,
     float $baseImponible,
-    \App\Enums\FacturaEstadoEnum $estado,
+    FacturaEstadoEnum $estado,
     string $descripcion
-): \App\Models\Factura {
+): Factura {
 
     return DB::transaction(function () use (
         $suscripcion,
@@ -290,45 +324,38 @@ public static function crearFacturaRecurrenteManual(
 
         $cliente = $suscripcion->cliente;
 
-        // =========================
-        // 🔥 DETECCIÓN IVA AUTOMÁTICA
-        // =========================
-        $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto(
+        $porcentajeIva = Cliente::getPorcentajeImpuesto(
             $cliente->codigo_postal,
             $cliente->provincia
         );
 
-        $iva  = round($baseImponible * ($porcentajeIva / 100), 2);
+        $iva   = round($baseImponible * ((float)$porcentajeIva / 100), 2);
         $total = round($baseImponible + $iva, 2);
 
-        // =========================
-        // 🔢 NÚMERO DE FACTURA
-        // =========================
         $datosFactura = self::generarSiguienteNumeroFactura();
 
         $fechaEmision = $fechaFactura->copy()->startOfDay();
+        $diasVencimiento = 30;
 
-        // =========================
-        // 🧾 CREAR FACTURA
-        // =========================
-        $factura = \App\Models\Factura::create([
-            'cliente_id'     => $cliente->id,
-            'venta_id'       => $suscripcion->venta_origen_id,
-            'serie'          => $datosFactura['serie'],
-            'numero_factura' => $datosFactura['numero_factura'],
-            'estado'         => $estado,
-            'metodo_pago'    => $estado === \App\Enums\FacturaEstadoEnum::PAGADA ? 'tarjeta' : 'sepa',
-            'fecha_emision'  => $fechaEmision,
-            'fecha_vencimiento' => $fechaEmision->copy()->addDays(15),
-            'base_imponible' => $baseImponible,
-            'total_iva'      => $iva,
-            'total_factura'  => $total,
+        $fechaVencimiento = $estado === FacturaEstadoEnum::PAGADA
+            ? $fechaEmision->copy()
+            : $fechaEmision->copy()->addDays($diasVencimiento);
+
+        $factura = Factura::create([
+            'cliente_id'        => $cliente->id,
+            'venta_id'          => $suscripcion->venta_origen_id,
+            'serie'             => $datosFactura['serie'],
+            'numero_factura'    => $datosFactura['numero_factura'],
+            'estado'            => $estado,
+            'metodo_pago'       => $estado === FacturaEstadoEnum::PAGADA ? 'tarjeta' : 'sepa',
+            'fecha_emision'     => $fechaEmision,
+            'fecha_vencimiento' => $fechaVencimiento,
+            'base_imponible'    => $baseImponible,
+            'total_iva'         => $iva,
+            'total_factura'     => $total,
             'observaciones_publicas' => $descripcion,
         ]);
 
-        // =========================
-        // 🧾 LÍNEA DE FACTURA
-        // =========================
         $factura->items()->create([
             'cliente_suscripcion_id' => $suscripcion->id,
             'servicio_id'            => $suscripcion->servicio_id,
@@ -341,19 +368,10 @@ public static function crearFacturaRecurrenteManual(
             'total'                  => $total,
         ]);
 
-        \Log::info('[FACTURA RECURRENTE MANUAL]', [
-            'factura_id' => $factura->id,
-            'suscripcion_id' => $suscripcion->id,
-            'base' => $baseImponible,
-            'iva' => $iva,
-            'total' => $total,
-            'estado' => $estado->value,
-        ]);
-
         return $factura;
     });
 }
-
+ */
 
 
 }

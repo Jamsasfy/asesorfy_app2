@@ -166,7 +166,7 @@
 <div class="wrap">
   
   <div class="logo-container">
-     <img src="{{ asset('images/logo.png') }}" alt="AsesorFy" class="logo-img" 
+     <img src="{{ asset('images/logo_dark.png') }}" alt="AsesorFy" class="logo-img" 
           onerror="this.style.display='none'">
   </div>
 

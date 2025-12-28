@@ -2,13 +2,13 @@
 
 namespace App\Observers;
 
+use Filament\Actions\Action;
 use App\Enums\ClienteEstadoEnum;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Filament\Resources\ClienteResource;
 use App\Models\ClienteSuscripcion;
 use App\Models\User;
 use Filament\Notifications\Notification;
-use Filament\Notifications\Actions\Action;
 
 
 class ClienteSuscripcionObserver

@@ -2,20 +2,28 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Group;
+use Filament\Forms\Components\Textarea;
+use Filament\Tables\Columns\IconColumn;
+use Filament\Actions\EditAction;
+use Filament\Actions\Action;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\TrabajadorResource\Pages\ListTrabajadors;
+use App\Filament\Resources\TrabajadorResource\Pages\CreateTrabajador;
+use App\Filament\Resources\TrabajadorResource\Pages\EditTrabajador;
 use App\Filament\Resources\TrabajadorResource\Pages;
 use App\Filament\Resources\TrabajadorResource\RelationManagers;
 use App\Filament\Resources\UserResource\Pages\CreateUser;
 use App\Filament\Resources\UserResource\Pages\EditUser;
 use App\Models\Trabajador;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
-use Filament\Tables\Actions\Action;
 use Filament\Forms;
-use Filament\Forms\Components\Group;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Resources\Resource;
@@ -30,13 +38,15 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
+use Filament\Tables\Enums\RecordActionsPosition;
+
 
 class TrabajadorResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Trabajador::class;
 
-    protected static ?string $navigationIcon = 'icon-f-city-worker';
-    protected static ?string $navigationGroup = 'Usuarios plataforma';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-f-city-worker';
+    protected static string | \UnitEnum | null $navigationGroup = 'Usuarios plataforma';
     protected static ?string $navigationLabel = 'Trabajadores AsesorFy';
     protected static ?string $modelLabel = 'Trabajador AsesorFy';
     protected static ?string $pluralModelLabel = 'Trabajadores AsesorFy';
@@ -62,105 +72,125 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
     }
     
 
-    public static function form(Form $form): Form
-    {
-        return $form
-            ->schema([
+public static function form(Schema $schema): Schema
+{
+    return $schema
+        ->columns(1) // 🔒 Fuerza las sections en vertical
+        ->components([
 
-                Section::make('Trabajador con acceso a Asesorfy')
-                ->description('Estos son los datos de acceso a la plataforma de AsesorFy. Una vez creado el trabajador, debe acceder a usuario web y darle los permisos que corresponden.')
+            // =====================================================
+            // SECTION 1 · ACCESO A LA PLATAFORMA
+            // =====================================================
+            Section::make('Trabajador con acceso a AsesorFy')
+                ->description('Estos son los datos de acceso a la plataforma de AsesorFy. Una vez creado el trabajador, debe acceder a usuario web y darle los permisos que correspondan.')
                 ->schema([
                     Group::make()
                         ->relationship('user')
                         ->schema([
                             TextInput::make('name')
                                 ->label('Nombre')
-                                ->columnspan(1) 
                                 ->required(),
+
                             TextInput::make('email')
                                 ->label('Email address')
                                 ->email()
-                                ->columnspan(1) 
                                 ->required(),
-                      
-                 
+
                             TextInput::make('password')
                                 ->label('Password')
                                 ->password()
-                                ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->revealable()
-                                ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                                ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
+                                ->dehydrateStateUsing(fn ($state) => Hash::make($state))
                                 ->same('password_confirmation')
                                 ->maxLength(191),
+
                             TextInput::make('password_confirmation')
-                                ->helperText('Repite la contraseña de acceso.')
+                                ->label('Confirmar password')
                                 ->password()
                                 ->revealable()
                                 ->dehydrated(false)
                                 ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
-                                ->label('Confirmar password'),    
-                        ])->columns(4), // Tu layout original de 4 columnas
-                ]), // Fin Section 1
+                                ->helperText('Repite la contraseña de acceso.'),
+                        ])
+                        ->columns(4),
+                ])
+                ->columnSpanFull(),
 
-                    Section::make('Datos del trabajador')
-                    ->description('Demás datos relativos al trabajador a nivel laboral y de accesos a la plataforma')
-                   
-                    ->schema([
-                        //Forms\Components\Select::make('user_id')
-                        //->hidden(),
-                    Forms\Components\Select::make('oficina_id')
+            // =====================================================
+            // SECTION 2 · DATOS DEL TRABAJADOR
+            // =====================================================
+            Section::make('Datos del trabajador')
+                ->description('Demás datos relativos al trabajador a nivel laboral y de accesos a la plataforma')
+                ->schema([
+
+                    Select::make('oficina_id')
                         ->relationship('oficina', 'nombre')
                         ->preload()
                         ->searchable()
                         ->required(),
-                    Forms\Components\TextInput::make('apellidos')
+
+                    TextInput::make('apellidos')
                         ->maxLength(191),
-                    Forms\Components\TextInput::make('telefono')
+
+                    TextInput::make('telefono')
                         ->tel()
                         ->required()
                         ->rule('regex:/^[0-9]{9}$/')
-                        ->helperText('Debe tener 9 dígitos')
-                        ->maxLength(191),
-                    Forms\Components\TextInput::make('dni_o_cif')
+                        ->helperText('Debe tener 9 dígitos'),
+
+                    TextInput::make('dni_o_cif')
+                        ->label('DNI o CIF')
                         ->required()
                         ->maxLength(191),
-                    Forms\Components\TextInput::make('cargo')
+
+                    TextInput::make('cargo')
                         ->maxLength(191),
-                    Forms\Components\Textarea::make('direccion')
+
+                    Textarea::make('direccion')
                         ->columnSpanFull(),
-                    Forms\Components\Textarea::make('observaciones')
+
+                    Textarea::make('observaciones')
                         ->columnSpanFull(),
-                    Forms\Components\TextInput::make('email_personal')
+
+                    TextInput::make('email_personal')
                         ->email()
                         ->required()
                         ->maxLength(191),
-                    Forms\Components\TextInput::make('numero_seg_social')
+
+                    TextInput::make('numero_seg_social')
+                        ->label('Número Seguridad Social')
                         ->rule('digits:12')
                         ->maxLength(191),
-                    Forms\Components\TextInput::make('numero_cuenta_nomina')
+
+                    TextInput::make('numero_cuenta_nomina')
+                        ->label('Número cuenta nómina')
                         ->maxLength(191),
-                   Select::make('departamento_id')
+
+                    Select::make('departamento_id')
                         ->label('Departamento')
                         ->relationship('departamento', 'nombre')
                         ->searchable()
                         ->preload()
-                        ->required() // Opcional: hazlo ->nullable() si un trabajador puede no tener depto.
+                        ->required()
                         ->placeholder('Selecciona un departamento'),
-             
 
+                ])
+                ->columns(4)
+                ->columnSpanFull(),
 
-                        ])->columns(4),   
-              
-            ]);
-    }
-   
+        ]);
+}
+
 
 
     public static function table(Table $table): Table
     {
-        return $table       
+        return $table      
+                ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
+ 
             ->columns([
                 TextColumn::make('user.name')
                     ->label('Nombre')                    
@@ -198,7 +228,7 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
                     ->searchable(),
                 TextColumn::make('numero_cuenta_nomina')
                     ->searchable(), */
-                \Filament\Tables\Columns\IconColumn::make('user.acceso_app')
+                IconColumn::make('user.acceso_app')
                     ->label('Acceso app')
                     ->boolean()
                     ->trueIcon('heroicon-o-check-circle')
@@ -223,7 +253,7 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
                 ->relationship('user', 'name')
                 ->searchable(),
                 Filter::make('apellidos')
-                    ->form([
+                    ->schema([
                         TextInput::make('valor')
                             ->label('Apellido')
                             ->placeholder('Buscar apellido'),
@@ -249,7 +279,7 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
            
                 Filter::make('rol')
                 //->label('Rol del usuario')
-                ->form([
+                ->schema([
                     Select::make('rol_id')
                         ->label('Rol del trabajador')
                         ->options(Role::query()->pluck('name', 'id'))
@@ -265,8 +295,8 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
                 }),
                 Filter::make('acceso_app')
                     ->label('Acceso')
-                    ->form([
-                        \Filament\Forms\Components\Select::make('estado')
+                    ->schema([
+                        Select::make('estado')
                             ->label('Estado de acceso a la app')
                             ->options([
                                 '1' => 'Con acceso',
@@ -284,10 +314,11 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
                
             ], layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(6)
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make()
+                ->label(''),
                 Action::make('ver_usuario')
-                ->label('Permisos y acceso app')
+                ->label('Accesos')
                 ->icon('heroicon-o-users') // Puedes cambiar el ícono aquí
                 ->iconSize(IconSize::Small)
                 ->color('warning')
@@ -295,9 +326,9 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
                 ->url(fn (Trabajador $record): string => UserResource::getUrl('edit', ['record' => $record->user_id]))
                 ->openUrlInNewTab(), // Opcional, si quieres abrir en nueva pestaña
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -312,9 +343,9 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListTrabajadors::route('/'),
-            'create' => Pages\CreateTrabajador::route('/create'),
-            'edit' => Pages\EditTrabajador::route('/{record}/edit'),
+            'index' => ListTrabajadors::route('/'),
+            'create' => CreateTrabajador::route('/create'),
+            'edit' => EditTrabajador::route('/{record}/edit'),
         ];
     }
 }

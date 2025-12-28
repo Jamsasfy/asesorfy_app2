@@ -1,71 +1,346 @@
+{{-- resources/views/filament/resources/leads/partials/servicios-table.blade.php --}}
+
+@php
+    use App\Models\Servicio;
+
+    // ⚠️ Mantenemos tu forma de cargar servicios (si luego quieres optimizar, lo hacemos en el Page)
+    $servicios = Servicio::query()->orderBy('nombre')->get();
+
+    // Servicios ya seleccionados (para evitar duplicados)
+    $selectedIds = collect($items ?? [])
+        ->pluck('servicio_id')
+        ->filter()
+        ->values()
+        ->all();
+
+    // Hay alguna tarifa principal recurrente seleccionada (para ocultar otras)
+    $hasBaseRecurrenteSelected = $servicios
+        ->whereIn('id', $selectedIds)
+        ->filter(fn ($s) => ($s->tipo?->value ?? $s->tipo) === 'recurrente' && (bool) ($s->es_tarifa_principal ?? false))
+        ->isNotEmpty();
+
+    $baseRecurrenteSelectedIds = $servicios
+        ->whereIn('id', $selectedIds)
+        ->filter(fn ($s) => ($s->tipo?->value ?? $s->tipo) === 'recurrente' && (bool) ($s->es_tarifa_principal ?? false))
+        ->pluck('id')
+        ->all();
+
+    // Helper formato
+    $fmt = fn ($n) => number_format((float) $n, 2, ',', '.');
+@endphp
+
 <div>
     {{-- CABECERA --}}
-    <div class="grid grid-cols-12 gap-4 border-b border-gray-800 bg-gray-950 px-4 py-3 text-xs font-bold uppercase tracking-wider text-gray-400">
-        <div class="col-span-5">Concepto / Servicio</div>
-        <div class="col-span-2 text-right">Precio</div>
-        <div class="col-span-1 text-center">Cant.</div>
-        <div class="col-span-2 text-right">Dto.</div>
-        <div class="col-span-2 text-right">Total</div>
+    <div
+        class="grid grid-cols-16 gap-4 border-b border-sky-200/70 bg-sky-100/70 px-4 py-3
+               text-xs font-bold uppercase tracking-wider text-gray-600
+               dark:border-gray-800 dark:bg-gray-950 dark:text-gray-400"
+    >
+        <div class="col-span-7">Concepto / Servicio</div>
+        <div class="col-span-2 text-right">Precio base</div>
+        <div class="col-span-2 text-right">Precio final</div>
+        <div class="col-span-2 text-center">Cant.</div>
+        <div class="col-span-1 text-right">Subt. base</div>
+        <div class="col-span-2 text-right">Subt. final</div>
     </div>
 
     {{-- CUERPO --}}
-    <div class="divide-y divide-gray-800">
-        @foreach($items as $i => $item)
-            <div class="group grid grid-cols-12 items-center gap-4 px-4 py-2 hover:bg-white/5" wire:key="row-{{ $i }}">
-                
-                {{-- 1. SELECTOR (5 cols) --}}
-                <div class="col-span-5">
-                    <select wire:model.live="items.{{ $i }}.servicio_id" 
-                            class="w-full cursor-pointer border-none bg-transparent p-0 text-sm font-medium text-white placeholder-gray-500 focus:ring-0">
-                        <option value="" class="bg-gray-900 text-gray-500">Seleccionar...</option>
-                        @foreach(\App\Models\Servicio::all() as $svc)
-                            <option value="{{ $svc->id }}" class="bg-gray-900 text-white">{{ $svc->nombre }}</option>
-                        @endforeach
-                    </select>
+    <div class="divide-y divide-gray-200 dark:divide-gray-800">
+        @foreach(($items ?? []) as $i => $item)
+            @php
+                $rowIsEven = $i % 2 === 1;
+
+                $servicioId = $item['servicio_id'] ?? null;
+                $svc = $servicioId ? $servicios->firstWhere('id', $servicioId) : null;
+
+                $tipo = $svc?->tipo?->value ?? ($item['tipo'] ?? 'unico');
+                $esEditable = (bool) ($svc?->es_editable ?? ($item['es_editable'] ?? false));
+                $requiereProyectoServicio = (bool) ($svc?->requiere_proyecto_activacion ?? false);
+                $esTarifaPrincipal = (bool) ($svc?->es_tarifa_principal ?? false);
+
+                $cantidad = (float) ($item['cantidad'] ?? 1);
+
+                // ✅ Base unitario (viene del item porque lo rellena Livewire)
+                $precioBase = (float) ($item['precio_base'] ?? ($svc?->precio_base ?? 0));
+
+                // ✅ FINAL unitario y subtotales: vienen DEL COMPONENTE (ya incluyen descuento aplicado)
+                $precioFinalUnit = (float) ($item['precio_final_unit'] ?? $precioBase);
+                $subtBase = (float) ($item['subtotal_base'] ?? max(0, $precioBase * max(1, $cantidad)));
+                $subtFinal = (float) ($item['subtotal_final'] ?? max(0, $precioFinalUnit * max(1, $cantidad)));
+
+                $aplicarDescuento = (bool) ($item['aplicar_descuento'] ?? false);
+                $descuentoTipo = $item['descuento_tipo'] ?? null;
+                $descuentoValor = $item['descuento_valor'] ?? null;
+                $descuentoDuracion = $item['descuento_duracion_meses'] ?? null;
+
+                // Para filtrar opciones: ids seleccionados en otras filas
+                $selectedOtherIds = collect($selectedIds)->filter(fn ($id) => (int) $id !== (int) $servicioId)->all();
+            @endphp
+
+            <div
+                class="px-4 py-3
+                       {{ $rowIsEven ? 'bg-sky-100/40' : 'bg-transparent' }}
+                       hover:bg-sky-200/40
+                       dark:bg-transparent dark:hover:bg-white/5"
+                wire:key="row-{{ $i }}"
+            >
+                {{-- FILA PRINCIPAL --}}
+                <div class="grid grid-cols-16 items-center gap-4">
+                    {{-- 1) SERVICIO --}}
+                    <div class="col-span-7">
+                        <div class="relative">
+                            <select
+                                wire:model.live="items.{{ $i }}.servicio_id"
+                                class="w-full cursor-pointer rounded-lg border border-gray-200 bg-white px-3 py-2
+                                       text-sm font-extrabold text-gray-900
+                                       focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                       dark:border-gray-800 dark:bg-transparent dark:text-white dark:focus:ring-sky-500/30"
+                            >
+                                <option value="" class="bg-white text-gray-500 dark:bg-gray-950 dark:text-gray-500">
+                                    Seleccionar...
+                                </option>
+
+                                @foreach($servicios as $s)
+                                    @php
+                                        $sId = (int) $s->id;
+                                        $sTipo = $s->tipo?->value ?? $s->tipo;
+                                        $sIsBaseRec = $sTipo === 'recurrente' && (bool) ($s->es_tarifa_principal ?? false);
+
+                                        // 1) Nunca permitir duplicados (si está en otra fila)
+                                        $isDuplicate = in_array($sId, $selectedOtherIds, true);
+
+                                        // 2) Si ya hay una tarifa principal recurrente seleccionada, ocultar las otras
+                                        //    (pero permitir la que ya está seleccionada en ESTA fila)
+                                        $hideOtherBaseRec = $hasBaseRecurrenteSelected && $sIsBaseRec && !in_array($sId, $baseRecurrenteSelectedIds, true);
+
+                                        $shouldHide = $isDuplicate || $hideOtherBaseRec;
+                                    @endphp
+
+                                    @if(! $shouldHide || $sId === (int) $servicioId)
+                                        <option value="{{ $s->id }}" class="bg-white text-gray-900 dark:bg-gray-950 dark:text-white">
+                                            {{ $s->nombre }}
+                                        </option>
+                                    @endif
+                                @endforeach
+                            </select>
+
+                            {{-- Chip tipo --}}
+                            @if($svc)
+                                @php
+                                    $chip = ($tipo === 'recurrente')
+                                        ? 'bg-sky-600/15 text-sky-700 ring-1 ring-sky-600/25 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/25'
+                                        : 'bg-emerald-600/15 text-emerald-700 ring-1 ring-emerald-600/25 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/25';
+                                @endphp
+                                <div class="mt-2 inline-flex items-center gap-2">
+                                    <span class="rounded-full px-2 py-0.5 text-[10px] font-bold {{ $chip }}">
+                                        {{ $tipo === 'recurrente' ? 'Recurrente' : 'Único' }}
+                                    </span>
+
+                                    @if($esEditable)
+                                        <span class="rounded-full bg-purple-600/15 px-2 py-0.5 text-[10px] font-bold text-purple-700 ring-1 ring-purple-600/25
+                                                     dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/25">
+                                            Editable
+                                        </span>
+                                    @endif
+
+                                    @if($requiereProyectoServicio || ($item['requiere_proyecto'] ?? false))
+                                        <span class="rounded-full bg-indigo-600/15 px-2 py-0.5 text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-600/25
+                                                     dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
+                                            Proyecto
+                                        </span>
+                                    @endif
+
+                                    @if($esTarifaPrincipal)
+                                        <span class="rounded-full bg-amber-600/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-600/25
+                                                     dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25">
+                                            Base
+                                        </span>
+                                    @endif
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+
+                    {{-- 2) PRECIO BASE --}}
+                    <div class="col-span-2 text-right">
+                        @if($esEditable)
+                            <input
+                                type="text"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                wire:model.live.debounce.500ms="items.{{ $i }}.precio_base"
+                                class="w-full rounded-lg border border-sky-300/60 bg-white px-3 py-2 text-right text-sm font-bold text-gray-900
+                                       focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                       dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-white"
+                                placeholder="0,00"
+                            />
+                        @else
+                            <input
+                                type="text"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                readonly
+                                value="{{ $fmt($precioBase) }}"
+                                class="w-full border-none bg-transparent p-0 text-right text-sm font-bold text-gray-900
+                                       dark:text-gray-200"
+                            />
+                        @endif
+                    </div>
+
+                    {{-- 3) PRECIO FINAL (AZUL, sin cursiva) --}}
+                    <div class="col-span-2 text-right">
+                        <span class="text-sm font-extrabold text-sky-600 dark:text-sky-400">
+                            {{ $fmt($precioFinalUnit) }} €
+                        </span>
+                    </div>
+
+                    {{-- 4) CANTIDAD --}}
+                    <div class="col-span-2">
+                        <input
+                            type="number"
+                            min="1"
+                            wire:model.live.debounce.500ms="items.{{ $i }}.cantidad"
+                            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-center text-sm font-extrabold text-sky-600
+                                   focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                   dark:border-gray-800 dark:bg-gray-950/30 dark:text-sky-300"
+                        />
+                    </div>
+
+                    {{-- 5) SUBT BASE --}}
+                    <div class="col-span-1 text-right">
+                        <span class="text-sm font-bold text-gray-900 dark:text-gray-300">
+                            {{ $fmt($subtBase) }}
+                        </span>
+                    </div>
+
+                    {{-- 6) SUBT FINAL (VERDE, sin cursiva) + BORRAR --}}
+                    <div class="col-span-2 flex items-center justify-end gap-3">
+                        <span class="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
+                            {{ $fmt($subtFinal) }} €
+                        </span>
+
+                        <button
+                            type="button"
+                            wire:click="removeItem({{ $i }})"
+                            class="text-gray-400 transition hover:text-red-500"
+                            title="Eliminar"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+                                <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
-                {{-- 2. PRECIO (2 cols) --}}
-                <div class="col-span-2">
-                    <input type="number" step="0.01" wire:model.live.debounce.500ms="items.{{ $i }}.precio"
-                           class="w-full border-none bg-transparent p-0 text-right text-sm text-gray-300 focus:ring-0" 
-                           placeholder="0.00">
-                </div>
+                {{-- FILA EXTRA: EDITABLE + DESCUENTO --}}
+                <div class="mt-3 grid grid-cols-16 gap-4">
+                    {{-- BLOQUE IZQ (proyecto + nombre editable) --}}
+                    <div class="col-span-7">
+                        @if($esEditable)
+                            <div class="flex flex-wrap items-center gap-3">
+                                <label
+                                    class="inline-flex items-center gap-2 rounded-lg border border-sky-400/40 bg-sky-50/60 px-3 py-2
+                                           dark:border-sky-500/25 dark:bg-gray-950/30"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        wire:model.live="items.{{ $i }}.requiere_proyecto"
+                                        class="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500/30"
+                                    />
+                                    <span class="text-xs font-bold text-sky-700 dark:text-sky-200">Proyecto</span>
+                                </label>
 
-                {{-- 3. CANTIDAD (1 col) --}}
-                <div class="col-span-1">
-                    <input type="number" min="1" wire:model.live.debounce.500ms="items.{{ $i }}.cantidad"
-                           class="w-full rounded bg-gray-800 py-0.5 text-center text-sm font-bold text-blue-400 focus:ring-1 focus:ring-blue-500 border-none">
-                </div>
+                                <div class="flex-1 min-w-[260px]">
+                                    <div class="mb-1 text-[10px] font-bold uppercase tracking-wider text-sky-700/70 dark:text-sky-300/70">
+                                        Nombre del servicio (editable)
+                                    </div>
 
-                {{-- 4. DESCUENTO (2 cols) --}}
-                <div class="col-span-2">
-                    <input type="number" step="0.01" wire:model.live.debounce.500ms="items.{{ $i }}.descuento"
-                           class="w-full border-none bg-transparent p-0 text-right text-sm text-red-400 focus:ring-0 placeholder-gray-700" 
-                           placeholder="-">
-                </div>
+                                    <input
+                                        type="text"
+                                        wire:model.live.debounce.500ms="items.{{ $i }}.nombre_personalizado"
+                                        class="w-full rounded-lg border border-sky-400/40 bg-white px-3 py-2
+                                               text-sm font-semibold text-gray-900 placeholder:text-gray-400
+                                               focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                               dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                        placeholder="{{ $svc?->nombre ?? 'Nombre...' }}"
+                                    />
+                                </div>
+                            </div>
+                        @endif
+                    </div>
 
-                {{-- 5. TOTAL (2 cols - incluye botón borrar) --}}
-                <div class="col-span-2 flex items-center justify-end gap-3">
-                    <span class="font-mono text-sm font-bold text-emerald-400">
-                        {{ number_format(max(0, ((float)($items[$i]['precio']??0) * (float)($items[$i]['cantidad']??1)) - (float)($items[$i]['descuento']??0)), 2, ',', '.') }} €
-                    </span>
-                    
-                    {{-- Botón Borrar (Invisible hasta hover) --}}
-                    <button wire:click="removeItem({{ $i }})" class="text-gray-600 opacity-0 transition hover:text-red-500 group-hover:opacity-100">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                            <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
+                    {{-- BLOQUE DERECHA (descuento) --}}
+                    <div class="col-span-9">
+                        <div class="flex flex-wrap items-center justify-end gap-3">
+                            <label
+                                class="inline-flex items-center gap-2 rounded-lg border border-sky-400/35 bg-sky-50/60 px-3 py-2
+                                       dark:border-sky-500/20 dark:bg-gray-950/20"
+                            >
+                                <input
+                                    type="checkbox"
+                                    wire:model.live="items.{{ $i }}.aplicar_descuento"
+                                    class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500/30"
+                                />
+                                <span class="text-xs font-bold text-sky-700 dark:text-sky-200">Descuento</span>
+                            </label>
+
+                            @if($aplicarDescuento)
+                                <select
+                                    wire:model.live="items.{{ $i }}.descuento_tipo"
+                                    class="min-w-[220px] rounded-lg border border-sky-400/40 bg-white px-3 py-2
+                                           text-sm font-semibold text-gray-900
+                                           focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                           dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
+                                >
+                                    <option value="">Sin dto</option>
+                                    <option value="porcentaje">Porcentaje (%)</option>
+                                    <option value="fijo">Cantidad fija (€)</option>
+                                    <option value="precio_final">Precio final (€)</option>
+                                </select>
+
+                                <input
+                                    type="text"
+                                    inputmode="decimal"
+                                    autocomplete="off"
+                                    wire:model.live.debounce.500ms="items.{{ $i }}.descuento_valor"
+                                    class="w-[140px] rounded-lg border border-sky-400/40 bg-white px-3 py-2 text-sm font-bold text-gray-900
+                                           focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                           dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
+                                    placeholder="{{ ($descuentoTipo === 'porcentaje') ? 'Ej: 25' : 'Ej: 10,00' }}"
+                                />
+
+                                @if($tipo === 'recurrente')
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        wire:model.live="items.{{ $i }}.descuento_duracion_meses"
+                                        class="w-[120px] rounded-lg border border-sky-400/40 bg-white px-3 py-2 text-sm font-bold text-gray-900
+                                               focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                               dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
+                                        placeholder="Meses"
+                                        title="Duración (meses)"
+                                    />
+                                @endif
+                            @endif
+                        </div>
+                    </div>
                 </div>
             </div>
         @endforeach
     </div>
 
     {{-- FOOTER --}}
-    <div class="border-t border-gray-800 bg-gray-950/30 px-4 py-2">
-        <button wire:click="addItem" class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-gray-500 transition hover:text-white">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" /></svg>
-            Añadir Línea
+    <div class="border-t border-sky-200/70 bg-sky-50/40 px-4 py-3 dark:border-gray-800 dark:bg-gray-950/30">
+        <button
+            type="button"
+            wire:click="addItem"
+            class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-sky-700 transition hover:text-sky-900
+                   dark:text-gray-400 dark:hover:text-white"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-4 w-4">
+                <path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z" />
+            </svg>
+            Añadir línea
         </button>
     </div>
 </div>

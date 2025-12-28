@@ -22,11 +22,11 @@ class Comentario extends Model
     public static function getComentableModels(): array
 {
     return [
-        \App\Models\Cliente::class => 'Cliente',
+        Cliente::class => 'Cliente',
        
-         \App\Models\Lead::class => 'Lead',
+         Lead::class => 'Lead',
        
-         \App\Models\Proyecto::class => 'Proyecto',
+         Proyecto::class => 'Proyecto',
     ];
 }
 }

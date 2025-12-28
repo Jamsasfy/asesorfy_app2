@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Exception;
 use App\Models\VariableConfiguracion;
 use Illuminate\Support\Facades\Cache; // Para la caché
 use Illuminate\Support\Facades\Crypt; // Para el cifrado
@@ -31,7 +32,7 @@ class ConfiguracionService
         if ($variable->es_secreto) {
             try {
                 $valor = Crypt::decryptString($valor);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 Log::error("Error al descifrar la variable '{$nombreVariable}': " . $e->getMessage());
                 return $default;
             }

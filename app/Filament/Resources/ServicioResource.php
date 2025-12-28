@@ -2,18 +2,25 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use App\Filament\Resources\ServicioResource\Pages\ListServicios;
+use App\Filament\Resources\ServicioResource\Pages\CreateServicio;
+use App\Filament\Resources\ServicioResource\Pages\EditServicio;
 use App\Enums\CicloFacturacionEnum;
 use App\Enums\ServicioTipoEnum; // Importar Enum
 use App\Filament\Resources\ServicioResource\Pages;
 use App\Models\Servicio;
-use Filament\Forms\Components\Grid;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle; // Importar Toggle
-use Filament\Forms\Form;
-use Filament\Forms\Get;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\IconColumn; // Importar IconColumn
@@ -31,16 +38,16 @@ class ServicioResource extends Resource
 {
     protected static ?string $model = Servicio::class;
 
-    protected static ?string $navigationIcon = 'icon-servicios'; // O el icono que prefieras
-    protected static ?string $navigationGroup = 'Gestión VENTAS'; // O donde quieras agruparlo
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-servicios'; // O el icono que prefieras
+    protected static string | \UnitEnum | null $navigationGroup = 'Gestión VENTAS'; // O donde quieras agruparlo
     protected static ?string $modelLabel = 'Servicio';
     protected static ?string $pluralModelLabel = 'Servicios que ofrecemos';
     protected static ?int $navigationSort = 1; // Orden en el menú
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
 {
-    return $form
-        ->schema([
+    return $schema
+        ->components([
             Section::make('Detalles del Servicio')
                 ->schema([
                     Grid::make(5)->schema([
@@ -217,7 +224,7 @@ class ServicioResource extends Resource
             // --- Filtro Condicional para TIPO y CICLO ---
             Filter::make('tipo_y_ciclo')
                     ->label('Tipo y Ciclo')
-                ->form([
+                ->schema([
                     Select::make('tipo')
                         ->label('Tipo de Servicio')
                         // CAMBIO: Construimos las opciones manualmente
@@ -232,7 +239,7 @@ class ServicioResource extends Resource
                         ->options(
                             collect(CicloFacturacionEnum::cases())->mapWithKeys(fn ($case) => [$case->value => $case->label()])
                         )
-                        ->visible(fn (\Filament\Forms\Get $get): bool => $get('tipo') === ServicioTipoEnum::RECURRENTE->value),
+                        ->visible(fn (Get $get): bool => $get('tipo') === ServicioTipoEnum::RECURRENTE->value),
                 ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
@@ -264,16 +271,16 @@ class ServicioResource extends Resource
                 ->toggle(),
     
 
-        ], layout: \Filament\Tables\Enums\FiltersLayout::AboveContent)
+        ], layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(7)
-            ->actions([
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                ViewAction::make(),
+                EditAction::make(),
                 // Opcional: Podrías añadir DeleteAction si se pueden borrar
                 // Tables\Actions\DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
+            ->toolbarActions([
+                BulkActionGroup::make([
                     // Opcional: Podrías añadir DeleteBulkAction
                     // Tables\Actions\DeleteBulkAction::make(),
                 ]),
@@ -290,10 +297,10 @@ class ServicioResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListServicios::route('/'),
-            'create' => Pages\CreateServicio::route('/create'),
+            'index' => ListServicios::route('/'),
+            'create' => CreateServicio::route('/create'),
           //  'view' => Pages\ViewServicio::route('/{record}'),
-            'edit' => Pages\EditServicio::route('/{record}/edit'),
+            'edit' => EditServicio::route('/{record}/edit'),
         ];
     }
 }

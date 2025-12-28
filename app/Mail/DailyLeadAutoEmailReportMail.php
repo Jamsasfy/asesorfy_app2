@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use Illuminate\Support\Collection;
 use Carbon\Carbon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -24,7 +25,7 @@ class DailyLeadAutoEmailReportMail extends Mailable
      * @param array                 $stats
      * @param int                   $total
      * @param int                   $totalErrores
-     * @param \Illuminate\Support\Collection|array $logs
+     * @param Collection|array $logs
      * @param string                $pdfBinary
      */
     public function __construct(

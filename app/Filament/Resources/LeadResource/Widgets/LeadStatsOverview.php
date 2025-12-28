@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Cache;
 class LeadStatsOverview extends BaseWidget
 {
     protected static ?int $sort = -2;
-    protected static ?string $pollingInterval = '60s';
+    protected ?string $pollingInterval = '60s';
     protected static ?string $maxWidth = '5xl';
 protected function getStats(): array
 {

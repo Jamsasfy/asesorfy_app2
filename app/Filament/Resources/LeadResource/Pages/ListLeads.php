@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\LeadResource\Pages;
 
+use Filament\Actions\CreateAction;
 use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\LeadResource\Widgets\LeadStatsOverview;
 use Filament\Actions;
@@ -22,7 +23,7 @@ class ListLeads extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 

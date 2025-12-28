@@ -44,7 +44,7 @@ class ViewDocumento extends ViewRecord
         ->modalHeading('¿Estás seguro de que quieres eliminar este documento?'),
 
       // 🆕 Botón para volver al listado
-      \Filament\Actions\Action::make('volver')
+      Action::make('volver')
       ->label('Volver al listado')
       ->icon('heroicon-o-arrow-left')
       ->url(fn () => route('filament.admin.resources.documentos.index'))

@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Oficina extends Model
 {
     use HasFactory;
-    
-  
-  
+
+
+
 
     protected $guarded = [];
 

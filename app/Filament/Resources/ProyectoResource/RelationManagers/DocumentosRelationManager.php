@@ -2,52 +2,61 @@
 
 namespace App\Filament\Resources\ProyectoResource\RelationManagers;
 
-use Filament\Forms;
-use Filament\Forms\Form;
-use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Tables;
-use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
-
-use App\Models\Documento;
-use App\Models\DocumentoCategoria;
 use App\Models\DocumentoSubtipo;
-use App\Models\User;
+use App\Models\Proyecto;
+use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
+use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Schema;
+use Filament\Tables;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
-use Filament\Notifications\Notification;
+use Illuminate\Support\Str;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;   
 
 class DocumentosRelationManager extends RelationManager
 {
     protected static string $relationship = 'documentosPolimorficos';
-        protected static ?string $title = 'Documentos de este proyecto';
+    protected static ?string $title = 'Documentos de este proyecto';
 
-public function isReadOnly(): bool
-{
-    return false;
-}
-
-    public function form(Form $form): Form
+    public function isReadOnly(): bool
     {
-        return $form->schema([
+        return false;
+    }
+
+    /* ===========================
+     * FORM
+     * =========================== */
+    public function form(Schema $schema): Schema
+    {
+        return $schema->components([
             Select::make('tipo_documento_id')
                 ->label('Tipo de documento')
                 ->relationship('tipo', 'nombre')
                 ->required()
                 ->live(),
+
             Select::make('subtipo_documento_id')
                 ->label('Subtipo')
-                ->options(fn (callable $get) => DocumentoSubtipo::where('documento_categoria_id', $get('tipo_documento_id'))->pluck('nombre', 'id'))
-                ->reactive()
+                ->options(fn (callable $get) =>
+                    DocumentoSubtipo::where('documento_categoria_id', $get('tipo_documento_id'))
+                        ->pluck('nombre', 'id')
+                )
                 ->required()
                 ->searchable()
-                ->placeholder('Selecciona primero el tipo'),
+                ->reactive(),
+
             FileUpload::make('ruta')
                 ->label('Archivo')
                 ->disk('public')
@@ -55,53 +64,66 @@ public function isReadOnly(): bool
                 ->maxSize(32768)
                 ->required()
                 ->acceptedFileTypes([
-                    'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
-                    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'application/pdf',
+                    'image/jpeg',
+                    'image/png',
+                    'image/webp',
+                    'image/gif',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 ])
-                ->preserveFilenames(false)
-                ->visibility('public')
-                 ->afterStateUpdated(function ($state, callable $set) {
-                    if ($state) {
-                        $set('nombre', $state->getClientOriginalName());
-                    }
-                }),
+                ->visibility('public'),
+
             TextInput::make('nombre')
                 ->label('Nombre del documento')
-                ->required()
                 ->maxLength(255)
-                ->placeholder('Se rellenará automáticamente con el nombre del archivo'),
+                ->placeholder('Opcional. Si lo dejas vacío se generará automáticamente.')
+                ->helperText('Si no se indica, se generará un nombre automático.'),
+
             Textarea::make('observaciones')
                 ->label('Observaciones')
                 ->columnSpanFull(),
         ]);
     }
 
-
-
+    /* ===========================
+     * TABLE
+     * =========================== */
     public function table(Table $table): Table
     {
         return $table
+            ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('user.name')
                     ->label('Subido por')
-                    ->formatStateUsing(fn ($record) => $record->user->full_name ?? $record->user->name ?? 'Usuario desconocido'),
+                    ->formatStateUsing(fn ($record) =>
+                        $record->user->full_name
+                        ?? $record->user->name
+                        ?? 'Usuario desconocido'
+                    ),
+
                 TextColumn::make('tipo.nombre')
                     ->label('Tipo')
                     ->badge()
                     ->color(fn ($record) => $record->tipo->color ?? 'gray'),
+
                 TextColumn::make('subtipo.nombre')
                     ->label('Subtipo')
                     ->badge()
                     ->color('info'),
+
                 TextColumn::make('ruta')
                     ->label('Archivo')
                     ->url(fn ($record) => Storage::url($record->ruta), true)
                     ->openUrlInNewTab()
                     ->formatStateUsing(fn ($record) => $record->nombre),
+
                 TextColumn::make('observaciones')
                     ->label('Observaciones')
                     ->limit(30),
+
                 IconColumn::make('verificado')
                     ->label('Verificado')
                     ->boolean()
@@ -109,72 +131,81 @@ public function isReadOnly(): bool
                     ->falseIcon('heroicon-m-x-circle')
                     ->trueColor('success')
                     ->falseColor('danger')
-                    ->action(function ($record, $livewire) {
-                        if (!auth()->user()->can('verificado_documento')) {
+                    ->action(function ($record) {
+                        if (! auth()->user()->can('verificado_documento')) {
                             Notification::make()
                                 ->title('No tienes permiso para verificar este documento.')
                                 ->danger()
                                 ->send();
                             return;
                         }
-                        $record->verificado = !$record->verificado;
+
+                        $record->verificado = ! $record->verificado;
                         $record->save();
+
                         Notification::make()
                             ->title($record->verificado ? 'Documento verificado' : 'Verificación retirada')
                             ->success()
                             ->send();
-                    })
-                    ->tooltip(fn ($record) => $record->verificado ? 'Marcar como NO verificado' : 'Marcar como verificado'),
+                    }),
+
                 TextColumn::make('created_at')
                     ->label('Subido el')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->dateTime('d/m/Y H:i'),
             ])
-            ->defaultSort('created_at', 'desc')
             ->headerActions([
-    \Filament\Tables\Actions\CreateAction::make()
-        ->mutateFormDataUsing(function (array $data, $livewire) {
-            $user = \Illuminate\Support\Facades\Auth::user();
-            // ¡Así accedes al proyecto desde el RelationManager!
-    $proyecto = $livewire->getOwnerRecord();
-            $data['user_id'] = $user->id;
-            $data['mime_type'] = \Illuminate\Support\Facades\Storage::disk('public')->mimeType($data['ruta']);
-            $data['verificado'] = $user->trabajador ? true : false;
-            $data['cliente_id'] = $proyecto->cliente_id;  // <-- Esta línea soluciona el error
-            // Puedes añadir aquí más lógica si quieres, por ejemplo, setear cliente_id si lo necesitas
+                CreateAction::make()
+                    ->mutateDataUsing(function (array $data): array {
+                        /** @var Proyecto $proyecto */
+                        $proyecto = $this->getOwnerRecord();
+                        $user = Auth::user();
 
-            return $data;
-        })
-        ->after(function ($record, $livewire) {
-            // Añadir comentario automático al proyecto cuando se sube un documento
-            $proyecto = $record->documentable;
-            $usuario = auth()->user()?->name ?? 'Usuario desconocido';
+                        $data['user_id'] = $user->id;
+                        $data['cliente_id'] = $proyecto->cliente_id; // ✅ CLAVE
+                        $data['mime_type'] = Storage::disk('public')->mimeType($data['ruta']);
+                        $data['verificado'] = (bool) ($user->trabajador ?? false);
 
-            if ($proyecto instanceof \App\Models\Proyecto) {
-                $proyecto->comentarios()->create([
-                    'user_id' => auth()->id(),
-                    'contenido' => "📎 Se ha subido un documento {$record->nombre} por {$usuario}.",
+                        if (empty($data['nombre'])) {
+                            $subtipo = Str::slug(
+                                DocumentoSubtipo::find($data['subtipo_documento_id'])?->nombre ?? 'documento'
+                            );
 
-                ]);
-            }
-            $livewire->redirect(request()->header('Referer') ?? url()->previous());
-        }),
-])
-           
-            ->filters([
-                // Añade aquí los filtros que necesites
+                            $extension = pathinfo($data['ruta'], PATHINFO_EXTENSION);
+                            $random = Str::lower(Str::random(6));
+
+                            $data['nombre'] = "{$subtipo}_{$random}.{$extension}";
+                        }
+
+                        return $data;
+                    })
+                    ->after(function ($record, $livewire) {
+                        $proyecto = $record->documentable;
+
+                        if ($proyecto instanceof Proyecto) {
+                            $proyecto->comentarios()->create([
+                                'user_id' => auth()->id(),
+                                'contenido' => "📎 Se ha subido el documento {$record->nombre}.",
+                            ]);
+                        }
+
+                        $record->refresh();
+                        $livewire->dispatch('$refresh');
+                    }),
             ])
-          
-            ->actions([
-               \Filament\Tables\Actions\ViewAction::make()
-               ->visible(fn () => true)
-                ->url(fn($record) => route('filament.admin.resources.documentos.view', ['record' => $record]))
-        ->openUrlInNewTab(), // O quita esto si lo quieres en la misma pestaña
+            ->recordActions([
+                ViewAction::make()
+                    ->url(fn ($record) =>
+                        route('filament.admin.resources.documentos.view', ['record' => $record->id])
+                    )
+                    ->openUrlInNewTab(),
 
-            \Filament\Tables\Actions\EditAction::make()->visible(fn () => true),
+                EditAction::make(),
+                DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\DeleteBulkAction::make(),
+           ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
+                ]),
             ]);
     }
 }

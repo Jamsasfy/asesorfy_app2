@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\ClienteResource\Pages;
 
+use Filament\Actions\DeleteAction;
+use Filament\Actions\ViewAction;
 use App\Filament\Resources\ClienteResource;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -16,10 +18,10 @@ class EditCliente extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make()
+            DeleteAction::make()
             ->label('Eliminar cliente')
             ->icon('heroicon-o-trash'),
-            Actions\ViewAction::make()
+            ViewAction::make()
             ->label('Ver ficha cliente')
             ->icon('icon-customer')
             ->color('primary'),

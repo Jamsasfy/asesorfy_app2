@@ -2,15 +2,14 @@
 
 namespace App\Filament\Pages\Auth;
 
-use Filament\Pages\Auth\Login as BaseLogin;
-use Filament\Http\Responses\Auth\LoginResponse;
+use Filament\Auth\Http\Responses\LoginResponse;
 use Illuminate\Support\Facades\Auth;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 
 
 
-class Login extends BaseLogin
+class Login extends \Filament\Auth\Pages\Login
 {
     public bool $remember = false;
 

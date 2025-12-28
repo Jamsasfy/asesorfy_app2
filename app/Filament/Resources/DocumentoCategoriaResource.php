@@ -2,13 +2,21 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Forms\Components\TextInput;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\DocumentoCategoriaResource\Pages\ListDocumentoCategorias;
+use App\Filament\Resources\DocumentoCategoriaResource\Pages\CreateDocumentoCategoria;
+use App\Filament\Resources\DocumentoCategoriaResource\Pages\EditDocumentoCategoria;
 use App\Filament\Resources\DocumentoCategoriaResource\Pages;
 use App\Filament\Resources\DocumentoCategoriaResource\RelationManagers;
 use App\Models\DocumentoCategoria;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -23,9 +31,9 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
 {
     protected static ?string $model = DocumentoCategoria::class;
 
-    protected static ?string $navigationIcon = 'icon-tipodocumento';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-tipodocumento';
 
-    protected static ?string $navigationGroup = 'Configuración plataforma';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
     protected static ?string $navigationLabel = 'Tipo general documento';
     protected static ?string $modelLabel = 'Tipo general documento';
     protected static ?string $pluralModelLabel = 'Tipos general de documentos';
@@ -44,11 +52,11 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
-                Forms\Components\TextInput::make('nombre')
+        return $schema
+            ->components([
+                TextInput::make('nombre')
                 ->label('Nombre de la categoría')
                 ->required()
                 ->maxLength(100)
@@ -73,13 +81,13 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
     {
         return $table
         ->columns([
-            Tables\Columns\TextColumn::make('nombre')
+            TextColumn::make('nombre')
                 ->label('Nombre')
                 ->badge()
                 ->color(fn ($record) => $record->color ?? 'gray')
                 ->searchable()
                 ->sortable(),
-            Tables\Columns\TextColumn::make('created_at')
+            TextColumn::make('created_at')
                 ->label('Creado')
                 ->dateTime('d/m/Y H:i')
                 ->sortable(),
@@ -87,12 +95,12 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -107,9 +115,9 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListDocumentoCategorias::route('/'),
-            'create' => Pages\CreateDocumentoCategoria::route('/create'),
-            'edit' => Pages\EditDocumentoCategoria::route('/{record}/edit'),
+            'index' => ListDocumentoCategorias::route('/'),
+            'create' => CreateDocumentoCategoria::route('/create'),
+            'edit' => EditDocumentoCategoria::route('/{record}/edit'),
         ];
     }
 }

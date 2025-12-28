@@ -2,13 +2,14 @@
 
 namespace App\Observers;
 
+use Filament\Actions\Action;
+use Throwable;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Enums\ProyectoEstadoEnum;
 use App\Filament\Resources\ProyectoResource;
 use App\Models\Proyecto;
 use App\Models\User;
 use Filament\Notifications\Notification;
-use Filament\Notifications\Actions\Action;
 use App\Services\StripeSubscriptionService;
 // use App\Services\FacturacionRecurrenteService; // ❌ YA NO SE NECESITA AQUÍ DIRECTAMENTE
 use Illuminate\Support\Facades\Log;
@@ -28,6 +29,7 @@ class ProyectoObserver
                         Action::make('view')
                             ->label('Ver Proyecto')
                             ->url(ProyectoResource::getUrl('view', ['record' => $proyecto]))
+                            ->openUrlInNewTab()
                             ->markAsRead()
                             ->close(),
                     ])
@@ -74,7 +76,7 @@ class ProyectoObserver
                     // 4. Generar Factura Local (Pagada o Pendiente).
                     StripeSubscriptionService::activarSuscripcion($suscripcion);
 
-                } catch (\Throwable $e) {
+                } catch (Throwable $e) {
                     Log::error('❌ Error activando suscripción tras proyecto', [
                         'suscripcion_id' => $suscripcion->id,
                         'error'          => $e->getMessage(),

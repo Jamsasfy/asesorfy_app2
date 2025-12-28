@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\FacturaResource\Pages;
 
+use App\Services\FacturacionService;
 use App\Filament\Resources\FacturaResource;
 use Filament\Resources\Pages\CreateRecord;
 
@@ -12,7 +13,7 @@ class CreateFactura extends CreateRecord
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         // Llamamos al servicio para obtener el número de forma segura.
-        $datosFactura = \App\Services\FacturacionService::generarSiguienteNumeroFactura();
+        $datosFactura = FacturacionService::generarSiguienteNumeroFactura();
 
         // Lo añadimos a los datos que se van a guardar.
         $data['serie'] = $datosFactura['serie'];

@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources\ClienteResource\RelationManagers;
 
+use Filament\Schemas\Schema;
+use Filament\Actions\CreateAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -26,10 +29,10 @@ class ComentariosRelationManager extends RelationManager
      return false;
  }
 
-    public function form(Form $form): Form
+    public function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Textarea::make('contenido')
                     ->label('Comentario')
                     ->required()
@@ -47,7 +50,7 @@ class ComentariosRelationManager extends RelationManager
             ->recordTitleAttribute('contenido')
             ->columns([
                 ViewColumn::make('contenido')
-                ->label('Comentario')
+                ->label('')
                 ->view('filament.components.comentario-card')
                 ->grow(false),
                
@@ -58,22 +61,22 @@ class ComentariosRelationManager extends RelationManager
             ])
            
             ->headerActions([
-                Tables\Actions\CreateAction::make()
-                ->mutateFormDataUsing(function (array $data): array {
+                CreateAction::make()
+                ->mutateDataUsing(function (array $data): array {
                     $data['user_id'] = auth()->id();
                     return $data;
                 }),
             ])
-            ->actions([                
-                Tables\Actions\DeleteAction::make(),
-                Tables\Actions\EditAction::make()
+            ->recordActions([                
+                DeleteAction::make(),
+                EditAction::make()
                  ->label('Editar')
                 ->modalHeading(fn ($record) => 'Editar comentario de ' . ($record->user->name ?? 'usuario'))
                 ->modalSubmitActionLabel('Guardar cambios')
                 ->modalCancelActionLabel('Cancelar'),
 
             ])
-            ->bulkActions([
+            ->toolbarActions([
                 /* Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]), */

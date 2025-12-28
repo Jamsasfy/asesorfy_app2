@@ -2,86 +2,392 @@
 
 namespace App\Filament\Resources\LeadResource\Pages;
 
+use App\Enums\LeadEstadoEnum;
 use App\Filament\Resources\LeadResource;
-use Filament\Resources\Pages\Page;
+use App\Mail\LeadConversionLinkMail;
 use App\Models\Lead;
+use App\Models\LeadAutoEmailLog;
+use App\Models\LeadConversionLink;
 use App\Models\Servicio;
 use App\Models\TipoCliente;
+use Exception;
 use Filament\Notifications\Notification;
+use Filament\Resources\Pages\Page;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Mail;
 
 class GestionarConversion extends Page
 {
     protected static string $resource = LeadResource::class;
 
-    // Apuntamos a tu archivo de vista principal
-    protected static string $view = 'filament.resources.leads.partials.gestionar-conversion';
+    protected string $view = 'filament.resources.leads.partials.gestionar-conversion';
 
-    // Propiedades públicas
     public $record;
-    public $lead;
+
+    public Lead $lead;
+
+    /** @var \Illuminate\Support\Collection<int,TipoCliente> */
+    public Collection $tiposCliente;
+
+    /** @var \Illuminate\Support\Collection<int,Servicio> */
+    public Collection $servicios;
+
     public ?int $tipoClienteId = null;
+
+    /**
+     * Seguridad / confirmación email
+     */
+    public ?string $emailDestino = null;
+    public ?string $emailConfirm = null;
+
+    /**
+     * Cancelación conversión
+     */
+    public ?string $cancelReason = null;
+
+    /**
+     * items[x]:
+     * - servicio_id
+     * - tipo ('unico'|'recurrente')
+     * - es_editable (bool)
+     * - requiere_proyecto (bool) (solo editables)
+     * - servicio_requiere_proyecto (bool) (solo no editables)
+     * - nombre_personalizado
+     * - precio_base (unitario sin IVA)
+     * - cantidad
+     * - aplicar_descuento (bool)
+     * - descuento_tipo ('porcentaje'|'fijo'|'precio_final'|null)
+     * - descuento_valor (string|null)
+     * - descuento_duracion_meses (int|null)
+     * - subtotal_base
+     * - precio_final_unit
+     * - subtotal_final
+     */
     public array $items = [];
 
-    public function mount($record): void
-    {
-        $this->lead = Lead::findOrFail($record);
-        $this->tipoClienteId = $this->lead->cliente?->tipo_cliente_id ?? TipoCliente::first()?->id;
-        $this->addItem(); // Fila inicial
-    }
+    public ?array $conversionInfo = null; // token, url, last_sent_at, last_sent_to, etc.
+public function mount($record): void
+{
+    $this->lead = Lead::findOrFail($record);
 
-    // --- CÁLCULOS AUTOMÁTICOS ---
-    public function getTotalesProperty(): array
-    {
-        $unico = 0;
-        $recurrente = 0;
+    $this->tiposCliente = TipoCliente::query()
+        ->orderBy('nombre')
+        ->get();
 
-        foreach ($this->items as $item) {
-            $c = (float)($item['cantidad'] ?? 0);
-            $p = (float)($item['precio'] ?? 0);
-            $d = (float)($item['descuento'] ?? 0);
-            
-            $subtotal = max(0, ($c * $p) - $d);
+    $this->servicios = Servicio::query()
+        ->orderBy('nombre')
+        ->get();
 
-            if (($item['tipo'] ?? 'unico') === 'recurrente') {
-                $recurrente += $subtotal;
-            } else {
-                $unico += $subtotal;
-            }
+    $this->tipoClienteId = $this->lead->cliente?->tipo_cliente_id
+        ?? $this->tiposCliente->first()?->id;
+
+    // ✅ Email destino (ajusta si tu Lead usa otro campo)
+    $this->emailDestino =
+        $this->lead->email
+        ?? $this->lead->email_contacto
+        ?? $this->lead->cliente?->email_contacto
+        ?? null;
+
+    // ✅ Cargamos info del link (incluye blueprint)
+    $this->loadConversionInfo();
+
+    // 🔥 Si ya está enviada / finalizada: reconstruimos items desde blueprint
+    $estado = $this->lead->estado?->value ?? null;
+
+    if (in_array($estado, [
+        LeadEstadoEnum::CONVERTIDO->value,
+        LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS->value,
+        LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA->value,
+        LeadEstadoEnum::CONVERTIDO_FIRMADO->value,
+        LeadEstadoEnum::CONVERTIDO_CORRECCION->value,
+    ], true)) {
+        $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
+
+        if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
+            $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
+            return;
         }
 
-        $diasMes = now()->daysInMonth ?: 30;
-        $diasRestantes = $diasMes - now()->day + 1;
-        $prorrata = $recurrente > 0 ? ($recurrente / $diasMes) * $diasRestantes : 0;
-        $totalHoy = ($unico + $prorrata) * 1.21; 
-
-        return [
-            'unico' => $unico,
-            'recurrente' => $recurrente,
-            'prorrata' => $prorrata,
-            'dias_restantes' => $diasRestantes,
-            'total_hoy' => $totalHoy,
-        ];
+        // Si estamos en estados “post-envío” pero NO hay blueprint,
+        // dejamos la tabla vacía (no forzamos addItem) para no liar al comercial.
+        // Aun así, si quisieras permitir “rehacer desde cero”, podríamos meter un botón.
+        return;
     }
 
-    // --- RELLENAR PRECIO AUTOMÁTICO ---
-    public function updated($name, $value)
-    {
-        if (str_ends_with($name, '.servicio_id') && $value) {
-            $parts = explode('.', $name);
-            $index = $parts[1];
+    // Si no hay propuesta enviada → flujo normal
+    $this->addItem();
+}
 
-            $servicio = Servicio::find($value);
-            if ($servicio) {
-                $this->items[$index]['precio'] = $servicio->precio_base;
-                $this->items[$index]['tipo'] = $servicio->tipo->value;
-            }
-        }
+
+    /**
+     * 🔒 Conversión bloqueada: no se debe reenviar / reiniciar / cancelar
+     */
+    private function conversionBloqueada(): bool
+    {
+        return ($this->lead->estado?->value ?? null) === LeadEstadoEnum::CONVERTIDO_FIRMADO->value;
+    }   
+
+    private function mapBlueprintServiciosToItems(array $serviciosBlueprint): array
+    {
+        return collect($serviciosBlueprint)
+            ->filter(fn ($s) => is_array($s))
+            ->map(function (array $s) {
+
+                $servicioId = (int) ($s['servicio_id'] ?? $s['id'] ?? 0);
+                $servicioId = $servicioId > 0 ? $servicioId : null;
+
+                /** @var \App\Models\Servicio|null $svc */
+                $svc = $servicioId ? $this->servicios->firstWhere('id', $servicioId) : null;
+
+                $tipo = (string) ($s['tipo'] ?? ($svc?->tipo?->value ?? 'unico'));
+
+                $cantidad = (int) ($s['unidades'] ?? $s['cantidad'] ?? 1);
+                $cantidad = $cantidad > 0 ? $cantidad : 1;
+
+                $esEditable = (bool) ($s['es_editable'] ?? ($svc?->es_editable ?? false));
+
+                $nombrePersonalizado = null;
+                if ($esEditable) {
+                    $nombrePersonalizado = $s['nombre']
+                        ?? data_get($s, 'nombre_personalizado')
+                        ?? $svc?->nombre;
+                }
+
+                // 🔥 IMPORTANTE:
+                // - En el blueprint guardamos precio_base como "precio efectivo" (precio_final_unit).
+                // - Rehidratamos también el bloque descuento para que NO se pierda al refrescar.
+                $precioBaseOriginal = (float) ($s['precio_base_original'] ?? $s['precio_base'] ?? 0);
+                $precioFinalUnit    = (float) ($s['precio_final_unit'] ?? $s['precio_base'] ?? $precioBaseOriginal);
+
+                $subtotalBase  = (float) ($s['subtotal_base'] ?? round($precioBaseOriginal * $cantidad, 2));
+                $subtotalFinal = (float) ($s['subtotal_final'] ?? round($precioFinalUnit * $cantidad, 2));
+
+                $dtoAplicar = (bool) data_get($s, 'descuento.aplicar', false);
+                $dtoTipo    = data_get($s, 'descuento.tipo');
+                $dtoValor   = data_get($s, 'descuento.valor');
+                $dtoMeses   = data_get($s, 'descuento.meses');
+
+                $servicioRequiereProyecto = $esEditable
+                    ? false
+                    : (bool) ($s['servicio_requiere_proyecto'] ?? ($svc?->requiere_proyecto_activacion ?? false));
+
+                $requiereProyecto = $esEditable
+                    ? (bool) ($s['requiere_proyecto'] ?? false)
+                    : false;
+
+                return [
+                    'servicio_id' => $servicioId,
+                    'tipo' => $tipo,
+
+                    'es_editable' => $esEditable,
+                    'requiere_proyecto' => $requiereProyecto,
+                    'servicio_requiere_proyecto' => $servicioRequiereProyecto,
+
+                    'nombre_personalizado' => $nombrePersonalizado,
+
+                    // Base vs final coherentes:
+                    'precio_base' => $precioBaseOriginal,
+                    'cantidad' => $cantidad,
+
+                    // ✅ Descuentos rehidratados
+                    'aplicar_descuento' => $dtoAplicar,
+                    'descuento_tipo' => $dtoAplicar ? $dtoTipo : null,
+                    'descuento_valor' => $dtoAplicar ? (is_null($dtoValor) ? null : (string) $dtoValor) : null,
+                    'descuento_duracion_meses' => ($tipo === 'recurrente' && $dtoAplicar) ? (is_null($dtoMeses) ? null : (int) $dtoMeses) : null,
+
+                    // Totales tal cual fueron enviados:
+                    'subtotal_base' => round($subtotalBase, 2),
+                    'precio_final_unit' => round($precioFinalUnit, 2),
+                    'subtotal_final' => round($subtotalFinal, 2),
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+private function loadConversionInfo(): void
+{
+    $estado = $this->lead->estado?->value ?? null;
+
+    $q = LeadConversionLink::query()
+        ->where('lead_id', $this->lead->id)
+        ->latest('id');
+
+    // ✅ Si NO está firmado, usamos el activo (no usado + no caducado + no revocado)
+    if ($estado !== LeadEstadoEnum::CONVERTIDO_FIRMADO->value) {
+        $q->active();
+    }
+
+    $link = $q->first();
+
+    if (! $link) {
+        $this->conversionInfo = null;
+        return;
+    }
+
+    $meta = $link->meta ?? [];
+    $expiresAt = $link->expires_at ? Carbon::parse($link->expires_at) : null;
+
+    $isUsed    = ! empty($link->used_at);
+    $isRevoked = ! empty(data_get($meta, 'revoked_at'));
+    $isExpiredByTime = $expiresAt ? $expiresAt->isPast() : false;
+
+    // ✅ “inservible” si: usado OR revocado OR caducado por tiempo
+    // (y si está firmado, también lo tratamos como inservible aunque el expires_at sea futuro)
+    $isExpired = $isUsed || $isRevoked || $isExpiredByTime || ($estado === LeadEstadoEnum::CONVERTIDO_FIRMADO->value);
+
+    // ✅ Solo generamos URL pública si realmente debe poder abrirse
+    $canOpenPublic = ! $isExpired;
+
+    $this->conversionInfo = [
+        'token'        => $link->token,
+
+        // Si no debe abrirse, no lo pintes como enlace clicable
+        'url'          => $canOpenPublic ? route('conversion.show', ['token' => $link->token]) : null,
+
+        'created_at'   => optional($link->created_at)->toDateTimeString(),
+        'expires_at'   => optional($expiresAt)->toDateTimeString(),
+
+        'is_used'      => $isUsed,
+        'is_revoked'   => $isRevoked,
+        'is_expired'   => $isExpired,
+
+        'last_sent_to' => $meta['last_sent_to'] ?? null,
+        'last_sent_at' => $meta['last_sent_at'] ?? null,
+
+        'blueprint'    => $meta['sale_blueprint'] ?? null,
+        'pdf'          => $meta['pdf'] ?? null,
+
+        // extra (por si lo quieres para UI/botones)
+        'revoked_at'   => $meta['revoked_at'] ?? null,
+        'revoked_reason' => $meta['revoked_reason'] ?? null,
+    ];
+}
+
+
+
+    private function buildItemsServiciosBlueprint(): array
+    {
+        return collect($this->items)
+            ->filter(fn ($it) => !empty($it['servicio_id']))
+            ->map(function ($it) {
+
+                /** @var Servicio|null $svc */
+                $svc = $this->servicios->firstWhere('id', (int) $it['servicio_id'])
+                    ?? Servicio::find((int) $it['servicio_id']);
+
+                if (! $svc) return null;
+
+                // Tipo robusto (enum/string)
+                $tipo = $it['tipo'] ?? null;
+                if ($tipo instanceof \BackedEnum) {
+                    $tipo = $tipo->value;
+                } elseif ($tipo instanceof \UnitEnum) {
+                    $tipo = $tipo->name;
+                } elseif ($tipo === null) {
+                    $tipo = ($svc->tipo instanceof \BackedEnum) ? $svc->tipo->value : (string) ($svc->tipo ?? 'unico');
+                }
+                $tipo = (string) $tipo;
+
+                $nombreServicio = (string) ($svc->nombre ?? '');
+                $nombrePersonalizado = (string) ($it['nombre_personalizado'] ?? '');
+                $esEditable = (bool) ($it['es_editable'] ?? ($svc->es_editable ?? false));
+
+                $nombreMostrado = $esEditable
+                    ? (trim($nombrePersonalizado) !== '' ? trim($nombrePersonalizado) : $nombreServicio)
+                    : $nombreServicio;
+
+                $cantidad = (int) ($it['cantidad'] ?? 1);
+                $cantidad = $cantidad <= 0 ? 1 : $cantidad;
+
+                // ✅ Precio base original vs final
+                $precioBaseOriginal = (float) ($it['precio_base'] ?? $svc->precio_base ?? 0);
+
+                // ✅ Clave: precio "efectivo" para contrato/venta = precio_final_unit si existe
+                $precioFinalUnit = (float) ($it['precio_final_unit'] ?? $precioBaseOriginal);
+                $precioParaContrato = $precioFinalUnit;
+
+                $subtotalFinal = (float) ($it['subtotal_final'] ?? ($precioParaContrato * $cantidad));
+
+                // Detectores sobre nombre "real + mostrado"
+                $nombreDetector = strtolower($nombreServicio . ' ' . $nombreMostrado);
+
+                // Flags proyecto (guardamos ambos para no perder semántica)
+                $requiereProyectoEditable = $esEditable ? (bool) ($it['requiere_proyecto'] ?? false) : false;
+                $servicioRequiereProyecto = $esEditable ? false : (bool) ($it['servicio_requiere_proyecto'] ?? ($svc->requiere_proyecto_activacion ?? false));
+
+                return [
+                    'servicio_id' => $svc->id,
+                    'nombre'      => $nombreMostrado,
+                    'tipo'        => $tipo,
+
+                    // ✅ Persistimos flags para rehidratar UI y lógica
+                    'es_editable'                => $esEditable,
+                    'requiere_proyecto'          => $requiereProyectoEditable,   // SOLO para editables
+                    'servicio_requiere_proyecto' => $servicioRequiereProyecto,   // SOLO para no editables
+
+                    // Compat con controller público (usa precio_base * unidades):
+                    'precio_base' => round($precioParaContrato, 2),
+                    'unidades'    => $cantidad,
+                    'total_linea' => round($subtotalFinal, 2),
+
+                    'es_tarifa_principal' => $tipo === 'recurrente',
+
+                    // Detectores robustos
+                    'es_alta_autonomo' => (
+                        str_contains($nombreDetector, 'alta') &&
+                        (str_contains($nombreDetector, 'autonom') || str_contains($nombreDetector, 'autónom'))
+                    ),
+                    'es_creacion_sociedad' =>
+                        str_contains($nombreDetector, 'sociedad') ||
+                        str_contains($nombreDetector, 'sl') ||
+                        str_contains($nombreDetector, 'constitución'),
+                    'es_capitalizacion' => str_contains($nombreDetector, 'capitaliz'),
+
+                    // 🔸 Extra útil
+                    'precio_base_original' => round($precioBaseOriginal, 2),
+                    'precio_final_unit'    => round($precioFinalUnit, 2),
+                    'subtotal_base'        => round((float) ($it['subtotal_base'] ?? ($precioBaseOriginal * $cantidad)), 2),
+                    'subtotal_final'       => round($subtotalFinal, 2),
+
+                    // 🔸 descuento (para rehidratar)
+                    'descuento' => [
+                        'aplicar'  => (bool) ($it['aplicar_descuento'] ?? false),
+                        'tipo'     => $it['descuento_tipo'] ?? null,
+                        'valor'    => $it['descuento_valor'] ?? null,
+                        'meses'    => $it['descuento_duracion_meses'] ?? null,
+                    ],
+                ];
+            })
+            ->filter()
+            ->values()
+            ->toArray();
     }
 
     public function addItem(): void
     {
         $this->items[] = [
-            'servicio_id' => null, 'precio' => 0, 'cantidad' => 1, 'descuento' => 0, 'tipo' => 'unico'
+            'servicio_id' => null,
+            'tipo' => 'unico',
+
+            'es_editable' => false,
+            'requiere_proyecto' => false,
+            'servicio_requiere_proyecto' => false,
+
+            'nombre_personalizado' => null,
+
+            'precio_base' => 0,
+            'cantidad' => 1,
+
+            'aplicar_descuento' => false,
+            'descuento_tipo' => null,
+            'descuento_valor' => null,
+            'descuento_duracion_meses' => null,
+
+            'subtotal_base' => 0,
+            'precio_final_unit' => 0,
+            'subtotal_final' => 0,
         ];
     }
 
@@ -91,8 +397,749 @@ class GestionarConversion extends Page
         $this->items = array_values($this->items);
     }
 
-    public function enviarPropuesta()
+    public function updated($name, $value): void
     {
-        Notification::make()->title('Propuesta enviada')->success()->send();
+        if (preg_match('/^items\.(\d+)\.servicio_id$/', $name, $m)) {
+            $index = (int) $m[1];
+            $this->syncServicio($index, $value ? (int) $value : null);
+            return;
+        }
+
+        if (preg_match('/^items\.(\d+)\./', $name, $m)) {
+            $index = (int) $m[1];
+
+            if (str_ends_with($name, '.aplicar_descuento')) {
+                $aplicar = (bool) ($this->items[$index]['aplicar_descuento'] ?? false);
+
+                if (! $aplicar) {
+                    $this->items[$index]['descuento_tipo'] = null;
+                    $this->items[$index]['descuento_valor'] = null;
+                    $this->items[$index]['descuento_duracion_meses'] = null;
+                }
+            }
+
+            if (str_ends_with($name, '.descuento_tipo')) {
+                $this->items[$index]['descuento_valor'] = null;
+                if (($this->items[$index]['tipo'] ?? 'unico') !== 'recurrente') {
+                    $this->items[$index]['descuento_duracion_meses'] = null;
+                }
+            }
+
+            if (str_ends_with($name, '.descuento_valor')) {
+                $raw = $this->items[$index]['descuento_valor'] ?? null;
+                if ($raw === '' || $raw === null) {
+                    $this->items[$index]['descuento_valor'] = null;
+                } else {
+                    $this->items[$index]['descuento_valor'] = (string) $raw;
+                }
+            }
+
+            $this->recalculateItem($index);
+        }
+    }
+
+    private function syncServicio(int $index, ?int $servicioId): void
+    {
+        if (! $servicioId) {
+            $this->items[$index]['servicio_id'] = null;
+            $this->items[$index]['precio_base'] = 0;
+            $this->items[$index]['tipo'] = 'unico';
+            $this->items[$index]['es_editable'] = false;
+            $this->items[$index]['servicio_requiere_proyecto'] = false;
+            $this->items[$index]['requiere_proyecto'] = false;
+            $this->items[$index]['nombre_personalizado'] = null;
+
+            $this->items[$index]['aplicar_descuento'] = false;
+            $this->items[$index]['descuento_tipo'] = null;
+            $this->items[$index]['descuento_valor'] = null;
+            $this->items[$index]['descuento_duracion_meses'] = null;
+
+            $this->recalculateItem($index);
+            return;
+        }
+
+        /** @var Servicio|null $s */
+        $s = $this->servicios->firstWhere('id', $servicioId);
+
+        if (! $s) {
+            $this->recalculateItem($index);
+            return;
+        }
+
+        $tipo = $s->tipo instanceof \BackedEnum
+            ? $s->tipo->value
+            : ($s->tipo instanceof \UnitEnum ? $s->tipo->name : (string) $s->tipo);
+
+        $esEditable = (bool) ($s->es_editable ?? false);
+        $requiereProyectoAuto = (bool) ($s->requiere_proyecto_activacion ?? false);
+
+        $this->items[$index]['servicio_id'] = $s->id;
+        $this->items[$index]['tipo'] = $tipo;
+        $this->items[$index]['es_editable'] = $esEditable;
+
+        $this->items[$index]['servicio_requiere_proyecto'] = $esEditable ? false : $requiereProyectoAuto;
+
+        $this->items[$index]['requiere_proyecto'] = $esEditable ? (bool) ($this->items[$index]['requiere_proyecto'] ?? false) : false;
+
+        $this->items[$index]['precio_base'] = (float) ($s->precio_base ?? 0);
+
+        if ($esEditable) {
+            $actual = $this->items[$index]['nombre_personalizado'] ?? null;
+            if (! filled($actual)) {
+                $this->items[$index]['nombre_personalizado'] = $s->nombre;
+            }
+        } else {
+            $this->items[$index]['nombre_personalizado'] = null;
+        }
+
+        $this->recalculateItem($index);
+    }
+
+    private function parseNumber(?string $value): float
+    {
+        if ($value === null) return 0.0;
+        $v = trim($value);
+        if ($v === '') return 0.0;
+
+        $v = str_replace([' ', '€'], '', $v);
+        $v = str_replace(',', '.', $v);
+
+        return is_numeric($v) ? (float) $v : 0.0;
+    }
+
+    private function recalculateItem(int $index): void
+    {
+        $cantidad = (float) ($this->items[$index]['cantidad'] ?? 1);
+        $cantidad = $cantidad <= 0 ? 1 : $cantidad;
+
+        $precioBase = (float) ($this->items[$index]['precio_base'] ?? 0);
+        $subtotalBase = round($cantidad * $precioBase, 2);
+
+        $aplicarDto = (bool) ($this->items[$index]['aplicar_descuento'] ?? false);
+        $dtoTipo = $aplicarDto ? ($this->items[$index]['descuento_tipo'] ?? null) : null;
+
+        $dtoValorRaw = $aplicarDto ? ($this->items[$index]['descuento_valor'] ?? null) : null;
+        $dtoValor = $this->parseNumber($dtoValorRaw);
+
+        $subtotalFinal = $subtotalBase;
+
+        if ($dtoTipo && $dtoValorRaw !== null && $dtoValorRaw !== '') {
+            switch ($dtoTipo) {
+                case 'porcentaje':
+                    $subtotalFinal = round($subtotalBase - ($subtotalBase * ($dtoValor / 100)), 2);
+                    break;
+                case 'fijo':
+                    $subtotalFinal = round($subtotalBase - $dtoValor, 2);
+                    break;
+                case 'precio_final':
+                    $subtotalFinal = round($dtoValor, 2);
+                    break;
+            }
+        }
+
+        $subtotalFinal = max(0, $subtotalFinal);
+
+        $precioFinalUnit = $cantidad > 0 ? round($subtotalFinal / $cantidad, 2) : 0;
+
+        $this->items[$index]['subtotal_base'] = $subtotalBase;
+        $this->items[$index]['subtotal_final'] = $subtotalFinal;
+        $this->items[$index]['precio_final_unit'] = $precioFinalUnit;
+    }
+
+    public function getTieneProyectoProperty(): bool
+    {
+        foreach ($this->items as $it) {
+            $esEditable = (bool) ($it['es_editable'] ?? false);
+
+            if ($esEditable) {
+                if (!empty($it['requiere_proyecto'])) return true;
+            } else {
+                if (!empty($it['servicio_requiere_proyecto'])) return true;
+            }
+        }
+        return false;
+    }
+
+    public function getTotalesProperty(): array
+    {
+        $unico = 0.0;
+        $recurrente = 0.0;
+
+        $unicosNombres = [];
+        $recurrentesNombres = [];
+
+        foreach ($this->items as $it) {
+            $subtotalFinal = (float) ($it['subtotal_final'] ?? 0);
+            $tipo = (string) ($it['tipo'] ?? 'unico');
+
+            $servicioNombre = null;
+            if (!empty($it['servicio_id'])) {
+                $svc = $this->servicios->firstWhere('id', (int) $it['servicio_id']);
+                $servicioNombre = $svc?->nombre;
+            }
+
+            $nombreMostrado = $servicioNombre;
+            if (!empty($it['es_editable'])) {
+                $nombreMostrado = $it['nombre_personalizado'] ?: $servicioNombre;
+            }
+
+            if ($tipo === 'recurrente') {
+                $recurrente += $subtotalFinal;
+                if ($nombreMostrado) $recurrentesNombres[] = $nombreMostrado;
+            } else {
+                $unico += $subtotalFinal;
+                if ($nombreMostrado) $unicosNombres[] = $nombreMostrado;
+            }
+        }
+
+        $prorrata = 0.0;
+        $diasRestantes = 0;
+
+        if (! $this->tieneProyecto) {
+            $diasMes = now()->daysInMonth ?: 30;
+            $diasRestantes = $diasMes - now()->day + 1;
+            $prorrata = $recurrente > 0 ? round(($recurrente / $diasMes) * $diasRestantes, 2) : 0.0;
+        }
+
+        $totalHoySinIva = round($unico + $prorrata, 2);
+
+        $factorIva = 1.21;
+
+        return [
+            'unico' => round($unico, 2),
+            'recurrente' => round($recurrente, 2),
+            'prorrata' => round($prorrata, 2),
+            'dias_restantes' => $diasRestantes,
+            'total_hoy_sin_iva' => $totalHoySinIva,
+
+            'unico_con_iva' => round($unico * $factorIva, 2),
+            'recurrente_con_iva' => round($recurrente * $factorIva, 2),
+            'prorrata_con_iva' => round($prorrata * $factorIva, 2),
+            'total_hoy_con_iva' => round($totalHoySinIva * $factorIva, 2),
+
+            'lista_unicos' => $unicosNombres,
+            'lista_recurrentes' => $recurrentesNombres,
+
+            'tiene_proyecto' => $this->tieneProyecto,
+        ];
+    }
+
+    /**
+     * ✅ Paso intermedio: desde el modal de resumen abrimos el modal 2 (confirmación email)
+     */
+    public function confirmarDesdeResumen(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes generar una nueva propuesta.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->emailConfirm = null;
+
+        $this->dispatch('close-modal', id: 'confirmar-propuesta');
+        $this->dispatch('open-modal', id: 'confirmar-email');
+    }
+
+    /**
+     * ✅ Envío final tras confirmar email
+     */
+    public function enviarPropuestaConfirmada(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes reenviar ni generar enlaces.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $emailDestino = (string) ($this->emailDestino ?? '');
+
+        $this->validate([
+            'emailConfirm' => [
+                'required',
+                'email',
+                function ($attribute, $value, $fail) use ($emailDestino) {
+                    $a = mb_strtolower(trim((string) $value));
+                    $b = mb_strtolower(trim($emailDestino));
+
+                    if ($b === '' || $a !== $b) {
+                        $fail('El email no coincide con el destinatario.');
+                    }
+                },
+            ],
+        ]);
+
+        $this->dispatch('close-modal', id: 'confirmar-email');
+
+        $record = $this->lead->fresh();
+
+        // 1) itemsServicios desde la tabla nueva
+        $itemsServicios = $this->buildItemsServiciosBlueprint();
+
+        if (empty($itemsServicios)) {
+            Notification::make()
+                ->title('Error')
+                ->body('Debes añadir al menos un servicio.')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        // 2) Link activo
+        $link = LeadConversionLink::active()
+            ->where('lead_id', $record->id)
+            ->first();
+
+        if (! $link) {
+            $link = LeadConversionLink::createForLead($record, 'automatic_multi');
+        }
+
+        // 3) Meta + blueprint
+        $meta = $link->meta ?? [];
+        $meta['form_type'] = 'automatic_multi';
+        $meta['sale_blueprint'] = [
+            'modo'      => 'automatico',
+            'servicios' => $itemsServicios,
+        ];
+
+        // prefill mínimo
+        $meta['form_data'] = array_merge(($meta['form_data'] ?? []), [
+            'email'           => $emailDestino,
+            'tipo_cliente_id' => $this->tipoClienteId,
+        ]);
+
+        $link->meta = $meta;
+        $link->save();
+
+        // 4) Estado
+        $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
+        $record->fecha_cierre = null;
+        $record->save();
+
+        // 5) Email + logs + comentario
+        try {
+            Mail::to($emailDestino)->send(new LeadConversionLinkMail($record, $link));
+
+            LeadAutoEmailLog::create([
+                'lead_id'              => $record->id,
+                'estado'               => $record->estado->value,
+                'intento'              => 1,
+                'template_identifier'  => 'conversion_link_propuesta',
+                'subject'              => 'Completa tu alta con AsesorFy',
+                'body_preview'         => 'Enlace al formulario de conversión...',
+                'scheduled_at'         => now(),
+                'sent_at'              => now(),
+                'status'               => 'sent',
+                'triggered_by_user_id' => auth()->id(),
+                'trigger_source'       => 'manual_action_filament_gestionar_conversion',
+            ]);
+
+            $record->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => "🚀 🔗 Propuesta/enlace para firma de contrato enviado correctamente a {$emailDestino}.",
+            ]);
+
+            Notification::make()
+                ->title('Propuesta enviada')
+                ->body("Email enviado a {$emailDestino}.")
+                ->success()
+                ->send();
+
+            $meta = $link->meta ?? [];
+            $meta['last_sent_to'] = $emailDestino;
+            $meta['last_sent_at'] = now()->toDateTimeString();
+            $link->meta = $meta;
+            $link->save();
+
+            // refrescar estado y UI
+            $this->lead = $record->fresh();
+            $this->loadConversionInfo();
+
+            $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
+            if (is_array($serviciosBlueprint) && !empty($serviciosBlueprint)) {
+                $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
+            }
+
+            $this->dispatch('$refresh');
+
+        } catch (Exception $e) {
+            Notification::make()
+                ->title('Error envío email')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    public function abrirConfirmarPropuesta(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes generar una nueva propuesta.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $hayServicios = collect($this->items)
+            ->pluck('servicio_id')
+            ->filter()
+            ->isNotEmpty();
+
+        if (! $hayServicios) {
+            Notification::make()
+                ->title('Añade al menos un servicio antes de generar la propuesta.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->dispatch('open-modal', id: 'confirmar-propuesta');
+    }
+
+    // -------------------------
+    // ✅ MODALES (acciones)
+    // -------------------------
+    public function abrirConfirmarReenviar(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes reenviar emails.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->dispatch('open-modal', id: 'confirmar-reenviar-email');
+    }
+
+    public function abrirConfirmarReiniciarToken(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes reiniciar el token.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->dispatch('open-modal', id: 'confirmar-reiniciar-token');
+    }
+
+    public function abrirConfirmarCancelarConversion(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes cancelar la conversión.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->cancelReason = null;
+        $this->dispatch('open-modal', id: 'confirmar-cancelar-conversion');
+    }
+
+    // -------------------------
+    // ✅ REENVIAR EMAIL
+    // -------------------------
+    public function reenviarPropuestaVisual(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes reenviar emails.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->dispatch('close-modal', id: 'confirmar-reenviar-email');
+
+        $record = $this->lead->fresh();
+
+        $emailDestino = trim((string) ($this->emailDestino ?? ''));
+        if ($emailDestino === '' || ! filter_var($emailDestino, FILTER_VALIDATE_EMAIL)) {
+            Notification::make()
+                ->title('Email no válido')
+                ->body('No hay un email destino válido para reenviar.')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $link = LeadConversionLink::active()
+            ->where('lead_id', $record->id)
+            ->latest('id')
+            ->first();
+
+        // Si no hay link activo (o ha caducado), reenviar = “reiniciar token y enviar nuevo”
+        if (! $link || $link->isExpired()) {
+            $this->reiniciarTokenVisual(); // envía nuevo automáticamente
+            return;
+        }
+
+        try {
+            Mail::to($emailDestino)->send(new LeadConversionLinkMail($record, $link));
+
+            LeadAutoEmailLog::create([
+                'lead_id'              => $record->id,
+                'estado'               => $record->estado?->value ?? 'convertido',
+                'intento'              => 1,
+                'template_identifier'  => 'conversion_link_reenvio',
+                'subject'              => 'Completa tu alta con AsesorFy',
+                'body_preview'         => 'Reenvío del enlace de conversión (mismo token).',
+                'scheduled_at'         => now(),
+                'sent_at'              => now(),
+                'status'               => 'sent',
+                'triggered_by_user_id' => auth()->id(),
+                'trigger_source'       => 'manual_action_filament_gestionar_conversion',
+            ]);
+
+            $record->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => "📩 🔁 Reenvío de enlace de conversión a {$emailDestino}.",
+            ]);
+
+            $meta = $link->meta ?? [];
+            $meta['last_sent_to'] = $emailDestino;
+            $meta['last_sent_at'] = now()->toDateTimeString();
+            $link->meta = $meta;
+            $link->save();
+
+            Notification::make()
+                ->title('Email reenviado')
+                ->body("Se ha reenviado el enlace a {$emailDestino}.")
+                ->success()
+                ->send();
+
+            $this->lead = $record->fresh();
+            $this->loadConversionInfo();
+            $this->dispatch('$refresh');
+
+        } catch (Exception $e) {
+            Notification::make()
+                ->title('Error reenviando email')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    // -------------------------
+    // ✅ REINICIAR TOKEN (nuevo link + enviar)
+    // -------------------------
+    public function reiniciarTokenVisual(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes reiniciar el token.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->dispatch('close-modal', id: 'confirmar-reiniciar-token');
+
+        $record = $this->lead->fresh();
+
+        $emailDestino = trim((string) ($this->emailDestino ?? ''));
+        if ($emailDestino === '' || ! filter_var($emailDestino, FILTER_VALIDATE_EMAIL)) {
+            Notification::make()
+                ->title('Email no válido')
+                ->body('No hay un email destino válido para reiniciar y enviar.')
+                ->danger()
+                ->send();
+            return;
+        }
+
+        $old = LeadConversionLink::active()
+            ->where('lead_id', $record->id)
+            ->latest('id')
+            ->first();
+
+        // Blueprint: prioridad al que ya está guardado. Si no, lo construimos desde items actuales.
+        $blueprint = $old?->meta['sale_blueprint'] ?? data_get($this->conversionInfo, 'blueprint') ?? null;
+
+        if (empty($blueprint) || empty($blueprint['servicios']) || ! is_array($blueprint['servicios'])) {
+            $itemsServicios = $this->buildItemsServiciosBlueprint();
+            if (empty($itemsServicios)) {
+                Notification::make()
+                    ->title('No hay servicios para generar enlace')
+                    ->body('Añade al menos un servicio antes de reiniciar el token.')
+                    ->warning()
+                    ->send();
+                return;
+            }
+
+            $blueprint = [
+                'modo'      => 'automatico',
+                'servicios' => $itemsServicios,
+            ];
+        }
+
+        // 1) Invalidar anterior (caducarlo)
+        if ($old) {
+            $metaOld = $old->meta ?? [];
+            $metaOld['revoked_at'] = now()->toDateTimeString();
+            $metaOld['revoked_by_user_id'] = auth()->id();
+
+            $old->meta = $metaOld;
+            $old->expires_at = now()->subSecond();
+            $old->save();
+        }
+
+        // 2) Crear nuevo link
+        $new = LeadConversionLink::createForLead($record, 'automatic_multi');
+
+        $meta = $old?->meta ?? [];
+        $meta['form_type'] = 'automatic_multi';
+        $meta['sale_blueprint'] = $blueprint;
+
+        // prefill mínimo
+        $meta['form_data'] = array_merge(($meta['form_data'] ?? []), [
+            'email'           => $emailDestino,
+            'tipo_cliente_id' => $this->tipoClienteId,
+        ]);
+
+        $new->meta = $meta;
+        $new->save();
+
+        // 3) Forzamos estado correcto
+        $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
+        $record->fecha_cierre = null;
+        $record->save();
+
+        // 4) Enviar email con el nuevo token
+        try {
+            Mail::to($emailDestino)->send(new LeadConversionLinkMail($record, $new));
+
+            LeadAutoEmailLog::create([
+                'lead_id'              => $record->id,
+                'estado'               => $record->estado->value,
+                'intento'              => 1,
+                'template_identifier'  => 'conversion_link_reinicio_token',
+                'subject'              => 'Completa tu alta con AsesorFy',
+                'body_preview'         => 'Nuevo enlace de conversión (token reiniciado).',
+                'scheduled_at'         => now(),
+                'sent_at'              => now(),
+                'status'               => 'sent',
+                'triggered_by_user_id' => auth()->id(),
+                'trigger_source'       => 'manual_action_filament_gestionar_conversion',
+            ]);
+
+            $record->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => "🧬 🔁 Token reiniciado y enlace enviado a {$emailDestino}.",
+            ]);
+
+            $metaNew = $new->meta ?? [];
+            $metaNew['last_sent_to'] = $emailDestino;
+            $metaNew['last_sent_at'] = now()->toDateTimeString();
+            $new->meta = $metaNew;
+            $new->save();
+
+            Notification::make()
+                ->title('Token reiniciado')
+                ->body("Se ha generado un enlace nuevo y se ha enviado a {$emailDestino}.")
+                ->success()
+                ->send();
+
+            $this->lead = $record->fresh();
+            $this->loadConversionInfo();
+
+            // rehidratar items desde el blueprint nuevo
+            $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
+            if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
+                $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
+            }
+
+            $this->dispatch('$refresh');
+
+        } catch (Exception $e) {
+            Notification::make()
+                ->title('Error enviando email')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    // -------------------------
+    // ✅ CANCELAR CONVERSIÓN (revocar link + volver a edición)
+    // -------------------------
+    public function cancelarConversionConfirmada(): void
+    {
+        if ($this->conversionBloqueada()) {
+            Notification::make()
+                ->title('Conversión bloqueada')
+                ->body('Este lead ya está cerrado/firmado. No puedes cancelar la conversión.')
+                ->warning()
+                ->send();
+            return;
+        }
+
+        $this->dispatch('close-modal', id: 'confirmar-cancelar-conversion');
+
+        $record = $this->lead->fresh();
+
+        $active = LeadConversionLink::active()
+            ->where('lead_id', $record->id)
+            ->latest('id')
+            ->first();
+
+        $blueprint = data_get($active?->meta, 'sale_blueprint');
+
+        if ($active) {
+            $meta = $active->meta ?? [];
+            $meta['revoked_at'] = now()->toDateTimeString();
+            $meta['revoked_by_user_id'] = auth()->id();
+            $meta['revoked_reason'] = $this->cancelReason ? trim($this->cancelReason) : null;
+
+            $active->meta = $meta;
+            $active->expires_at = now()->subSecond();
+            $active->save();
+        }
+
+        // ⚠️ Ajusta este estado a tu “modo edición” real si se llama distinto en tu enum
+        $record->estado = LeadEstadoEnum::CONVERTIDO_CORRECCION;
+        $record->fecha_cierre = null;
+        $record->save();
+
+        $record->comentarios()->create([
+            'user_id'   => 9999,
+            'contenido' => '⛔ Conversión cancelada. ' . ($this->cancelReason ? ('Motivo: ' . trim($this->cancelReason)) : ''),
+        ]);
+
+        Notification::make()
+            ->title('Conversión cancelada')
+            ->body('Se ha revocado el enlace y el lead vuelve a modo edición.')
+            ->success()
+            ->send();
+
+        // UI: volvemos a mostrar los servicios que estaban en el blueprint (si existe)
+        if (is_array($blueprint) && !empty($blueprint['servicios']) && is_array($blueprint['servicios'])) {
+            $this->items = $this->mapBlueprintServiciosToItems($blueprint['servicios']);
+        } else {
+            if (empty($this->items)) {
+                $this->addItem();
+            }
+        }
+
+        $this->lead = $record->fresh();
+        $this->loadConversionInfo();
+        $this->dispatch('$refresh');
     }
 }

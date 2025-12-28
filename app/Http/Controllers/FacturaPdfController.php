@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use Exception;
+use Illuminate\Http\Response;
 use App\Models\Factura; // Importa el modelo Factura
 use App\Services\ConfiguracionService; // Importa tu servicio de configuración
 use Barryvdh\DomPDF\Facade\Pdf; // Importa la fachada de DomPDF
@@ -13,8 +15,8 @@ class FacturaPdfController extends Controller
     /**
      * Genera el PDF de una factura específica.
      *
-     * @param  \App\Models\Factura  $factura La instancia de la factura a generar.
-     * @return \Illuminate\Http\Response
+     * @param Factura $factura La instancia de la factura a generar.
+     * @return Response
      */
     public function generarPdf(Factura $factura)
     {
@@ -80,7 +82,7 @@ ksort($ivaBreakdown);
             // Devolver el PDF al navegador para que lo abra en una nueva pestaña
             return $pdf->stream('factura_' . $factura->numero_factura . '.pdf');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // Registrar cualquier error que ocurra durante la generación del PDF
             Log::error("Error al generar PDF de la factura {$factura->id}: " . $e->getMessage());
 

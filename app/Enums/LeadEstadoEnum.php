@@ -19,6 +19,7 @@ enum LeadEstadoEnum: string implements HasLabel
     case CONVERTIDO_ESPERA_DATOS    = 'convertido_espera_datos';    // automático: esperando formulario
     case CONVERTIDO_ESPERA_FIRMA    = 'convertido_espera_firma';    // manual/auto: contrato enviado, esperando firma
     case CONVERTIDO_FIRMADO         = 'convertido_firmado';         // ✅ final (venta OK)
+    case CONVERTIDO_CORRECCION      = 'convertido_correccion';      
 
     case DESCARTADO             = 'descartado';
 
@@ -37,6 +38,7 @@ enum LeadEstadoEnum: string implements HasLabel
             self::CONVERTIDO_ESPERA_DATOS  => 'Convertido · Espera datos',
             self::CONVERTIDO_ESPERA_FIRMA  => 'Convertido · Espera firma',
             self::CONVERTIDO_FIRMADO       => 'Convertido · Firmado',
+            self::CONVERTIDO_CORRECCION    => 'Conversión en corrección',   
 
             self::DESCARTADO            => 'Descartado',
         };

@@ -12,8 +12,8 @@ class ClientesPorMesChart extends ChartWidget
 {
     use HasWidgetShield;
 
-    protected static ?string $heading = '📊 Nuevos clientes y usuarios por mes';
-    protected static ?string $maxHeight = '320px';
+    protected ?string $heading = '📊 Nuevos clientes y usuarios por mes';
+    protected ?string $maxHeight = '320px';
     public ?string $filter = '2025';
 
     public function getFilters(): ?array

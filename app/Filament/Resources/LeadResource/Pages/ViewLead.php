@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\LeadResource\Pages;
 
+use Filament\Actions\EditAction;
 use App\Enums\LeadEstadoEnum;
 use App\Filament\Resources\LeadResource;
 use App\Models\Lead;
@@ -20,26 +21,26 @@ class ViewLead extends ViewRecord
     /**
      * El texto que aparece en la cabecera de la página.
      */
-    public function getHeading(): string
-    {
-        $lead = $this->getRecord();
+   public function getHeading(): string
+{
+    $lead = $this->getRecord();
 
-        // Fecha de referencia: cierre o ahora
-        $end = $lead->fecha_cierre
-            ? Carbon::parse($lead->fecha_cierre)
-            : Carbon::now();
+    $end = $lead->fecha_cierre
+        ? Carbon::parse($lead->fecha_cierre)
+        : now();
 
-        // Calculamos diff (2 unidades, sin prefijos)
-        $diff = Carbon::parse($lead->created_at)
-            ->diffForHumans($end, [
-                'parts'  => 2,
-                'short'  => true,
-                'syntax' => Carbon::DIFF_ABSOLUTE,
-            ]);
+    $diff = Carbon::parse($lead->created_at)
+        ->diffForHumans($end, [
+            'parts'  => 2,
+            'short'  => true,
+            'syntax' => Carbon::DIFF_ABSOLUTE,
+        ]);
 
-        // Devolvemos texto plano: Vista Lead #ID (2d 3h)
-        return "Vista Lead #{$lead->id}, vida del leads desde creación ({$diff})";
-    }
+    $estado = $lead->estado?->getLabel() ?? '—';
+
+    return "Lead #{$lead->id} · {$estado} · {$diff}";
+}
+
 
 
 
@@ -53,7 +54,41 @@ class ViewLead extends ViewRecord
     }
     
         return [
-            Actions\EditAction::make(),
+            EditAction::make(),
+
+
+Action::make('verConversion')
+    ->label('Ver conversión')
+    ->icon('heroicon-o-link')
+    ->visible(fn (Lead $record) => in_array($record->estado, [
+        LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA,
+        LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS,
+    ], true))
+    ->url(fn (Lead $record) => LeadResource::getUrl('conversion', ['record' => $record->id]))
+    ->openUrlInNewTab()
+    ->color('info')
+    ->extraAttributes([
+        // IA blue gradient + glow (funciona bien en header actions)
+        'class' => implode(' ', [
+            'relative',
+            'overflow-hidden',
+            'font-extrabold',
+            'text-white',
+            'border',
+            'border-sky-200/40',
+            'dark:border-sky-400/20',
+            'bg-gradient-to-r',
+            'from-sky-500',
+            'via-cyan-500',
+            'to-blue-600',
+            'shadow-[0_14px_35px_-22px_rgba(56,189,248,.95)]',
+            'hover:shadow-[0_18px_45px_-26px_rgba(56,189,248,1)]',
+            'hover:brightness-[1.06]',
+            'active:brightness-[.98]',
+            'transition',
+        ]),
+    ]),
+
 
              // 1) Asignar comercial si NO tiene asignado
              Action::make('asignar_comercial')
@@ -61,7 +96,7 @@ class ViewLead extends ViewRecord
              ->icon('heroicon-o-user-plus')
              ->color('success')
              ->visible(fn ($record) => is_null($record->asignado_id))
-             ->form([
+             ->schema([
                  Select::make('asignado_id')
                      ->label('Elige Comercial')
                      ->options(
@@ -73,7 +108,7 @@ class ViewLead extends ViewRecord
              ])
              ->action(function ($record, array $data) {
                  $record->update(['asignado_id' => $data['asignado_id']]);
-                 \Filament\Notifications\Notification::make()
+                 Notification::make()
                      ->title('✅ Comercial asignado')
                      ->body("Lead asignado a {$record->asignado->name}.")
                      ->success()
@@ -88,7 +123,7 @@ class ViewLead extends ViewRecord
              ->icon('heroicon-o-user-minus')
              ->color('primary')
              ->visible(fn ($record) => ! is_null($record->asignado_id))
-             ->form([
+             ->schema([
                  Select::make('asignado_id')
                      ->label('Nuevo Comercial')
                      ->options(
@@ -100,7 +135,7 @@ class ViewLead extends ViewRecord
              ])
              ->action(function ($record, array $data) {
                  $record->update(['asignado_id' => $data['asignado_id']]);
-                 \Filament\Notifications\Notification::make()
+                 Notification::make()
                      ->title('🔄 Comercial cambiado')
                      ->body("Ahora asignado a {$record->asignado->name}.")
                      ->success()
@@ -121,7 +156,7 @@ class ViewLead extends ViewRecord
              ->modalSubmitActionLabel('Sí, quitar')
              ->action(function ($record) {
                  $record->update(['asignado_id' => null]);
-                 \Filament\Notifications\Notification::make()
+                 Notification::make()
                      ->title('🗑️ Comercial removido')
                      ->body('El lead ya no tiene comercial asignado.')
                      ->warning()
@@ -134,7 +169,7 @@ class ViewLead extends ViewRecord
         ->icon('heroicon-o-shield-check')
         ->color('danger')
         ->visible(fn () => auth()->user()->hasRole('super_admin'))
-        ->form([
+        ->schema([
             Select::make('estado')
                 ->label('Estado deseado')
                 ->options($estadoOptions)

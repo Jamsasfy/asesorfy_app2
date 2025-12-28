@@ -117,7 +117,7 @@
     <img src="{{ public_path('images/logo.png') }}" class="logo" alt="AsesorFy">
 
     <!-- BLOQUE 1: CABECERA -->
-    <h1>Contrato de Prestación de Servicios</h1>
+    <!-- <h1>Contrato de Prestación de Servicios</h1> -->
 
     {!! $textos['contrato_cabecera'] ?? '' !!}
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Cliente;
 use App\Models\ClienteSuscripcion;
 use App\Models\Factura;
 use App\Enums\FacturaEstadoEnum;
@@ -33,7 +34,7 @@ class FacturacionRecurrenteService
             $cliente = $suscripcion->cliente;
 
             // 1. Detectar Impuestos
-            $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto(
+            $porcentajeIva = Cliente::getPorcentajeImpuesto(
                 $cliente->codigo_postal,
                 $cliente->provincia
             );
@@ -55,7 +56,9 @@ class FacturacionRecurrenteService
                 'estado'            => $estado,
                 'metodo_pago'       => $estado === FacturaEstadoEnum::PAGADA ? 'stripe' : 'domiciliacion',  
                 'fecha_emision'     => $fechaEmision,
-                'fecha_vencimiento' => $fechaEmision->copy()->addDays(15),
+                'fecha_vencimiento' => $estado === FacturaEstadoEnum::PAGADA
+                                        ? $fechaEmision->copy()
+                                        : $fechaEmision->copy()->addDays(30),
                 'base_imponible'    => $baseImponible,
                 'total_iva'         => $iva,
                 'total_factura'     => $total,

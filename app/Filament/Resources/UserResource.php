@@ -2,6 +2,16 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\Action;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\UserResource\Pages\ListUsers;
 use App\Filament\Resources\UserResource\Pages;
 use App\Filament\Resources\UserResource\Pages\CreateUser;
 use App\Filament\Resources\UserResource\Pages\EditUser;
@@ -9,11 +19,9 @@ use App\Filament\Resources\UserResource\RelationManagers;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Resources\Pages\EditRecord;
@@ -33,8 +41,8 @@ class UserResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = User::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-users';
-    protected static ?string $navigationGroup = 'Usuarios plataforma';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-users';
+    protected static string | \UnitEnum | null $navigationGroup = 'Usuarios plataforma';
     protected static ?string $navigationLabel = 'Usuarios Web';
     protected static ?string $modelLabel = 'Usuario web';
     protected static ?string $pluralModelLabel = 'Usuarios con acceso web';
@@ -50,7 +58,7 @@ class UserResource extends Resource implements HasShieldPermissions
             'delete_any',
         ];
     }
-            public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+            public static function getEloquentQuery(): Builder
         {
             return parent::getEloquentQuery()
                 ->where('id', '!=', 9999);   // ⛔ Ocultamos a Boot IA Fy siempre
@@ -75,48 +83,51 @@ class UserResource extends Resource implements HasShieldPermissions
     }
     
 
-    public static function form(Form $form): Form
-    {
-        return $form
-            ->schema([
+   public static function form(Schema $schema): Schema
+{
+    return $schema
+        ->components([
 
-                Section::make('Creación de usuario web con acceso a AsesorFy')
+            // ===============================
+            // CREACIÓN / EDICIÓN USUARIO WEB
+            // ===============================
+            Section::make('Creación de usuario web con acceso a AsesorFy')
                 ->description('Este usuario tendrá acceso limitado a la plataforma, necesario para clientes, trabajadores, etc.')
                 ->icon('heroicon-o-user-plus')
                 ->schema([
-                    // Campos normales
+
                     TextInput::make('name')
-                        ->required()
                         ->label('Nombre')
+                        ->required()
                         ->suffixIcon('heroicon-m-user-circle')
-                        ->columnSpan(1)
                         ->maxLength(191),
-            
+
                     Select::make('roles')
                         ->label('Rol del usuario')
                         ->relationship('roles', 'name')
                         ->multiple()
                         ->preload()
-                        ->required()
-                        ->searchable(),
-            
+                        ->searchable()
+                        ->required(),
+
                     TextInput::make('email')
+                        ->label('Email')
                         ->email()
                         ->suffixIcon('heroicon-m-at-symbol')
                         ->required()
                         ->unique(ignoreRecord: true)
-                        ->columnSpan(2)
                         ->maxLength(191),
-            
+
                     TextInput::make('password')
                         ->label('Password')
                         ->password()
                         ->revealable()
-                        ->dehydrateStateUsing(fn ($state) => filled($state) ? Hash::make($state) : null)
                         ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
-                        ->maxLength(191),
-            
+                        ->dehydrateStateUsing(fn ($state) =>
+                            filled($state) ? Hash::make($state) : null
+                        ),
+
                     TextInput::make('password_confirmation')
                         ->label('Confirmar password')
                         ->password()
@@ -124,45 +135,61 @@ class UserResource extends Resource implements HasShieldPermissions
                         ->dehydrated(false)
                         ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
+                        ->same('password')
                         ->helperText('Rellena ambos campos solo si estás creando el usuario.'),
-            
+
                     Toggle::make('acceso_app')
                         ->label('Acceso a la plataforma')
                         ->helperText('Activa este campo para permitir el acceso del usuario al sistema.')
                         ->default(true)
                         ->inline(false),
+
                 ])
-                ->columns(4),
-            
-                    
-                Section::make('Actualizar contraseña de acceso a AsesorFy')
-                ->icon('heroicon-o-key')
+                ->columns(3)
+                ->columnSpanFull(), // 👈 ESTO ES LO QUE LO HACE MÁS ANCHO
+
+
+            // ===============================
+            // CAMBIO DE CONTRASEÑA (SOLO EDIT)
+            // ===============================
+            Section::make('Actualizar contraseña de acceso a AsesorFy')
                 ->description('Si quieres cambiar la contraseña del usuario, puedes hacerlo aquí.')
+                ->icon('heroicon-o-key')
                 ->schema([
-                    TextInput::make('new_password')
-                        ->statePath('password')
-                        ->label('Nueva contraseña')
-                        ->password()
-                        ->revealable()
-                        ->nullable()
-                        ->dehydrated(fn ($state) => filled($state))
-                        ->dehydrateStateUsing(fn ($state) => Hash::make($state))
-                        ->visible(fn ($livewire) => $livewire instanceof EditRecord)
-                        ->maxLength(191),
-            
-                    TextInput::make('new_password_confirmation')
-                        ->label('Repite contraseña')
-                        ->password()
-                        ->revealable()
-                        ->nullable()
-                        ->same('password')
-                        ->requiredWith('password'),
+
+                   TextInput::make('password')
+    ->label('Nueva contraseña')
+    ->password()
+    ->revealable()
+    ->nullable()
+    ->helperText('Déjalo vacío si no quieres cambiar la contraseña')
+    ->dehydrated(fn ($state) => filled($state))
+    ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+    ->maxLength(191),
+
+
+
+
+                   TextInput::make('password_confirmation')
+    ->label('Confirmar contraseña')
+    ->password()
+    ->revealable()
+    ->nullable()
+    ->dehydrated(false)
+    ->requiredWith('password')
+    ->same('password')
+    ->helperText('Solo obligatorio si introduces una nueva contraseña'),
+
+
+
+
                 ])
-                ->visible(fn ($livewire) => $livewire instanceof EditRecord)
-                ->columns(2),
-        
-            ]);
-    }
+                ->columns(2)
+                ->visible(fn ($livewire) => $livewire instanceof EditRecord),
+
+        ]);
+}
+
 
     public static function table(Table $table): Table
     {
@@ -201,9 +228,9 @@ class UserResource extends Resource implements HasShieldPermissions
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Tables\Filters\Filter::make('email')
-                ->form([
-                    Forms\Components\TextInput::make('value')
+                Filter::make('email')
+                ->schema([
+                    TextInput::make('value')
                         ->label('Email')
                         ->placeholder('Buscar email...'),
                 ])
@@ -215,9 +242,9 @@ class UserResource extends Resource implements HasShieldPermissions
                 ),
         
             // 👤 Filtrar por nombre (input libre)
-            Tables\Filters\Filter::make('name')
-                ->form([
-                    Forms\Components\TextInput::make('value')
+            Filter::make('name')
+                ->schema([
+                    TextInput::make('value')
                         ->label('Nombre')
                         ->placeholder('Buscar nombre...'),
                 ])
@@ -228,14 +255,14 @@ class UserResource extends Resource implements HasShieldPermissions
                     $data['value'] ? 'Nombre: ' . $data['value'] : null
                 ),
         
-                Tables\Filters\SelectFilter::make('roles')
+                SelectFilter::make('roles')
                 ->label('Rol')
                 ->relationship('roles', 'name')
                 ->multiple() // Puedes ponerlo si quieres seleccionar más de uno
                 ->searchable()
                 ->preload(),
 
-                Tables\Filters\SelectFilter::make('acceso_app')
+                SelectFilter::make('acceso_app')
                 ->label('Acceso a la app')
                 ->options([
                     '1' => 'Con acceso',
@@ -252,10 +279,10 @@ class UserResource extends Resource implements HasShieldPermissions
                   
             ],layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(6)
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\ViewAction::make(),
-                Tables\Actions\DeleteAction::make()
+            ->recordActions([
+                EditAction::make(),
+                ViewAction::make(),
+                DeleteAction::make()
                 ->before(function ($record, $action) {
                     if ($record->trabajador) {
                         Notification::make()
@@ -264,16 +291,16 @@ class UserResource extends Resource implements HasShieldPermissions
                             ->danger()
                             ->persistent()
                             ->send();
-        
+
                         $action->cancel(); // ❌ Cancela el borrado
                     }
                 }),
-                Tables\Actions\Action::make('toggle_acceso_app')
+                Action::make('toggle_acceso_app')
                 ->label('Acceso')
                 ->icon(fn ($record) => $record->acceso_app ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
                 ->color(fn ($record) => $record->acceso_app ? 'success' : 'danger')
-                ->form([
-                    Forms\Components\Toggle::make('acceso_app')
+                ->schema([
+                    Toggle::make('acceso_app')
                         ->label('¿Acceso permitido?')
                         ->helperText('Activa o desactiva el acceso del usuario a la plataforma.')
                         ->default(fn ($record) => $record->acceso_app),
@@ -289,9 +316,9 @@ class UserResource extends Resource implements HasShieldPermissions
                 ->modalCancelActionLabel('Cancelar')
                 ->requiresConfirmation(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -305,9 +332,9 @@ class UserResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListUsers::route('/'),
-            'create' => Pages\CreateUser::route('/create'),
-            'edit' => Pages\EditUser::route('/{record}/edit'),
+            'index' => ListUsers::route('/'),
+            'create' => CreateUser::route('/create'),
+            'edit' => EditUser::route('/{record}/edit'),
         ];
     }
 }

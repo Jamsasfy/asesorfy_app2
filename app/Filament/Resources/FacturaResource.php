@@ -2,22 +2,31 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Forms\Components\Placeholder;
+use App\Models\FacturaItem;
+use Filament\Tables\Filters\Filter;
+use Filament\Actions\ViewAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\BulkAction;
+use App\Filament\Resources\FacturaResource\Pages\ListFacturas;
+use App\Filament\Resources\FacturaResource\Pages\CreateFactura;
+use App\Filament\Resources\FacturaResource\Pages\EditFactura;
 use App\Enums\FacturaEstadoEnum;
 use App\Enums\VentaCorreccionEstadoEnum;
 use App\Filament\Resources\FacturaResource\Pages;
 use App\Models\Factura;
 use App\Models\Servicio;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Tables\Columns\TextColumn;
 use App\Services\ConfiguracionService;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
@@ -26,17 +35,18 @@ use Filament\Forms\Components\Action;
 use Filament\Forms\Components\Actions;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
-use Illuminate\Database\Eloquent\Builder; 
-use Filament\Tables\Actions\Action as TablesAction;
+use Illuminate\Database\Eloquent\Builder;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
+use Illuminate\Support\Facades\Auth;
+
 
 
 class FacturaResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Factura::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-stack';
 
      public static function getPermissionPrefixes(): array
     {
@@ -49,13 +59,16 @@ class FacturaResource extends Resource implements HasShieldPermissions
             'delete_any',
         ];
     }
-
-
-
-public static function form(Form $form): Form
+public static function shouldRegisterNavigation(): bool
 {
-    return $form
-        ->schema([
+    return auth()->user()?->hasRole('super_admin');
+}
+
+
+public static function form(Schema $schema): Schema
+{
+    return $schema
+        ->components([
             Section::make('Cabecera de la Factura')->columns(4)->schema([
                 Select::make('cliente_id')
                     ->relationship('cliente', 'razon_social')
@@ -118,7 +131,7 @@ public static function form(Form $form): Form
                 self::recalcularTotales($get, $set);
                 return;
             }
-            $servicio = \App\Models\Servicio::find($state); // Asegúrate de importar \App\Models\Servicio
+            $servicio = Servicio::find($state); // Asegúrate de importar \App\Models\Servicio
             if ($servicio) {
                 $set('descripcion', $servicio->nombre);
                 $set('precio_unitario', $servicio->precio_base);
@@ -130,9 +143,9 @@ public static function form(Form $form): Form
 
     // --- BLOQUE DE DEPURACIÓN TEMPORAL: Placeholder para mostrar el nombre del servicio ---
     // Este Placeholder aparecerá solo en modo "Ver"
-    \Filament\Forms\Components\Placeholder::make('servicio_nombre_directo')
+    Placeholder::make('servicio_nombre_directo')
         ->label('Nombre del Servicio (VERIFICACIÓN)')
-        ->content(function (\App\Models\FacturaItem $record) { // El $record aquí es la instancia de FacturaItem
+        ->content(function (FacturaItem $record) { // El $record aquí es la instancia de FacturaItem
             // Intentamos acceder directamente al nombre del servicio a través de la relación.
             // Si $record->servicio es null (relación no cargada o ID no válido),
             // o si $record->servicio->nombre es null, mostrará un mensaje.
@@ -335,9 +348,9 @@ public static function recalcularTotales(Get $get, Set $set): void
                     ->label('Cliente'),
 
                 // Filtro por Rango de Fechas de Emisión
-                Tables\Filters\Filter::make('fecha_emision')
+                Filter::make('fecha_emision')
                    
-                    ->form([
+                    ->schema([
                         DatePicker::make('fecha_desde')
                             ->label('Fecha de Emisión Desde')
                             ->native(false),
@@ -357,7 +370,7 @@ public static function recalcularTotales(Get $get, Set $set): void
                             );
                     })
                     ->label('Rango de Emisión'),
-                      Tables\Filters\Filter::make('con_correccion_solicitada')
+                      Filter::make('con_correccion_solicitada')
         ->label('Con Corrección Solicitada')
         ->query(fn (Builder $query): Builder => 
             $query->whereHas('venta', fn (Builder $q) => 
@@ -366,14 +379,14 @@ public static function recalcularTotales(Get $get, Set $set): void
         )
         ->toggle(),
             ],layout: FiltersLayout::AboveContent)
-            ->actions([
+            ->recordActions([
                 // Ver Factura (siempre visible)
-                Tables\Actions\ViewAction::make()
+                ViewAction::make()
                     ->label('') // Solo icono
                     ->tooltip('Ver Detalles'), // Tooltip para indicar la acción
                 
                 // Acción de Pagar Factura (simulada o para enlazar a Stripe/pago manual)
-                Tables\Actions\Action::make('marcar_pagada')
+                \Filament\Actions\Action::make('marcar_pagada')
                     ->label('') // Solo icono
                     ->tooltip('Marcar como Pagada')
                     ->icon('heroicon-o-currency-euro')
@@ -391,7 +404,7 @@ public static function recalcularTotales(Get $get, Set $set): void
                     }),
 
                 // Acción de Anular Factura
-                Tables\Actions\Action::make('anular_factura')
+                \Filament\Actions\Action::make('anular_factura')
                     ->label('') // Solo icono
                     ->tooltip('Anular Factura')
                     ->icon('heroicon-o-x-circle')
@@ -408,7 +421,7 @@ public static function recalcularTotales(Get $get, Set $set): void
                             ->send();
                     }),
                      // --- ¡NUEVA ACCIÓN: Generar PDF! ---
-           Tables\Actions\Action::make('generar_pdf')
+           \Filament\Actions\Action::make('generar_pdf')
                 ->label('') // No queremos texto, solo el icono
                 ->tooltip('Generar PDF') // Tooltip al pasar el ratón
                 ->icon('heroicon-o-document-arrow-down') // Icono de descarga o documento
@@ -419,10 +432,10 @@ public static function recalcularTotales(Get $get, Set $set): void
 
                 // Si necesitas una acción de "Rectificar" o "Reclamar", iría aquí
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
+            ->toolbarActions([
+                BulkActionGroup::make([
                     // Acción masiva para marcar como Pagada
-                    Tables\Actions\BulkAction::make('marcar_pagadas_seleccionadas')
+                    BulkAction::make('marcar_pagadas_seleccionadas')
                         ->label('Marcar como Pagadas')
                         ->icon('heroicon-o-currency-euro')
                         ->color('success')
@@ -436,7 +449,7 @@ public static function recalcularTotales(Get $get, Set $set): void
                         ->deselectRecordsAfterCompletion(),
                     
                     // Acción masiva para Anular
-                    Tables\Actions\BulkAction::make('anular_seleccionadas')
+                    BulkAction::make('anular_seleccionadas')
                         ->label('Anular seleccionadas')
                         ->icon('heroicon-o-x-circle')
                         ->color('danger')
@@ -466,9 +479,9 @@ public static function recalcularTotales(Get $get, Set $set): void
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListFacturas::route('/'),
-            'create' => Pages\CreateFactura::route('/create'),
-            'edit' => Pages\EditFactura::route('/{record}/edit'),
+            'index' => ListFacturas::route('/'),
+            'create' => CreateFactura::route('/create'),
+            'edit' => EditFactura::route('/{record}/edit'),
         ];
     }
 }

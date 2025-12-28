@@ -2,6 +2,12 @@
 
 namespace App\Filament\Resources\DepartamentoResource\RelationManagers;
 
+use Filament\Tables\Columns\TextColumn;
+use Filament\Actions\Action;
+use Filament\Actions\EditAction;
+use Filament\Actions\DetachAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DetachBulkAction;
 use App\Filament\Resources\TrabajadorResource;
 use App\Filament\Resources\UserResource;
 use Filament\Forms;
@@ -9,7 +15,6 @@ use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Tables\Actions\Action;
 use Filament\Forms\Components\Select;
 use App\Models\Trabajador;
 use Filament\Support\Enums\IconSize;
@@ -25,20 +30,20 @@ class TrabajadoresRelationManager extends RelationManager
         return $table
             ->recordTitleAttribute('user.name')
             ->columns([
-                Tables\Columns\TextColumn::make('user.name')
+                TextColumn::make('user.name')
                     ->label('Nombre'),
 
                 // ▼▼▼ COLUMNA DE ROLES AÑADIDA ▼▼▼
-                Tables\Columns\TextColumn::make('user.roles.name')
+                TextColumn::make('user.roles.name')
                     ->label('Roles')
                     ->badge()
                     ->color('primary'),
 
-                Tables\Columns\TextColumn::make('user.email')
+                TextColumn::make('user.email')
                     ->label('Email'),
                 
                    
-                Tables\Columns\TextColumn::make('cargo')
+                TextColumn::make('cargo')
                     ->label('Cargo'),
             ])
             ->filters([
@@ -50,7 +55,7 @@ class TrabajadoresRelationManager extends RelationManager
                     ->icon('heroicon-o-plus')
                     // ▼▼▼ VISIBILIDAD CONDICIONAL AÑADIDA ▼▼▼
                     ->visible(fn (): bool => Trabajador::whereNull('departamento_id')->exists())
-                    ->form([
+                    ->schema([
                         Select::make('trabajador_id')
                             ->label('Trabajador a vincular')
                             ->options(
@@ -65,8 +70,8 @@ class TrabajadoresRelationManager extends RelationManager
                         $trabajador->save();
                     })
             ])
-            ->actions([
-                 Tables\Actions\EditAction::make()
+            ->recordActions([
+                 EditAction::make()
                 ->icon('heroicon-o-pencil-square')
                 ->label('Editar trabajador')
             
@@ -80,11 +85,11 @@ class TrabajadoresRelationManager extends RelationManager
                 ->tooltip('Permisos del usuario y contraseña de acceso')
                 ->url(fn (Trabajador $record): string => UserResource::getUrl('edit', ['record' => $record->user_id]))
                 ->openUrlInNewTab(), // Opcional, si quieres abrir en nueva pestaña
-                Tables\Actions\DetachAction::make(),
+                DetachAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DetachBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DetachBulkAction::make(),
                 ]),
             ]);
     }

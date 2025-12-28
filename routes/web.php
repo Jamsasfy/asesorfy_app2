@@ -66,6 +66,22 @@ Route::prefix('conversion')->name('conversion.')->group(function () {
         Route::post('{token}/sign', [LeadConversionController::class, 'sign'])
             ->name('sign');
 
+        Route::post('{token}/payment-options', [LeadConversionController::class, 'paymentOptions'])
+            ->name('payment-options');
+
+        Route::get('{token}/pago-inicial', [LeadConversionController::class, 'pagoInicial'])
+            ->name('pago-inicial');
+
+        Route::post('{token}/pago-inicial', [LeadConversionController::class, 'guardarPagoInicial'])
+            ->name('pago-inicial.store');
+
+        Route::get('{token}/pago-recurrente', [LeadConversionController::class, 'pagoRecurrente'])
+            ->name('pago-recurrente');
+
+        Route::post('{token}/pago-recurrente', [LeadConversionController::class, 'guardarPagoRecurrente'])
+            ->name('pago-recurrente.store');
+
+
         // 5) Vista final
         Route::get('{token}/finished', [LeadConversionController::class, 'finished'])
             ->middleware('check.recurrent')

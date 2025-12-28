@@ -1,108 +1,45 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Policies;
 
-use App\Models\User;
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\Procedencia;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class ProcedenciaPolicy
 {
     use HandlesAuthorization;
-
-    /**
-     * Determine whether the user can view any models.
-     */
-    public function viewAny(User $user): bool
+    
+    public function viewAny(AuthUser $authUser): bool
     {
-        return $user->can('view_any_procedencia');
+        return $authUser->can('ViewAny:Procedencia');
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
-    public function view(User $user, Procedencia $procedencia): bool
+    public function view(AuthUser $authUser, Procedencia $procedencia): bool
     {
-        return $user->can('view_procedencia');
+        return $authUser->can('View:Procedencia');
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
-    public function create(User $user): bool
+    public function create(AuthUser $authUser): bool
     {
-        return $user->can('create_procedencia');
+        return $authUser->can('Create:Procedencia');
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
-    public function update(User $user, Procedencia $procedencia): bool
+    public function update(AuthUser $authUser, Procedencia $procedencia): bool
     {
-        return $user->can('update_procedencia');
+        return $authUser->can('Update:Procedencia');
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
-    public function delete(User $user, Procedencia $procedencia): bool
+    public function delete(AuthUser $authUser, Procedencia $procedencia): bool
     {
-        return $user->can('delete_procedencia');
+        return $authUser->can('Delete:Procedencia');
     }
 
-    /**
-     * Determine whether the user can bulk delete.
-     */
-    public function deleteAny(User $user): bool
+    public function deleteAny(AuthUser $authUser): bool
     {
-        return $user->can('delete_any_procedencia');
+        return $authUser->can('DeleteAny:Procedencia');
     }
 
-    /**
-     * Determine whether the user can permanently delete.
-     */
-    public function forceDelete(User $user, Procedencia $procedencia): bool
-    {
-        return $user->can('{{ ForceDelete }}');
-    }
-
-    /**
-     * Determine whether the user can permanently bulk delete.
-     */
-    public function forceDeleteAny(User $user): bool
-    {
-        return $user->can('{{ ForceDeleteAny }}');
-    }
-
-    /**
-     * Determine whether the user can restore.
-     */
-    public function restore(User $user, Procedencia $procedencia): bool
-    {
-        return $user->can('{{ Restore }}');
-    }
-
-    /**
-     * Determine whether the user can bulk restore.
-     */
-    public function restoreAny(User $user): bool
-    {
-        return $user->can('{{ RestoreAny }}');
-    }
-
-    /**
-     * Determine whether the user can replicate.
-     */
-    public function replicate(User $user, Procedencia $procedencia): bool
-    {
-        return $user->can('{{ Replicate }}');
-    }
-
-    /**
-     * Determine whether the user can reorder.
-     */
-    public function reorder(User $user): bool
-    {
-        return $user->can('{{ Reorder }}');
-    }
 }

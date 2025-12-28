@@ -1,108 +1,45 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Policies;
 
-use App\Models\User;
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\VariableConfiguracion;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class VariableConfiguracionPolicy
 {
     use HandlesAuthorization;
-
-    /**
-     * Determine whether the user can view any models.
-     */
-    public function viewAny(User $user): bool
+    
+    public function viewAny(AuthUser $authUser): bool
     {
-        return $user->can('view_any_variable::configuracion');
+        return $authUser->can('ViewAny:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
-    public function view(User $user, VariableConfiguracion $variableConfiguracion): bool
+    public function view(AuthUser $authUser, VariableConfiguracion $variableConfiguracion): bool
     {
-        return $user->can('view_variable::configuracion');
+        return $authUser->can('View:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
-    public function create(User $user): bool
+    public function create(AuthUser $authUser): bool
     {
-        return $user->can('create_variable::configuracion');
+        return $authUser->can('Create:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
-    public function update(User $user, VariableConfiguracion $variableConfiguracion): bool
+    public function update(AuthUser $authUser, VariableConfiguracion $variableConfiguracion): bool
     {
-        return $user->can('update_variable::configuracion');
+        return $authUser->can('Update:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
-    public function delete(User $user, VariableConfiguracion $variableConfiguracion): bool
+    public function delete(AuthUser $authUser, VariableConfiguracion $variableConfiguracion): bool
     {
-        return $user->can('delete_variable::configuracion');
+        return $authUser->can('Delete:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can bulk delete.
-     */
-    public function deleteAny(User $user): bool
+    public function deleteAny(AuthUser $authUser): bool
     {
-        return $user->can('delete_any_variable::configuracion');
+        return $authUser->can('DeleteAny:VariableConfiguracion');
     }
 
-    /**
-     * Determine whether the user can permanently delete.
-     */
-    public function forceDelete(User $user, VariableConfiguracion $variableConfiguracion): bool
-    {
-        return $user->can('force_delete_variable::configuracion');
-    }
-
-    /**
-     * Determine whether the user can permanently bulk delete.
-     */
-    public function forceDeleteAny(User $user): bool
-    {
-        return $user->can('force_delete_any_variable::configuracion');
-    }
-
-    /**
-     * Determine whether the user can restore.
-     */
-    public function restore(User $user, VariableConfiguracion $variableConfiguracion): bool
-    {
-        return $user->can('restore_variable::configuracion');
-    }
-
-    /**
-     * Determine whether the user can bulk restore.
-     */
-    public function restoreAny(User $user): bool
-    {
-        return $user->can('restore_any_variable::configuracion');
-    }
-
-    /**
-     * Determine whether the user can replicate.
-     */
-    public function replicate(User $user, VariableConfiguracion $variableConfiguracion): bool
-    {
-        return $user->can('replicate_variable::configuracion');
-    }
-
-    /**
-     * Determine whether the user can reorder.
-     */
-    public function reorder(User $user): bool
-    {
-        return $user->can('reorder_variable::configuracion');
-    }
 }

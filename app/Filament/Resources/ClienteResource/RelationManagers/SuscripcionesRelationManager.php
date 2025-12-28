@@ -2,6 +2,10 @@
 
 namespace App\Filament\Resources\ClienteResource\RelationManagers;
 
+use Filament\Tables\Columns\TextColumn;
+use Filament\Actions\ViewAction;
+use Filament\Actions\Action;
+use App\Filament\Resources\VentaResource;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -27,7 +31,7 @@ class SuscripcionesRelationManager extends RelationManager
             ->recordTitleAttribute('servicio.nombre')
             ->columns([
                 // Columna del Servicio (con enlace condicional a su Proyecto)
-              Tables\Columns\TextColumn::make('nombre_final') // <-- CAMBIO AQUÍ
+              TextColumn::make('nombre_final') // <-- CAMBIO AQUÍ
                     ->label('Servicio')
                     ->icon(function (ClienteSuscripcion $record): ?string {
                         // Tu lógica para el icono se queda igual
@@ -40,7 +44,7 @@ class SuscripcionesRelationManager extends RelationManager
                         $proyecto = $record->ventaOrigen?->proyectos()
                             ->where('servicio_id', $record->servicio_id)
                             ->first();
-                        return $proyecto ? \App\Filament\Resources\ProyectoResource::getUrl('view', ['record' => $proyecto]) : null;
+                        return $proyecto ? ProyectoResource::getUrl('view', ['record' => $proyecto]) : null;
                     }, true)
                     ->color(function (ClienteSuscripcion $record): string {
                         // Tu lógica para el color se queda igual
@@ -50,13 +54,13 @@ class SuscripcionesRelationManager extends RelationManager
                         if ($tieneProyecto) {
                             return 'primary';
                         }
-                        if ($record->servicio->tipo === \App\Enums\ServicioTipoEnum::RECURRENTE) {
+                        if ($record->servicio->tipo === ServicioTipoEnum::RECURRENTE) {
                             return 'warning';
                         }
                         return 'gray';
                     }),
                 // ▼▼▼ LA COLUMNA CORREGIDA ▼▼▼
-Tables\Columns\TextColumn::make('contexto_servicio')
+TextColumn::make('contexto_servicio')
     ->label('Estado del proyecto')
     ->badge()
     ->placeholder('N/A') // 1. Muestra esto si el estado es nulo
@@ -85,7 +89,7 @@ Tables\Columns\TextColumn::make('contexto_servicio')
     ->formatStateUsing(fn ($state) => is_string($state) ? $state : $state?->getLabel()),
 
                 // Columna del Estado (SIEMPRE el de la suscripción)
-                Tables\Columns\TextColumn::make('estado')
+                TextColumn::make('estado')
                     ->label('Estado de la Suscripción/Facturacón')
                     ->badge()
                     ->formatStateUsing(fn (ClienteSuscripcionEstadoEnum $state) => $state->getLabel())
@@ -96,7 +100,7 @@ Tables\Columns\TextColumn::make('contexto_servicio')
                         default => 'gray',
                     }),
 
-                Tables\Columns\TextColumn::make('precio_acordado')->label('Precio')->money('eur')
+                TextColumn::make('precio_acordado')->label('Precio')->money('eur')
                 ->formatStateUsing(function ($state, ClienteSuscripcion $record): string {
                     // Formateamos el precio base
                     $precio = number_format($state, 2, ',', '.');
@@ -110,16 +114,16 @@ Tables\Columns\TextColumn::make('contexto_servicio')
                     // Si no, solo devolvemos el precio
                     return "{$precio} €";
                 }),
-                Tables\Columns\TextColumn::make('fecha_inicio')->label('Inicio')->date('d/m/Y'),
+                TextColumn::make('fecha_inicio')->label('Inicio')->date('d/m/Y'),
             ])
-            ->actions([
-               Tables\Actions\ViewAction::make()
+            ->recordActions([
+               ViewAction::make()
     ->url(fn (ClienteSuscripcion $record): string => ClienteSuscripcionResource::getUrl('view', ['record' => $record]))
     ->openUrlInNewTab(),
-                Tables\Actions\Action::make('ver_venta')
+                Action::make('ver_venta')
                     ->label('Ver Venta')
                     ->icon('heroicon-o-shopping-cart')
-                    ->url(fn(ClienteSuscripcion $record) => \App\Filament\Resources\VentaResource::getUrl('view', ['record' => $record->venta_origen_id]))
+                    ->url(fn(ClienteSuscripcion $record) => VentaResource::getUrl('view', ['record' => $record->venta_origen_id]))
                     ->openUrlInNewTab()
                     ->color('gray'),
             ]);

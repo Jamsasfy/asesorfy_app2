@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Public;
 
+use App\Models\Cliente;
+use Exception;
+use Stripe\Customer;
 use App\Http\Controllers\Controller;
 use App\Models\Venta;
 use App\Models\LeadConversionLink;
@@ -30,12 +33,11 @@ class StripePaymentController extends Controller
         // Configuración de Stripe
         Stripe::setApiKey(config('services.stripe.secret'));
         if (app()->isLocal()) {
-            \Stripe\Stripe::setVerifySslCerts(false);
+            Stripe::setVerifySslCerts(false);
         }
 
         // 🔥 CEREBRO FISCAL: Detectar impuestos antes de cobrar
-        // Usamos los datos del cliente asociado a la venta
-        $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto(
+        $porcentajeIva = Cliente::getPorcentajeImpuesto(
             $venta->cliente->codigo_postal ?? null,
             $venta->cliente->provincia ?? null
         );
@@ -50,12 +52,8 @@ class StripePaymentController extends Controller
             }
 
             $precioBase = (float) $item->precio_unitario_aplicado;
-            
-            // 🔥 CÁLCULO DINÁMICO DE PRECIO FINAL
-            // Base * Factor (1.00 o 1.21)
             $precioConIva = $precioBase * $factorIva;
-            
-            // Convertir a céntimos
+
             $unitAmount = (int) round($precioConIva * 100);
 
             $productData = [];
@@ -101,11 +99,11 @@ class StripePaymentController extends Controller
                 'line_items'           => $lineItems,
                 'mode'                 => 'payment',
 
-                // 🔥 Guardar tarjeta para el futuro
+                // Guardar tarjeta para el futuro (Checkout del pago inicial)
                 'payment_intent_data' => [
                     'setup_future_usage' => 'off_session',
                     'metadata' => [
-                        'iva_aplicado' => $porcentajeIva . '%', // Dato útil para debug
+                        'iva_aplicado' => $porcentajeIva . '%',
                     ],
                 ],
 
@@ -122,7 +120,7 @@ class StripePaymentController extends Controller
 
             return redirect($session->url);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Error creando sesión Stripe venta {$venta->id}: " . $e->getMessage());
             return back()->with('error', 'Error al conectar con la pasarela de pago.');
         }
@@ -144,31 +142,30 @@ class StripePaymentController extends Controller
 
         try {
             Stripe::setApiKey(config('services.stripe.secret'));
-            if (app()->isLocal()) \Stripe\Stripe::setVerifySslCerts(false);
+            if (app()->isLocal()) Stripe::setVerifySslCerts(false);
 
-            // 🔥 Expandimos 'payment_intent' para sacar la tarjeta usada
+            // Expandimos payment_intent para sacar la tarjeta usada
             $session = Session::retrieve([
                 'id' => $sessionId,
-                'expand' => ['payment_intent'], 
+                'expand' => ['payment_intent'],
             ]);
 
             if ($session->payment_status === 'paid') {
 
-                // A) Guardar/Vincular ID de cliente de Stripe y Método de Pago
+                // A) Guardar/Vincular stripe_customer_id + poner default_payment_method
                 if ($session->customer && $venta->cliente) {
                     $cliente = $venta->cliente;
-                    
+
                     if ($cliente->stripe_customer_id !== $session->customer) {
                         $cliente->stripe_customer_id = $session->customer;
                         $cliente->saveQuietly();
                     }
 
-                    // 🔥 MAGIA: Si hay tarjeta nueva, la hacemos PREDETERMINADA
                     $paymentMethodId = $session->payment_intent->payment_method ?? null;
-                    
+
                     if ($paymentMethodId) {
                         try {
-                            \Stripe\Customer::update($cliente->stripe_customer_id, [
+                            Customer::update($cliente->stripe_customer_id, [
                                 'invoice_settings' => [
                                     'default_payment_method' => $paymentMethodId,
                                 ],
@@ -181,14 +178,7 @@ class StripePaymentController extends Controller
                                     'cliente_id'   => $cliente->id,
                                 ],
                             ]);
-
-                            // Guardar preferencia local
-                            $cliente->preferencia_pago_recurrente = 'tarjeta';
-                            $cliente->saveQuietly();
-
-                            Log::info("PAGO MÁGICO: Tarjeta {$paymentMethodId} asignada como default al cliente {$cliente->id}");
-
-                        } catch (\Exception $e) {
+                        } catch (Exception $e) {
                             Log::error("Error asignando tarjeta default en success: " . $e->getMessage());
                         }
                     }
@@ -213,10 +203,11 @@ class StripePaymentController extends Controller
                     );
                 }
 
+                // ✅ NUEVO: que viewSuccess decida el siguiente paso (pago recurrente / setup / finished)
                 return $this->viewSuccess($venta->fresh());
             }
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error("Error verificando pago Stripe venta {$venta->id}: " . $e->getMessage());
         }
 
@@ -229,12 +220,12 @@ class StripePaymentController extends Controller
             ->with('error', 'No se ha podido verificar el pago.');
     }
 
-   /**
-     * Helper privado: Redirige a la vista principal (Finished) en lugar de mostrar un recibo suelto.
+    /**
+     * Helper privado: Redirige al flujo nuevo de conversión (finished / setup) si hay link.
      */
     private function viewSuccess(Venta $venta)
     {
-        // 1. Buscamos el link asociado para poder volver
+        // 1) Buscamos el link asociado para poder volver
         $link = LeadConversionLink::where('meta->existing_venta_id', $venta->id)
             ->latest()
             ->first();
@@ -246,13 +237,68 @@ class StripePaymentController extends Controller
                 ->first();
         }
 
-        // 2. Si encontramos el link, volvemos a la pantalla principal (Finished)
+        // Si encontramos el link, aplicamos el flujo nuevo
         if ($link) {
+
+            $venta->loadMissing('items.servicio', 'cliente');
+
+            $tieneRecurrente = $venta->items->contains(fn ($i) => $i->servicio && $i->servicio->tipo->value === 'recurrente');
+
+            // ✅ Si NO hay recurrente, volvemos a finished como siempre
+            if (! $tieneRecurrente) {
+                return redirect()->route('conversion.finished', ['token' => $link->token])
+                    ->with('success', 'Pago recibido correctamente.');
+            }
+
+            // Preferencia del recurrente en meta del link
+            $recurrenteMetodo = data_get($link->meta, 'recurrente_metodo'); // 'tarjeta' | 'domiciliacion' | null
+
+            // A) Si aún no ha elegido método recurrente -> pantalla de elección
+            if (empty($recurrenteMetodo)) {
+                return redirect()->route('conversion.pago-recurrente', ['token' => $link->token])
+                    ->with('success', 'Pago inicial recibido. Ahora configura tu cuota mensual.');
+            }
+
+            // B) Si eligió domiciliación -> setup SEPA directo
+            if ($recurrenteMetodo === 'domiciliacion') {
+                return redirect()->route('stripe.setup-sepa', ['token' => $link->token])
+                    ->with('success', 'Pago inicial recibido. Ahora configura la domiciliación (IBAN) para la cuota mensual.');
+            }
+
+            // C) Si eligió tarjeta:
+            // ✅ si ya hay tarjeta default -> a finished disparando el auto-proceso
+            // ✅ si no hay tarjeta default -> setup-card
+            $cliente = $venta->cliente;
+            $tieneTarjetaDefault = false;
+
+            if ($cliente && $cliente->stripe_customer_id) {
+                try {
+                    Stripe::setApiKey(config('services.stripe.secret'));
+                    if (app()->isLocal()) Stripe::setVerifySslCerts(false);
+
+                    $customer = Customer::retrieve([
+                        'id'     => $cliente->stripe_customer_id,
+                        'expand' => ['invoice_settings.default_payment_method'],
+                    ]);
+
+                    $defaultPM = $customer->invoice_settings->default_payment_method ?? null;
+                    $tieneTarjetaDefault = (bool) ($defaultPM && isset($defaultPM->card));
+                } catch (\Throwable $e) {
+                    Log::warning("viewSuccess: no se pudo comprobar default_payment_method: " . $e->getMessage());
+                }
+            }
+
+            if (! $tieneTarjetaDefault) {
+                return redirect()->route('stripe.setup-card', ['token' => $link->token])
+                    ->with('success', 'Pago inicial recibido. Ahora configura la tarjeta para la cuota mensual.');
+            }
+
             return redirect()->route('conversion.finished', ['token' => $link->token])
-                ->with('success', 'Pago recibido correctamente. Tu suscripción está activa.');
+                ->with('payment_setup_success', true)
+                ->with('success', 'Pago inicial recibido. Tu cuota mensual se cobrará con la tarjeta guardada.');
         }
 
-        // 3. Solo si no encontramos el link (muy raro), mostramos la vista de recibo antigua como emergencia
+        // 3) Solo si no encontramos el link (muy raro), mostramos la vista de recibo antigua como emergencia
         $facturaPagada = $venta->facturas()
             ->where('estado', FacturaEstadoEnum::PAGADA)
             ->latest()

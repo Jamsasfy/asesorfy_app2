@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use Exception;
 use Illuminate\Console\Command;
 use App\Models\ClienteSuscripcion;
 use App\Models\Factura;
@@ -136,7 +137,7 @@ class FacturacionMensualGenerar extends Command // <-- El nombre de la clase se 
                         'total_iva'      => round($ivaTotal, 2),
                         'total_factura'  => round($baseTotal + $ivaTotal, 2),
                     ]);
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
                     Log::error("Error al generar facturas recurrentes para cliente ID {$suscripcionesDelCliente->first()->cliente_id}: " . $e->getMessage());
                     $this->error("Error al procesar cliente ID {$suscripcionesDelCliente->first()->cliente_id}: " . $e->getMessage());
                 }

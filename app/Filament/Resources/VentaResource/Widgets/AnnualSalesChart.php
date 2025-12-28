@@ -12,7 +12,7 @@ class AnnualSalesChart extends ChartWidget
 {
    // protected static ?string $heading = 'Ventas totales de este año';
      // Que el widget ocupe todas las columnas posibles
-     protected static ?string $maxHeight = '300px';
+     protected ?string $maxHeight = '300px';
      protected int | string | array $columnSpan = 'full';
 
 public function getHeading(): string

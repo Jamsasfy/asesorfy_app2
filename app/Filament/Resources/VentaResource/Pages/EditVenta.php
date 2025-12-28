@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\VentaResource\Pages;
 
+use Filament\Actions\DeleteAction;
+use Exception;
 use App\Filament\Resources\VentaResource;
 use App\Models\ClienteSuscripcion;
 use App\Enums\ServicioTipoEnum;
@@ -28,11 +30,11 @@ class EditVenta extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            DeleteAction::make(),
         ];
     }
 
-  
+
 
    // En EditVenta.php
 
@@ -58,7 +60,7 @@ protected function afterSave(): void
                 ->success()
                 ->send();
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Notification::make()
                 ->title('¡Error al procesar la corrección!')
                 ->body('Error: ' . $e->getMessage())
@@ -83,7 +85,7 @@ protected function afterSave(): void
 
 
 
-   
+
    /*  protected function procesarFacturacionUnicaParaVenta($venta): void
     {
         $suscripcionesUnicasAFacturar = ClienteSuscripcion::query()

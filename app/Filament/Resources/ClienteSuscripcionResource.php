@@ -2,32 +2,42 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
+use Filament\Tables\Filters\Filter;
+use Filament\Schemas\Components\Grid;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteBulkAction;
+use Filament\Schemas\Components\Section;
+use App\Filament\Resources\ClienteSuscripcionResource\Pages\ListClienteSuscripcions;
+use App\Filament\Resources\ClienteSuscripcionResource\Pages\CreateClienteSuscripcion;
+use App\Filament\Resources\ClienteSuscripcionResource\Pages\ViewClienteSuscripcion;
+use App\Filament\Resources\ClienteSuscripcionResource\Pages\EditClienteSuscripcion;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Enums\ServicioTipoEnum;
 use App\Filament\Resources\ClienteSuscripcionResource\Pages;
 use App\Models\ClienteSuscripcion;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Filament\Infolists\Infolist;
-use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
-use Filament\Infolists\Components\Grid as InfolistGrid;
 use Filament\Tables\Columns\ViewColumn;
 
 class ClienteSuscripcionResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = ClienteSuscripcion::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-stack';
 
     public static function getPermissionPrefixes(): array
     {
@@ -44,9 +54,9 @@ class ClienteSuscripcionResource extends Resource implements HasShieldPermission
 
 
 
-     public static function form(Form $form): Form
+     public static function form(Schema $schema): Schema
     {
-        return $form->schema([
+        return $schema->components([
             Select::make('cliente_id')
                 ->relationship('cliente', 'razon_social')
                 ->searchable()
@@ -88,8 +98,8 @@ class ClienteSuscripcionResource extends Resource implements HasShieldPermission
         return $table
          ->defaultSort('created_at', 'desc') // Ordenar por defecto
         ->columns([
-            Tables\Columns\TextColumn::make('cliente.razon_social')->searchable(),
-             Tables\Columns\TextColumn::make('nombre_final') // Usamos el accesor del modelo
+            TextColumn::make('cliente.razon_social')->searchable(),
+             TextColumn::make('nombre_final') // Usamos el accesor del modelo
         ->label('Servicio Contratado')
         ->searchable(query: function (Builder $query, string $search): Builder {
             // Hacemos que la búsqueda funcione en ambos campos
@@ -97,7 +107,7 @@ class ClienteSuscripcionResource extends Resource implements HasShieldPermission
                 ->where('nombre_personalizado', 'like', "%{$search}%")
                 ->orWhereHas('servicio', fn ($q) => $q->where('nombre', 'like', "%{$search}%"));
         }),
-            Tables\Columns\TextColumn::make('estado')
+            TextColumn::make('estado')
                 ->badge()
                 ->color(fn (ClienteSuscripcionEstadoEnum $state): string => match ($state) {
                     ClienteSuscripcionEstadoEnum::ACTIVA => 'success',
@@ -112,9 +122,9 @@ class ClienteSuscripcionResource extends Resource implements HasShieldPermission
                     default => 'gray',
                 })
     ->formatStateUsing(fn(ClienteSuscripcionEstadoEnum $state) => $state->getLabel()),
-            Tables\Columns\TextColumn::make('fecha_inicio')->date('d/m/Y'),
-            Tables\Columns\TextColumn::make('fecha_fin')->date('d/m/Y'),
-            Tables\Columns\TextColumn::make('precio_acordado')->money('EUR'),
+            TextColumn::make('fecha_inicio')->date('d/m/Y'),
+            TextColumn::make('fecha_fin')->date('d/m/Y'),
+            TextColumn::make('precio_acordado')->money('EUR'),
     // ▼▼▼ REEMPLAZA LA COLUMNA DEL DESCUENTO POR ESTA ▼▼▼
 ViewColumn::make('descuento')
     ->label('Dto.')
@@ -164,48 +174,48 @@ ViewColumn::make('descuento')
     return implode("\n", $parts);
 }),
 
-            Tables\Columns\TextColumn::make('ciclo_facturacion'),
-             Tables\Columns\TextColumn::make('proxima_fecha_facturacion')->date('d/m/Y'),
-            Tables\Columns\TextColumn::make('created_at')
+            TextColumn::make('ciclo_facturacion'),
+             TextColumn::make('proxima_fecha_facturacion')->date('d/m/Y'),
+            TextColumn::make('created_at')
                 ->dateTime('d/m/Y H:i')
                 ->label('Creado'),
-            Tables\Columns\TextColumn::make('updated_at')
+            TextColumn::make('updated_at')
                 ->dateTime('d/m/Y H:i')
                 ->label('Creado'),
         ])
         ->filters([
                 // Filtro por estado usando el Enum directamente
-                Tables\Filters\SelectFilter::make('estado')
+                SelectFilter::make('estado')
                     ->options(ClienteSuscripcionEstadoEnum::class), // Filament v3 lo convierte a opciones automáticamente
 
                 // Filtro para buscar por cliente
-                Tables\Filters\SelectFilter::make('cliente_id')
+                SelectFilter::make('cliente_id')
                     ->label('Cliente')
                     ->relationship('cliente', 'razon_social')
                     ->searchable()
                     ->preload(),
 
                 // Filtro para buscar por servicio
-                Tables\Filters\SelectFilter::make('servicio_id')
+                SelectFilter::make('servicio_id')
                     ->label('Servicio')
                     ->relationship('servicio', 'nombre')
                     ->searchable()
                     ->preload(),
                 
                 // Filtro para saber si es tarifa principal
-                Tables\Filters\TernaryFilter::make('es_tarifa_principal')
+                TernaryFilter::make('es_tarifa_principal')
                     ->label('Es Tarifa Principal'),
 
             // ▼▼▼ EL NUEVO FILTRO PARA FACTURACIÓN ▼▼▼
-                Tables\Filters\Filter::make('listos_para_facturar')
+                Filter::make('listos_para_facturar')
                     ->label('Listos para Facturar (Recurrentes Activos)')
                     ->query(function (Builder $query): Builder {
                         return $query
                             // 1. Solo estado ACTIVA
-                            ->where('estado', \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA)
+                            ->where('estado', ClienteSuscripcionEstadoEnum::ACTIVA)
                             // 2. Solo servicios de tipo RECURRENTE
                             ->whereHas('servicio', function (Builder $q) {
-                                $q->where('tipo', \App\Enums\ServicioTipoEnum::RECURRENTE);
+                                $q->where('tipo', ServicioTipoEnum::RECURRENTE);
                             })
                             // 3. Que ya hayan empezado
                             ->where('fecha_inicio', '<=', now())
@@ -217,14 +227,14 @@ ViewColumn::make('descuento')
                     })
                     ->toggle(), // Es un simple interruptor de Sí/No
            
-                Tables\Filters\Filter::make('filtros_combinados')
+                Filter::make('filtros_combinados')
                 ->label('Filtros Avanzados')
-                ->form([
+                ->schema([
                     Grid::make(4) // <-- Cambiamos la rejilla a 4 columnas
                         ->schema([
                             Select::make('year')
                                 ->label('Año')
-                                ->options(fn () => \App\Models\ClienteSuscripcion::query()->selectRaw('YEAR(fecha_inicio) as year')->whereNotNull('fecha_inicio')->distinct()->orderBy('year', 'desc')->pluck('year', 'year')->toArray()),
+                                ->options(fn () => ClienteSuscripcion::query()->selectRaw('YEAR(fecha_inicio) as year')->whereNotNull('fecha_inicio')->distinct()->orderBy('year', 'desc')->pluck('year', 'year')->toArray()),
                             
                             Select::make('month')
                                 ->label('Mes')
@@ -268,23 +278,23 @@ ViewColumn::make('descuento')
                 })
                 ->columnSpan(2),
    
-            ], layout: Tables\Enums\FiltersLayout::AboveContent) // <-- Coloca los filtros arriba de la tabla
-        ->actions([
-            Tables\Actions\ViewAction::make(),
-            Tables\Actions\EditAction::make(),
+            ], layout: FiltersLayout::AboveContent) // <-- Coloca los filtros arriba de la tabla
+        ->recordActions([
+            ViewAction::make(),
+            EditAction::make(),
         ])
-        ->bulkActions([
-            Tables\Actions\DeleteBulkAction::make(),
+        ->toolbarActions([
+            DeleteBulkAction::make(),
         ]);
     }
 
-   public static function infolist(Infolist $infolist): Infolist
+   public static function infolist(Schema $schema): Schema
 {
-    return $infolist
-        ->schema([
-            InfolistGrid::make(3)->schema([
+    return $schema
+        ->components([
+            Grid::make(3)->schema([
                 // --- COLUMNA IZQUIERDA (PRINCIPAL) ---
-                InfoSection::make('Detalles de la Suscripción')
+                Section::make('Detalles de la Suscripción')
                     ->columnSpan(2)
                     ->columns(2)
                     ->schema([
@@ -372,7 +382,7 @@ ViewColumn::make('descuento')
                     ]),
 
                 // --- COLUMNA DERECHA (ASIDE) ---
-                InfoSection::make('Contexto')
+                Section::make('Contexto')
                     ->columnSpan(1)
                     ->schema([
                         TextEntry::make('cliente.razon_social')
@@ -391,7 +401,7 @@ ViewColumn::make('descuento')
             ]),
 
             // --- SECCIÓN DE DESCUENTOS (SOLO SI EXISTE) ---
-            InfoSection::make('Condiciones del Descuento Aplicado')
+            Section::make('Condiciones del Descuento Aplicado')
                 ->visible(fn ($record) => $record->descuento_tipo)
                 ->columns(3)
                 ->schema([
@@ -419,10 +429,10 @@ ViewColumn::make('descuento')
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListClienteSuscripcions::route('/'),
-            'create' => Pages\CreateClienteSuscripcion::route('/create'),
-            'view' => Pages\ViewClienteSuscripcion::route('/{record}'), // <-- AÑADIR ESTA LÍNEA
-            'edit' => Pages\EditClienteSuscripcion::route('/{record}/edit'),
+            'index' => ListClienteSuscripcions::route('/'),
+            'create' => CreateClienteSuscripcion::route('/create'),
+            'view' => ViewClienteSuscripcion::route('/{record}'), // <-- AÑADIR ESTA LÍNEA
+            'edit' => EditClienteSuscripcion::route('/{record}/edit'),
         ];
     }
 }

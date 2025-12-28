@@ -2,11 +2,32 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Enums\FiltersLayout;
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\Action;
+//use Filament\Schemas\Components\Actions;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use pxlrbt\FilamentExcel\Exports\ExcelExport;
+use pxlrbt\FilamentExcel\Columns\Column;
+use Filament\Schemas\Components\Grid;
+use App\Filament\Resources\ProyectoResource\RelationManagers\DocumentosRelationManager;
+use App\Filament\Resources\ProyectoResource\Pages\ListProyectos;
+use App\Filament\Resources\ProyectoResource\Pages\EditProyecto;
+use App\Filament\Resources\ProyectoResource\Pages\ViewProyecto;
+use Exception;
+use App\Models\User;
 use App\Filament\Resources\ProyectoResource\Pages;
 use App\Filament\Resources\ProyectoResource\RelationManagers;
 use App\Models\Proyecto;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -15,28 +36,19 @@ use Filament\Forms\Components\Select; // Importa Select
 use Filament\Forms\Components\TextInput; // Importa TextInput
 use Filament\Forms\Components\Textarea; // Importa Textarea
 use Filament\Forms\Components\DatePicker; // Importa DatePicker
-use Filament\Forms\Components\DateTimePicker; // Importa DateTimePicker
-use Filament\Forms\Components\Section; // Importa Section
+use Filament\Forms\Components\DateTimePicker; // Importa Section
 use Filament\Tables\Columns\TextColumn; // Importa TextColumn
 
 use App\Enums\ProyectoEstadoEnum; // Si usas el Enum para estados
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Carbon\Carbon;
 use Filament\Forms\Components\Placeholder;
-use Filament\Infolists\Infolist;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
-use Filament\Infolists\Components\Grid;
-use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
-use Filament\Infolists\Components\Actions\Action as ActionInfolist;
 use Filament\Notifications\Notification;
 use Filament\Infolists\Components\RepeatableEntry;
-use Filament\Tables\Actions\Action;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\HtmlString;
-use Filament\Forms\Components\Actions; // <<< Importa este para el grupo de acciones
-use Filament\Forms\Components\Actions\Action as FormAction;
-use Filament\Forms\Set; // <<< ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ AQUÍ
+use Illuminate\Support\HtmlString; // <<< ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ AQUÍ
 use Filament\Support\Enums\Alignment;
 use Illuminate\Support\Facades\Log; // Para Log::error
 use Filament\Forms\Components\Toggle; // Para el Toggle en los formularios de las acciones
@@ -44,7 +56,10 @@ use Filament\Infolists\Components\ViewEntry;
 use App\Enums\ServicioTipoEnum;
 use pxlrbt\FilamentExcel\Actions\Tables\ExportBulkAction;
 use App\Enums\ClienteSuscripcionEstadoEnum;
+use Filament\Tables\Enums\RecordActionsPosition;
 
+
+use Livewire\Component as LivewireComponent;
 
 
 
@@ -54,8 +69,8 @@ class ProyectoResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Proyecto::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-briefcase'; // Icono de maletín
-    protected static ?string $navigationGroup = null; // Nuevo grupo de navegación
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-briefcase'; // Icono de maletín
+    protected static string | \UnitEnum | null $navigationGroup = null; // Nuevo grupo de navegación
     protected static ?string $modelLabel = 'Proyecto';
     protected static ?string $pluralModelLabel = 'Proyectos';
 
@@ -114,7 +129,7 @@ public static function getNavigationLabel(): string
 
   public static function getEloquentQuery(): Builder
     {
-        /** @var \App\Models\User|null $user */
+        /** @var User|null $user */
         $user = Auth::user();
         $query = parent::getEloquentQuery()                
                 ->with(['cliente']); 
@@ -139,10 +154,10 @@ public static function getNavigationLabel(): string
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Section::make('Datos del Proyecto')
                     ->columns(2)
                     ->schema([
@@ -183,7 +198,7 @@ public static function getNavigationLabel(): string
                             ->label('Fecha de Finalización Real')
                             ->nullable()
                             ->native(false)
-                            ->disabled(fn(Forms\Get $get) => $get('estado') !== ProyectoEstadoEnum::Finalizado->value) // Deshabilitado si no está finalizado
+                            ->disabled(fn(Get $get) => $get('estado') !== ProyectoEstadoEnum::Finalizado->value) // Deshabilitado si no está finalizado
                             ->helperText('Se establece automáticamente al marcar el estado como "Finalizado".')
                             ->columnSpan(1),
 
@@ -313,7 +328,7 @@ public static function getNavigationLabel(): string
                         'success' => 'finalizado',
                         'danger'  => 'cancelado',
                     ])
-                    ->formatStateUsing(fn ($state) => \App\Enums\ProyectoEstadoEnum::tryFrom($state)?->getLabel() ?? $state)
+                    ->formatStateUsing(fn ($state) => ProyectoEstadoEnum::tryFrom($state)?->getLabel() ?? $state)
                     ->sortable(),
                       TextColumn::make('agenda')
                     ->label('Próx. Seguimiento')
@@ -341,7 +356,7 @@ public static function getNavigationLabel(): string
             
             ->filters([
                 // Filtro por Cliente
-                  Tables\Filters\SelectFilter::make('servicio_id')
+                  SelectFilter::make('servicio_id')
                 ->label('Servicio Único') // He cambiado la etiqueta para más claridad
                 ->relationship(
                     name: 'servicio', 
@@ -351,14 +366,14 @@ public static function getNavigationLabel(): string
                 )
                 ->searchable()
                 ->preload(),
-                Tables\Filters\SelectFilter::make('cliente_id')
+                SelectFilter::make('cliente_id')
                     ->relationship('cliente', 'dni_cif')
                     ->searchable()
                     ->preload()
                     ->label('Filtrar por Cliente'),
                
                 // Filtro por Asesor Asignado
-                Tables\Filters\SelectFilter::make('user_id')
+                SelectFilter::make('user_id')
                     ->relationship('user', 'name', fn (Builder $query) => 
                         $query->whereHas('roles', fn (Builder $q) => $q->whereIn('name', ['asesor', 'coordinador']))
                     )
@@ -367,9 +382,10 @@ public static function getNavigationLabel(): string
                     ->label('Filtrar por Asesor'),
 
                 // Filtro por Estado del Proyecto
-                Tables\Filters\SelectFilter::make('estado')
+                SelectFilter::make('estado')
                     ->options(ProyectoEstadoEnum::class) // Usa el Enum para las opciones
                     ->native(false)
+                    ->multiple()
                     ->label('Filtrar por Estado'),
                  DateRangeFilter::make('created_at')
                    
@@ -399,151 +415,160 @@ public static function getNavigationLabel(): string
                     'Próximo Mes' => [now()->addMonthNoOverflow()->startOfMonth(), now()->addMonthNoOverflow()->endOfMonth()],
                     'Próximo Año' => [now()->addYear()->startOfYear(), now()->addYear()->endOfYear()],
                 ]),
-                Tables\Filters\Filter::make('sin_asesor')
+                Filter::make('sin_asesor')
                 ->label('Sin Asesor Asignado')
                 ->query(fn (Builder $query): Builder => $query->whereNull('user_id'))
                 ->toggle(),
                      
-            ],layout: \Filament\Tables\Enums\FiltersLayout::AboveContent)
+            ],layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(8)
          
-            ->actions([
-                Tables\Actions\ViewAction::make()
+            ->recordActions([
+                ViewAction::make()
                 ->label('')
                 ->tooltip('Ver Proyecto')
                  ->openUrlInNewTab(),
-                Tables\Actions\EditAction::make()
+                EditAction::make()
                 ->label('')
                 ->tooltip('Editar Proyecto')
                 ->openUrlInNewTab(),  
                   // <<< AÑADIDO: Acción para Asignar Asesor
-               Action::make('assign_assessor')
-                    ->label('')
-                    ->icon('heroicon-o-user-plus')
-                    ->color(fn (Proyecto $record): string => $record->user_id ? 'primary' : 'warning')
-                    ->visible(fn ($record) => auth()->user()?->can('assign_assessor_proyecto'))
- ->tooltip(fn (Proyecto $record): string => $record->user_id ? 'Cambiar Asesor Asignado' : 'Asignar Asesor')
+          Action::make('assign_assessor')
+    ->label('')
+    ->icon('heroicon-o-user-plus')
+    ->color(fn (Proyecto $record): string => $record->user_id ? 'primary' : 'warning')
+   ->visible(fn (Proyecto $record) => auth()->user()?->can('assignAssessor', $record))
 
-                    ->modalHeading('Asignar Asesor al Proyecto')
-                    ->modalSubmitActionLabel('Asignar')
-                    ->modalWidth('md')
-                    ->form([
-                        // <<< AÑADIDO: Placeholder para mostrar el asesor del cliente
-                        Placeholder::make('asesor_cliente_info')
-                            ->label('') // No necesitamos etiqueta visible para este placeholder
-                            ->content(function (Proyecto $record): HtmlString {
-                                $asesorClienteNombre = $record->cliente->asesor->name ?? 'No asignado'; // Asume relación cliente->asesor->name
-                                $color = $record->cliente->asesor ? '#16a34a' : '#f59e0b'; // green-600 (info) o amber-500 (warning)
+    ->tooltip(fn (Proyecto $record): string =>
+        $record->user_id ? 'Cambiar Asesor Asignado' : 'Asignar Asesor'
+    )
+    ->modalHeading('Asignar Asesor al Proyecto')
+    ->modalSubmitActionLabel('Asignar')
+    ->modalWidth('md')
+    ->schema([
 
-                                return new HtmlString("
-                                    <div style='
-                                        background-color: {$color}; 
-                                        color: white; 
-                                        padding: 0.75rem; 
-                                        border-radius: 0.375rem; 
-                                        font-weight: bold; 
-                                        font-size: 0.9rem;
-                                        text-align: center;
-                                        margin-bottom: 1rem;
-                                    '>
-                                        Asesor del Cliente: {$asesorClienteNombre}
-                                    </div>
-                                ");
-                            }),
-                          // <<< AÑADIDO: Botón para Asignarse a sí mismo
-                     Actions::make([
-                            FormAction::make('assign_self')
-                                ->label('Asignar al mismo asesor')
-                                ->icon('heroicon-m-user-circle')
-                                ->color('warning')
-                                ->outlined()
-                                 ->visible(fn (Proyecto $record): bool => (bool)$record->cliente->asesor_id) // Visible solo si el cliente tiene asesor_id
-                                // No es de tipo submit, solo rellena el campo
-                                ->action(function (Set $set): void { 
-                                    $set('user_id', Auth::id()); // Rellena el select con el ID del usuario logueado
-                                    // NO intentamos submit() aquí. El usuario tendrá que hacer clic en 'Asignar'.
-                                    // Opcional: podrías añadir una notificación aquí para indicar que se ha rellenado
-                                    // Notification::make()->title('Asesor seleccionado')->body('Ahora haz clic en "Asignar".')->info()->send();
-                                }),
-                        ])->fullWidth(), // Ocupa todo el ancho disponible para el botón
-                        // FIN AÑADIDO
+        /*----------------------------------------------
+        | INFO ASESOR DEL CLIENTE
+        ----------------------------------------------*/
+        Placeholder::make('asesor_cliente_info')
+            ->label('')
+            ->content(function (Proyecto $record): HtmlString {
+                $asesorClienteNombre = $record->cliente->asesor->name ?? 'No asignado';
+                $color = $record->cliente->asesor ? '#16a34a' : '#f59e0b';
 
-                        Select::make('user_id')
-                            ->label('Seleccionar Asesor para el Proyecto') // Etiqueta más clara
-                            ->relationship('user', 'name', fn (Builder $query) => 
-                                $query->whereHas('roles', fn (Builder $q) => $q->whereIn('name', ['asesor', 'super_admin']))
-                            )
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->default(fn (?Proyecto $record): ?int => $record?->user_id),
-                    ])
-                    ->action(function (array $data, Proyecto $record): void {
-                        $record->user_id = $data['user_id'];
-                        $record->save();
+                return new HtmlString("
+                    <div style='
+                        background-color: {$color};
+                        color: white;
+                        padding: 0.75rem;
+                        border-radius: 0.375rem;
+                        font-weight: bold;
+                        font-size: 0.9rem;
+                        text-align: center;
+                        margin-bottom: 1rem;
+                    '>
+                        Asesor del Cliente: {$asesorClienteNombre}
+                    </div>
+                ");
+            }),
 
-                        Notification::make()
-                            ->title('Asesor asignado correctamente')
-                            ->success()
-                            ->send();
-                    }),
+        /*----------------------------------------------
+        | BOTÓN: ASIGNARME A MÍ MISMO
+        | (NO submit, solo rellena el select)
+        ----------------------------------------------*/
+        Action::make('assign_self')
+            ->label('Asignarme este proyecto')
+            ->icon('heroicon-m-user-circle')
+            ->color('warning')
+            ->outlined()
+            ->visible(fn (Proyecto $record): bool => (bool) $record->cliente->asesor_id)
+            ->action(function (Set $set): void {
+                $set('user_id', auth()->id());
+            }),
 
-                     Action::make('unassign_assessor')
-                    ->label('')
-                     ->tooltip('Desasignar Asesor') // Tooltip estático para desasignar
-                    ->icon('heroicon-o-user-minus')
-                    ->color('danger') // Color rojo
-                   ->visible(fn (Proyecto $record): bool => 
-                        (bool)$record->user_id && // Solo visible si ya hay un asesor
-                        auth()->user()->can('unassign_assessor_proyecto') // Comprueba el permiso
+        /*----------------------------------------------
+        | SELECT DE ASESOR
+        ----------------------------------------------*/
+        Select::make('user_id')
+            ->label('Seleccionar Asesor para el Proyecto')
+            ->relationship(
+                'user',
+                'name',
+                fn (Builder $query) =>
+                    $query->whereHas('roles', fn (Builder $q) =>
+                        $q->whereIn('name', ['asesor', 'super_admin'])
                     )
-                    ->requiresConfirmation() // Preguntar confirmación antes de desasignar                    
-                    ->action(function (Proyecto $record): void {
-                        $record->user_id = null; // Poner el asesor a null
-                        $record->save();
+            )
+            ->searchable()
+            ->preload()
+            ->required()
+            ->default(fn (?Proyecto $record): ?int => $record?->user_id),
+    ])
+    ->action(function (array $data, Proyecto $record): void {
+        $record->user_id = $data['user_id'];
+        $record->save();
 
-                        Notification::make()
-                            ->title('Asesor desasignado correctamente')
-                            ->success()
-                            ->send();
-                    }),
+        Notification::make()
+            ->title('Asesor asignado correctamente')
+            ->success()
+            ->send();
+    }),
 
+/*--------------------------------------------------
+| DESASIGNAR ASESOR
+--------------------------------------------------*/
+Action::make('unassign_assessor')
+    ->label('')
+    ->tooltip('Desasignar Asesor')
+    ->icon('heroicon-o-user-minus')
+    ->color('danger')
+    ->visible(fn (Proyecto $record) => auth()->user()?->can('unassignAssessor', $record))
+    ->requiresConfirmation()
+    ->action(function (Proyecto $record): void {
+        $record->user_id = null;
+        $record->save();
 
-                ])
-->bulkActions([
-    Tables\Actions\BulkActionGroup::make([
-        Tables\Actions\DeleteBulkAction::make(),
+        Notification::make()
+            ->title('Asesor desasignado correctamente')
+            ->success()
+            ->send();
+        }),                
+    ])
+    ->recordActionsPosition(RecordActionsPosition::BeforeColumns)
+->toolbarActions([
+    BulkActionGroup::make([
+        DeleteBulkAction::make(),
           ExportBulkAction::make('exportar_completo')
         ->label('Exportar seleccionados')
         ->exports([
-            \pxlrbt\FilamentExcel\Exports\ExcelExport::make('proyectos')
+            ExcelExport::make('proyectos')
                 //->fromTable() // usa los registros seleccionados
                 ->withColumns([
                 // --- Datos del Proyecto ---
-                \pxlrbt\FilamentExcel\Columns\Column::make('id')
+                Column::make('id')
                     ->heading('ID Proyecto'),
-                \pxlrbt\FilamentExcel\Columns\Column::make('nombre')
+                Column::make('nombre')
                     ->heading('Nombre del Proyecto'),
-                \pxlrbt\FilamentExcel\Columns\Column::make('estado')
+                Column::make('estado')
                     ->heading('Estado')
-                    ->formatStateUsing(fn ($state) => $state instanceof \App\Enums\ProyectoEstadoEnum ? $state->getLabel() : $state), // Muestra la etiqueta del Enum   
+                    ->formatStateUsing(fn ($state) => $state instanceof ProyectoEstadoEnum ? $state->getLabel() : $state), // Muestra la etiqueta del Enum   
                 // --- Datos del Cliente Asociado ---
-                \pxlrbt\FilamentExcel\Columns\Column::make('cliente.razon_social')
+                Column::make('cliente.razon_social')
                     ->heading('Cliente'),
-                \pxlrbt\FilamentExcel\Columns\Column::make('cliente.dni_cif')
+                Column::make('cliente.dni_cif')
                     ->heading('DNI/CIF Cliente'),
                 // --- Datos de Asignación ---
-                \pxlrbt\FilamentExcel\Columns\Column::make('user.name')
+                Column::make('user.name')
                     ->heading('Asesor Asignado al Proyecto'),
                 // --- Datos de la Venta de Origen ---
-                \pxlrbt\FilamentExcel\Columns\Column::make('venta.id')
+                Column::make('venta.id')
                     ->heading('ID Venta Origen'),
-                \pxlrbt\FilamentExcel\Columns\Column::make('venta.comercial.name')
+                Column::make('venta.comercial.name')
                     ->heading('Comercial (Venta)'),
-                \pxlrbt\FilamentExcel\Columns\Column::make('servicio.nombre')
+                Column::make('servicio.nombre')
                     ->heading('Servicio Activador'),
                      // ▼▼▼ AÑADIR ESTA NUEVA COLUMNA ▼▼▼
-                \pxlrbt\FilamentExcel\Columns\Column::make('suscripciones_pendientes')
+                Column::make('suscripciones_pendientes')
                     ->heading('Suscripciones Dependientes')
                     ->getStateUsing(function (Proyecto $record): int {
                         // Si el proyecto no tiene una venta asociada, no hay dependencias.
@@ -557,15 +582,15 @@ public static function getNavigationLabel(): string
                             ->count();
                     }),
                 // --- Fechas Clave ---
-                \pxlrbt\FilamentExcel\Columns\Column::make('created_at')
+                Column::make('created_at')
                     ->heading('Fecha Creación')
-                    ->formatStateUsing(fn ($state) => $state ? \Carbon\Carbon::parse($state)->format('d/m/Y H:i') : ''),
-                \pxlrbt\FilamentExcel\Columns\Column::make('agenda')
+                    ->formatStateUsing(fn ($state) => $state ? Carbon::parse($state)->format('d/m/Y H:i') : ''),
+                Column::make('agenda')
                     ->heading('Próximo Seguimiento')
-                    ->formatStateUsing(fn ($state) => $state ? \Carbon\Carbon::parse($state)->format('d/m/Y H:i') : ''),
-                \pxlrbt\FilamentExcel\Columns\Column::make('fecha_finalizacion')
+                    ->formatStateUsing(fn ($state) => $state ? Carbon::parse($state)->format('d/m/Y H:i') : ''),
+                Column::make('fecha_finalizacion')
                     ->heading('Fecha Finalización')
-                    ->formatStateUsing(fn ($state) => $state ? \Carbon\Carbon::parse($state)->format('d/m/Y H:i') : ''),
+                    ->formatStateUsing(fn ($state) => $state ? Carbon::parse($state)->format('d/m/Y H:i') : ''),
             ]),
         ])
         ->icon('icon-excel2')
@@ -573,351 +598,412 @@ public static function getNavigationLabel(): string
         ->deselectRecordsAfterCompletion()
         ->requiresConfirmation()
         ->modalHeading('Exportar Proyectos Seleccionados')
-        ->modalDescription('Exportarás todos los datos de los Proyectos seleccionados.'),
-
-      
-    ]),
-])
-
-
-;
+        ->modalDescription('Exportarás todos los datos de los Proyectos seleccionados.'),      
+            ]),
+        ]);
     }
-
      // <<< AÑADIDO: Método infolist para la página de vista detallada
-public static function infolist(Infolist $infolist): Infolist
-    {
-        return $infolist
+public static function infolist(Schema $schema): Schema
+{
+    return $schema->components([
+
+        /*
+        |--------------------------------------------------------------------------
+        | 1. DETALLES DEL ENCARGO / MEMORIA (FULL WIDTH)
+        |--------------------------------------------------------------------------
+        */
+        Section::make('📋 Detalles del Encargo / Memoria')
+            ->description('Información volcada automáticamente desde la contratación.')
             ->schema([
-                
-                // 1. SECCIÓN: DETALLES DEL ENCARGO (Volcado del contrato)
-                InfoSection::make('📋 Detalles del Encargo / Memoria')
-                    ->description('Información volcada automáticamente desde la contratación.')
+                TextEntry::make('descripcion')
+                    ->hiddenLabel()
+                    ->columnSpanFull()
+                    ->html()
+                    ->state(function ($record) {
+                        $texto = $record->descripcion ?? 'No hay descripción detallada disponible.';
+                        $safeText = e($texto);
+
+                        return <<<HTML
+                            <div class="whitespace-pre-wrap font-mono text-sm p-4 rounded-lg border
+                                        bg-gray-50 border-gray-200 text-gray-800
+                                        dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300">
+                                {$safeText}
+                            </div>
+                        HTML;
+                    }),
+            ])
+            ->collapsible()
+            ->columnSpanFull(),
+
+        /*
+        |--------------------------------------------------------------------------
+        | 2. FILA PRINCIPAL (4 COLUMNAS)
+        |--------------------------------------------------------------------------
+        */
+        Section::make()
+            ->schema([
+
+                /* --------------------------------------------
+                 | PROYECTO (2 columnas)
+                 -------------------------------------------- */
+                Section::make(fn (Proyecto $record) =>
+                    'Proyecto para ' . ($record->cliente->razon_social ?? 'Cliente Desconocido')
+                )
                     ->schema([
-                        TextEntry::make('descripcion')
-                            ->hiddenLabel()
-                            ->columnSpanFull()
-                            ->html()
-                            ->state(function ($record) {
-                                $texto = $record->descripcion ?? 'No hay descripción detallada disponible.';
-                                $safeText = e($texto); // Escapar para seguridad
-                                
-                                // Div con estilos Tailwind para Light/Dark mode
-                                return <<<HTML
-                                    <div class="whitespace-pre-wrap font-mono text-sm p-4 rounded-lg border
-                                                bg-gray-50 border-gray-200 text-gray-800
-                                                dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300">
-                                        {$safeText}
-                                    </div>
-                                HTML;
-                            }),
-                    ])
-                    ->collapsible(),
+                        TextEntry::make('nombre')
+                            ->label('Nombre del Proyecto')
+                            ->copyable()
+                            ->weight('bold')
+                            ->color('primary')
+                            ->columnSpan(2),
 
-                // 2. GRID PRINCIPAL
-                Grid::make(3)->schema([
-                    
-                    // Columna 1: Info Básica
-                    InfoSection::make(fn (Proyecto $record): string => 'Proyecto para ' . ($record->cliente->razon_social ?? 'Cliente Desconocido'))
-                        ->schema([
-                            TextEntry::make('nombre')  
-                                ->label(new HtmlString('<span class="font-semibold">Nombre del Proyecto</span>'))
-                                ->copyable()
-                                ->weight('bold')
-                                ->color('primary')                                        
-                                ->columnSpan(2),
-                            
-                            TextEntry::make('cliente.telefono_contacto')      
-                                ->label('Teléfono Cliente')
-                                ->weight('bold')
-                                ->color('primary')        
-                                ->copyable(),
-                            
-                            TextEntry::make('cliente.email_contacto')      
-                                ->label('Email Cliente')
-                                ->weight('bold')
-                                ->color('primary')        
-                                ->copyable()
-                                ->columnSpanFull(),
+                        TextEntry::make('cliente.telefono_contacto')
+                            ->label('Teléfono Cliente')
+                            ->copyable()
+                            ->weight('bold')
+                            ->color('primary'),
 
-                            TextEntry::make('acceso_perfil_cliente')
-                                ->label(new HtmlString('<span class="font-semibold">Acceso al Perfil del Cliente</span>')) 
-                                ->state(fn (Proyecto $record) => $record->cliente->razon_social ?? 'Cliente no disponible')
-                                ->url(fn (Proyecto $record): ?string => 
-                                    $record->cliente_id ? ClienteResource::getUrl('view', ['record' => $record->cliente_id]) : null
-                                )
-                                ->openUrlInNewTab()
-                                ->color('warning')
-                                ->weight('bold')
-                                ->icon('heroicon-m-arrow-top-right-on-square')                  
-                                ->columnSpanFull(),
+                        TextEntry::make('cliente.email_contacto')
+                            ->label('Email Cliente')
+                            ->copyable()
+                            ->weight('bold')
+                            ->color('primary'),
 
-                            TextEntry::make('venta.lead.demandado')
-                                ->label(new HtmlString('<span class="font-semibold">Demandado del Lead</span>'))
-                                ->copyable()
-                                ->weight('bold')
-                                ->color('primary')
-                                ->placeholder('No informado')
-                                ->columnSpanFull(),              
-                            
-                            TextEntry::make('venta.lead.procedencia.procedencia')
-                                ->label(new HtmlString('<span class="font-semibold">Tipo de Lead</span>'))
-                                ->badge()
-                                ->color('success')
-                                ->placeholder('No especificado')
-                                ->columnSpanFull(),
-                        ])
-                        ->columns(3)
-                        ->columnSpan(1),
-
-                    // Columna 2: Estado y Asignación
-                    InfoSection::make('Estado & Asignación')
-                        ->schema([
-                            TextEntry::make('venta.comercial.name')
-                                ->label('Comercial')
-                                ->badge()
-                                ->color('primary'),
-
-                            TextEntry::make('created_at')
-                                ->label('Proyecto creado')
-                                ->dateTime('d/m/y H:i'),
-
-                            TextEntry::make('venta.id')
-                                ->label(new HtmlString('<span class="font-semibold">Venta de Origen</span>'))
-                                ->badge()
-                                ->formatStateUsing(fn ($state) => $state ? 'Venta #' . $state : 'No asociada')
-                                ->url(fn (Proyecto $record) => $record->venta_id ? VentaResource::getUrl('edit', ['record' => $record->venta_id]) : null)
-                                ->openUrlInNewTab()
-                                ->color(fn ($record) => $record->venta_id ? 'warning' : 'secondary')
-                                ->icon(fn ($record) => $record->venta_id ? 'heroicon-m-link' : null),
-
-                            // --- NUEVO: Lead de Origen ---
-                            TextEntry::make('lead.id')
-                                ->label(new HtmlString('<span class="font-semibold">Lead de Origen</span>'))
-                                ->badge()
-                                ->formatStateUsing(fn ($state) => $state ? 'Lead #' . $state : 'Sin Lead')
-                                ->color(fn ($state) => $state ? 'warning' : 'gray')
-                                ->icon(fn ($state) => $state ? 'heroicon-m-link' : null)
-                                ->url(fn (Proyecto $record) => $record->lead_id 
-                                    ? \App\Filament\Resources\LeadResource::getUrl('edit', ['record' => $record->lead_id]) 
+                        TextEntry::make('acceso_perfil_cliente')
+                            ->label('Cliente')
+                            ->state(fn ($record) => $record->cliente->razon_social ?? 'Cliente no disponible')
+                            ->url(fn ($record) =>
+                                $record->cliente_id
+                                    ? ClienteResource::getUrl('view', ['record' => $record->cliente_id])
                                     : null
-                                )
-                                ->openUrlInNewTab(),
+                            )
+                            ->openUrlInNewTab()
+                            ->icon('heroicon-m-arrow-top-right-on-square')
+                            ->color('warning')
+                            ->weight('bold'),
 
-                            TextEntry::make('user.name')
-                                ->label('Asesor Asignado')
-                                ->badge()
-                                ->getStateUsing(fn (Proyecto $record) => $record->user?->name ?? '⚠️ Sin asignar')
-                                ->color(fn (string $state) => str_contains($state, 'Sin asignar') ? 'warning' : 'info'),
+                        TextEntry::make('venta.lead.procedencia.procedencia')
+                            ->label('Tipo de Lead')
+                            ->badge()
+                            ->color('success')
+                            ->placeholder('No especificado'),
 
-                            TextEntry::make('estado')
-                                ->label(new HtmlString('<span class="font-semibold">Estado Actual</span>'))
-                                ->badge()
-                                ->columnSpan(2)
-                                ->color(fn (\App\Enums\ProyectoEstadoEnum $state) => match ($state->value) {
-                                    'pendiente' => 'primary',
-                                    'en_progreso' => 'warning',
-                                    'finalizado' => 'success',
-                                    'cancelado' => 'danger',
-                                    default => 'gray',
-                                })
-                                ->suffixAction(
-                                    ActionInfolist::make('cambiar_estado_proyecto')
-                                        ->label('')
-                                        ->icon('heroicon-m-arrow-path')
-                                        ->color('primary')
-                                        ->modalHeading('Cambiar Estado del Proyecto')
-                                        ->form([
-                                            Select::make('estado')
-                                                ->options(\App\Enums\ProyectoEstadoEnum::class)
-                                                ->native(false)
-                                                ->required()
-                                                ->default(fn (?Proyecto $record) => $record?->estado?->value),
-                                            Textarea::make('comentario_estado')
-                                                ->rows(3)
-                                                ->maxLength(500),
-                                        ])
-                                        ->action(function (array $data, Proyecto $record) {
-                                            $nuevoEstado = \App\Enums\ProyectoEstadoEnum::tryFrom($data['estado']);
-                                            if (!$nuevoEstado) return;
-                                            $record->estado = $nuevoEstado;
-                                            $record->save();
-                                            
-                                            $comentario = 'Cambio de estado a: ' . $nuevoEstado->getLabel();
-                                            if (!empty($data['comentario_estado'])) $comentario .= "\n---\nObservación: " . $data['comentario_estado'];
-                                            
-                                            $record->comentarios()->create(['user_id' => Auth::id(), 'contenido' => $comentario]);
-                                            Notification::make()->title('Estado actualizado')->success()->send();
-                                        })
-                                        ->visible(fn (Proyecto $record) => $record->user_id !== null && !$record->estado->isFinal())
-                                ),
-
-                            InfoSection::make('Proyectos o servicios dependientes de la misma venta')
-                                ->description('Otros servicios de la misma venta.')
-                                ->schema([
-                                    ViewEntry::make('resumen_venta_pendientes')
-                                        ->view('filament.infolists.components.resumen-venta-pendientes'),
-                                ])
-                                ->columnSpanFull(),
-                        ])
-                        ->columns(3)
-                        ->columnSpan(1),
-
-                    // Columna 3: Agenda y Gestión
-                    InfoSection::make('Agenda & Gestión')
-                        ->schema([
-                            TextEntry::make('agenda')
-                                ->label(new HtmlString('<span class="font-semibold">📆 Próxima cita</span>'))
-                                ->dateTime('d/m/y H:i')
-                                ->placeholder('Sin agendar')
-                                ->suffixAction(
-                                    ActionInfolist::make('reagendar')
-                                        ->icon('heroicon-o-calendar-days')
-                                        ->form([
-                                            DateTimePicker::make('agenda')->native(false)->minutesStep(30),
-                                        ])
-                                        ->action(function (array $data, $record) {
-                                            $record->agenda = $data['agenda'];
-                                            $record->save();
-                                            $record->comentarios()->create(['user_id' => auth()->id(), 'contenido' => '📅 Nueva agenda: ' . \Carbon\Carbon::parse($data['agenda'])->format('d/m/Y H:i')]);
-                                            Notification::make()->title('Agenda actualizada')->success()->send();
-                                        })
-                                ),
-
-                            TextEntry::make('updated_at')->label('Última Act.')->color('warning')->weight('bold')->dateTime('d/m/y H:i'),
-                            TextEntry::make('fecha_finalizacion')->color('success')->weight('bold')->placeholder('En curso')->dateTime('d/m/y H:i'),
-
-                            // --- INTERACCIONES (CORREGIDO) ---
-                            InfoSection::make('Interacciones')
-                                ->schema([
-                                    
-                                    // LLAMADAS
-                                    TextEntry::make('llamadas')
-                                        ->label('📞 Llamadas')
-                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
-                                        ->suffixAction(
-                                            ActionInfolist::make('add_llamada')
-                                                ->icon('heroicon-m-phone-arrow-up-right')->color('primary')
-                                                ->form([
-                                                    Toggle::make('respuesta')->label('Contestado')->live(),
-                                                    Textarea::make('comentario')->visible(fn(Forms\Get $get)=>$get('respuesta'))->required(fn(Forms\Get $get)=>$get('respuesta')),
-                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
-                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
-                                                ])
-                                                ->action(function(array $data, Proyecto $record){
-                                                    self::registrarInteraccion($record, 'llamadas', $data['comentario']??'', $data['respuesta']??false, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
-                                                })
-                                        ),
-
-                                    // EMAILS
-                                    TextEntry::make('emails')
-                                        ->label('📧 Emails')
-                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
-                                        ->suffixAction(
-                                            ActionInfolist::make('add_email')
-                                                ->icon('heroicon-m-envelope-open')->color('warning')
-                                                ->form([
-                                                    Textarea::make('comentario')->label('Resumen'),
-                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
-                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
-                                                ])
-                                                ->action(function(array $data, Proyecto $record){
-                                                    self::registrarInteraccion($record, 'emails', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
-                                                })
-                                        ),
-
-                                    // CHATS
-                                    TextEntry::make('chats')
-                                        ->label('💬 Chats')
-                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
-                                        ->suffixAction(
-                                            ActionInfolist::make('add_chat')
-                                                ->icon('heroicon-m-chat-bubble-left-right')->color('success')
-                                                ->form([
-                                                    Textarea::make('comentario')->label('Resumen'),
-                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
-                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
-                                                ])
-                                                ->action(function(array $data, Proyecto $record){
-                                                    self::registrarInteraccion($record, 'chats', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
-                                                })
-                                        ),
-
-                                    // OTROS
-                                    TextEntry::make('otros_acciones')
-                                        ->label('📎 Otros')
-                                        ->size('xl')->weight('bold')->alignment(Alignment::Center)
-                                        ->suffixAction(
-                                            ActionInfolist::make('add_otro')
-                                                ->icon('heroicon-m-paper-airplane')->color('gray')
-                                                ->form([
-                                                    Textarea::make('comentario')->label('Descripción')->required(),
-                                                    Toggle::make('agendar')->label('Agendar seguimiento')->live(),
-                                                    DateTimePicker::make('agenda')->visible(fn(Forms\Get $get)=>$get('agendar'))->minDate(now())
-                                                ])
-                                                ->action(function(array $data, Proyecto $record){
-                                                    self::registrarInteraccion($record, 'otros_acciones', $data['comentario']??'', true, $data['agendar']??false, isset($data['agenda'])?\Carbon\Carbon::parse($data['agenda']):null);
-                                                })
-                                        ),
-                                    
-                                    // TOTAL
-                                    TextEntry::make('total_interacciones')
-                                        ->label('🔥 Total')
-                                        ->size('xl')->weight('extrabold')->color('warning')->alignment(Alignment::Center)
-                                        ->getStateUsing(fn (Proyecto $record) => $record->total_interacciones),
-                                ])
-                                ->columns(5)->columnSpan(3),
-                        ])
-                        ->columns(3)
-                        ->columnSpan(1),
-                ]),
-
-                // 3. COMENTARIOS (Estilo Burbuja Light/Dark)
-                InfoSection::make('🗨️ Comentarios')
-                    ->headerActions([
-                        ActionInfolist::make('anadir_comentario')
-                            ->label('Añadir comentario')
-                            ->icon('heroicon-o-plus-circle')
-                            ->form([Textarea::make('contenido')->required()])
-                            ->action(function (array $data, Proyecto $record) {
-                                $record->comentarios()->create(['user_id' => auth()->id(), 'contenido' => $data['contenido']]);
-                                Notification::make()->title('Comentario guardado')->success()->send();
-                            }),
+                        TextEntry::make('venta.lead.demandado')
+                            ->label('Demandado del Lead')
+                            ->copyable()
+                            ->placeholder('No informado')
+                            ->columnSpanFull(),
                     ])
-                    ->schema([
-                        RepeatableEntry::make('comentarios')
-                            ->label(false)->contained(false)
-                            ->schema([
-                                TextEntry::make('contenido')
-                                    ->html()
-                                    ->label(false)
-                                    ->state(function ($record) {
-                                        $usuario = e($record->user?->name ?? 'Usuario');
-                                        $contenido = nl2br(e($record->contenido));
-                                        $fecha = $record->created_at?->format('d/m H:i') ?? '';
+                    ->columns(3)
+                    ->columnSpan(1),
 
-                                        return <<<HTML
-                                            <div class="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl my-2 text-sm shadow-sm 
-                                                        bg-blue-50 text-blue-900 border border-blue-100
-                                                        dark:bg-blue-900/30 dark:text-blue-100 dark:border-blue-800">
-                                                <div class="flex items-center gap-2 font-bold whitespace-nowrap">
-                                                    <span>🧑‍💼</span><span>{$usuario}</span>
-                                                </div>
-                                                <div class="flex-1 break-words">{$contenido}</div>
-                                                <div class="text-xs opacity-70 whitespace-nowrap ml-auto">🕓 {$fecha}</div>
-                                            </div>
-                                        HTML;
+                /* --------------------------------------------
+                 | ESTADO & ASIGNACIÓN (2 columnas)
+                 -------------------------------------------- */
+                Section::make('Estado & Asignación')
+                    ->schema([
+                        TextEntry::make('venta.comercial.name')
+                            ->label('Comercial')
+                            ->badge()
+                            ->color('primary'),
+
+                        TextEntry::make('created_at')
+                            ->label('Proyecto creado')
+                            ->dateTime('d/m/y H:i'),
+
+                        TextEntry::make('venta.id')
+                            ->label('Venta de Origen')
+                            ->badge()
+                            ->formatStateUsing(fn ($state) => $state ? 'Venta #' . $state : 'No asociada')
+                            ->url(fn ($record) =>
+                                $record->venta_id
+                                    ? VentaResource::getUrl('edit', ['record' => $record->venta_id])
+                                    : null
+                            )
+                            ->openUrlInNewTab()
+                            ->color(fn ($record) => $record->venta_id ? 'warning' : 'secondary'),
+
+                        TextEntry::make('lead.id')
+                            ->label('Lead de Origen')
+                            ->badge()
+                            ->formatStateUsing(fn ($state) => $state ? 'Lead #' . $state : 'Sin Lead')
+                            ->url(fn ($record) =>
+                                $record->lead_id
+                                    ? LeadResource::getUrl('edit', ['record' => $record->lead_id])
+                                    : null
+                            )
+                            ->openUrlInNewTab()
+                            ->color('warning'),
+
+                        TextEntry::make('user.name')
+                            ->label('Asesor Asignado')
+                            ->badge()
+                            ->getStateUsing(fn ($record) => $record->user?->name ?? '⚠️ Sin asignar')
+                            ->color(fn ($state) =>
+                                str_contains($state, 'Sin asignar') ? 'warning' : 'info'
+                            ),
+
+                        TextEntry::make('estado')
+                            ->label('Estado Actual')
+                            ->badge()
+                            ->color(fn ($state) => match ($state->value) {
+                                'pendiente' => 'primary',
+                                'en_progreso' => 'warning',
+                                'finalizado' => 'success',
+                                'cancelado' => 'danger',
+                                default => 'gray',
+                            })
+                            ->suffixActions([
+                                Action::make('cambiar_estado_proyecto')
+                                    ->icon('heroicon-m-arrow-path')
+                                    ->iconButton()
+                                    ->schema([
+                                        Select::make('estado')
+                                            ->options(ProyectoEstadoEnum::class)
+                                            ->required(),
+                                        Textarea::make('comentario_estado')->rows(3),
+                                    ])
+                                    ->action(function (array $data, Proyecto $record) {
+                                        $nuevoEstado = $data['estado'];
+
+                                        if (! $nuevoEstado instanceof ProyectoEstadoEnum) {
+                                            $nuevoEstado = ProyectoEstadoEnum::tryFrom($nuevoEstado);
+                                        }
+
+                                        if (! $nuevoEstado) {
+                                            return;
+                                        }
+
+                                        $record->estado = $nuevoEstado;
+                                        $record->save();
+
+                                        $comentario = 'Cambio de estado a: ' . $nuevoEstado->getLabel();
+
+                                        if (! empty($data['comentario_estado'])) {
+                                            $comentario .= "\n---\nObservación: " . $data['comentario_estado'];
+                                        }
+
+                                        $record->comentarios()->create([
+                                            'user_id'  => auth()->id(),
+                                            'contenido'=> $comentario,
+                                        ]);
+
+                                        Notification::make()
+                                            ->title('Estado actualizado')
+                                            ->success()
+                                            ->send();
                                     }),
                             ]),
-                    ]),
-            ]);
-    }
+
+                        Section::make('Proyectos o servicios dependientes de la misma venta')
+                            ->schema([
+                                ViewEntry::make('resumen_venta_pendientes')
+                                    ->view('filament.infolists.components.resumen-venta-pendientes'),
+                            ])
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(3)
+                    ->columnSpan(2),
+
+                /* --------------------------------------------
+                 | AGENDA & GESTIÓN + INTERACCIONES (1 columna)
+                 -------------------------------------------- */
+                Section::make('Agenda & Gestión')
+                    ->schema([
+
+                        TextEntry::make('agenda')
+    ->label('📆 Próxima cita')
+    ->state(fn ($record) => $record->agenda ?? '—')
+    ->formatStateUsing(fn ($state) =>
+        $state && $state !== '—'
+            ? Carbon::parse($state)->format('d/m/Y H:i')
+            : 'Sin agendar'
+    )
+    ->color(fn ($state) => $state && $state !== '—' ? 'primary' : 'gray')
+    ->suffixActions([
+        Action::make('reagendar')
+            ->icon('heroicon-o-calendar-days')
+            ->iconButton()
+            ->tooltip('Agendar / cambiar cita')
+            ->schema([
+                DateTimePicker::make('agenda')
+                    ->label('Nueva fecha y hora')
+                    ->native(false)
+                    ->minutesStep(30)
+                    ->required(),
+            ])
+            ->action(function (array $data, Proyecto $record, $livewire) {
+                $record->agenda = $data['agenda'];
+                $record->save();
+
+                $record->comentarios()->create([
+                    'user_id'   => auth()->id(),
+                    'contenido' => '📅 Nueva agenda: ' .
+                        Carbon::parse($data['agenda'])->format('d/m/Y H:i'),
+                ]);
+
+                Notification::make()
+                    ->title('Agenda actualizada')
+                    ->success()
+                    ->send();
+
+                // 🔥 refresco v4
+                $record->refresh();
+                $livewire->dispatch('$refresh');
+            }),
+        ]),
+
+
+                        TextEntry::make('updated_at')
+                            ->label('Última Act.')
+                            ->dateTime('d/m/y H:i')
+                            ->color('warning'),
+
+                        TextEntry::make('fecha_finalizacion')
+                            ->label('Fecha Finalización')
+                            ->dateTime('d/m/y H:i')
+                            ->placeholder('En curso')
+                            ->color('success'),
+
+                        /* -------- INTERACCIONES -------- */
+                        Section::make('Interacciones')
+                            ->schema([
+                                TextEntry::make('llamadas')
+                                    //->label('')
+                                    ->hiddenLabel()
+                                    ->size('xl')
+                                    ->weight('bold')
+                                    ->alignment(Alignment::Center)
+                                    ->suffixActions([
+                                        Action::make('add_llamada')
+                                            ->icon('heroicon-m-phone-arrow-up-right')
+                                            ->iconButton()
+                                            ->color('primary')
+                                            ->schema([
+                                                Toggle::make('respuesta')->label('Contestado')->live(),
+                                                Textarea::make('comentario')
+                                                    ->visible(fn (Get $get) => $get('respuesta'))
+                                                    ->required(fn (Get $get) => $get('respuesta')),
+                                                Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                DateTimePicker::make('agenda')
+                                                    ->visible(fn (Get $get) => $get('agendar'))
+                                                    ->minDate(now()),
+                                            ])
+                                            ->action(function (array $data, Proyecto $record, $livewire) {
+    self::registrarInteraccion(
+        $record,
+        'llamadas',
+        $data['comentario'] ?? '',
+        $data['respuesta'] ?? false,
+        $data['agendar'] ?? false,
+        isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
+    );
+
+    // 🔥 CLAVE FILAMENT V4
+    $record->refresh();
+    $livewire->dispatch('$refresh');
+})
+                                    ]),
+
+                                TextEntry::make('emails')
+                                   // ->label('📧 Emails')
+                                    ->hiddenLabel()
+                                    ->size('xl')
+                                    ->weight('bold')
+                                    ->alignment(Alignment::Center)
+                                    ->suffixActions([
+                                        Action::make('add_email')
+                                            ->icon('heroicon-m-envelope-open')
+                                            ->iconButton()
+                                            ->color('warning')
+                                            ->schema([
+                                                Textarea::make('comentario')->label('Resumen'),
+                                                Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                DateTimePicker::make('agenda')
+                                                    ->visible(fn (Get $get) => $get('agendar'))
+                                                    ->minDate(now()),
+                                            ])
+                                            ->action(function (array $data, Proyecto $record, $livewire) {
+                self::registrarInteraccion(
+                    $record,
+                    'emails',
+                    $data['comentario'] ?? '',
+                    true,
+                    $data['agendar'] ?? false,
+                    isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
+                );
+
+                // 🔥 REFRESCO OBLIGATORIO FILAMENT V4
+                $record->refresh();
+                $livewire->dispatch('$refresh');
+            })
+                                    ]),
+
+                                TextEntry::make('chats')
+                                 //   ->label('💬 Chats')
+                                  ->hiddenLabel()
+                                    ->size('xl')
+                                    ->weight('bold')
+                                    ->alignment(Alignment::Center)
+                                    ->suffixActions([
+                                        Action::make('add_chat')
+                                            ->icon('heroicon-m-chat-bubble-left-right')
+                                            ->iconButton()
+                                            ->color('success')
+                                            ->schema([
+                                                Textarea::make('comentario')->label('Resumen'),
+                                                Toggle::make('agendar')->label('Agendar seguimiento')->live(),
+                                                DateTimePicker::make('agenda')
+                                                    ->visible(fn (Get $get) => $get('agendar'))
+                                                    ->minDate(now()),
+                                            ])
+                                           ->action(function (array $data, Proyecto $record, $livewire) {
+                self::registrarInteraccion(
+                    $record,
+                    'chats',
+                    $data['comentario'] ?? '',
+                    true,
+                    $data['agendar'] ?? false,
+                    isset($data['agenda']) ? Carbon::parse($data['agenda']) : null
+                );
+
+                // 🔥 REFRESCO OBLIGATORIO FILAMENT V4
+                $record->refresh();
+                $livewire->dispatch('$refresh');
+            })
+                                    ]),
+
+                                TextEntry::make('total_interacciones')
+                                    ->label('Total')
+                                    ->inlineLabel()
+                                    ->size('xl')
+                                    ->weight('extrabold')
+                                    ->color('warning')
+                                    ->alignment(Alignment::Center)
+                                    ->getStateUsing(fn (Proyecto $record) => $record->total_interacciones),
+                            ])
+                            ->columns(4),
+                    ])
+                    ->columnSpan(1),
+
+            ])
+            ->columns(4)
+            ->columnSpanFull(),
+
+       
+       
+    ]);
+}
 
 
     public static function getRelations(): array
     {
         return [
             // Aquí vamos a añadir el RelationManager para comentarios
-                  RelationManagers\DocumentosRelationManager::class,
+                  
+                          \App\Filament\Resources\ClienteResource\RelationManagers\ComentariosRelationManager::class,
+                          DocumentosRelationManager::class,
+
 
         ];
     }
@@ -925,10 +1011,10 @@ public static function infolist(Infolist $infolist): Infolist
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListProyectos::route('/'),
+            'index' => ListProyectos::route('/'),
           //LOS PROYECTOS SE CREAN DE FORMA AUTOMATICA DESDE LA VENTA POR EL TIPO DE SERVICIO  'create' => Pages\CreateProyecto::route('/create'),
-            'edit' => Pages\EditProyecto::route('/{record}/edit'),
-            'view' => Pages\ViewProyecto::route('/{record}'), // Añadida ruta para la página de vista
+            'edit' => EditProyecto::route('/{record}/edit'),
+            'view' => ViewProyecto::route('/{record}'), // Añadida ruta para la página de vista
 
         ];
     }
@@ -942,12 +1028,12 @@ public static function infolist(Infolist $infolist): Infolist
     }
 
      public static function registrarInteraccion(
-        \App\Models\Proyecto $record,
+        Proyecto $record,
         string $tipo_accion,
         string $comentario_modal_texto,
         bool $contestada_o_enviado = false, // Para llamadas, email, chat
         bool $agendar_seguimiento = false,
-        ?\Carbon\Carbon $agenda_fecha_modal = null
+        ?Carbon $agenda_fecha_modal = null
     ): void {
         $currentUser = Auth::user();
         $userName = $currentUser?->name ?? 'Usuario';
@@ -993,7 +1079,7 @@ public static function infolist(Infolist $infolist): Infolist
 
         // Añadir comentario del modal al texto inicial si existe
         if (!empty($comentario_modal_texto)) {
-            $comentarioTextoInicial .= "\n---\nObservación: " . $comentario_modal_texto;
+            $comentarioTextoInicial .= "  ---  Observación: " . $comentario_modal_texto;
         }
 
         // 2. Actualizar la agenda y construir la parte final del comentario
@@ -1005,9 +1091,9 @@ public static function infolist(Infolist $infolist): Infolist
 
                 $textoRelativo = $agenda_fecha_modal->diffForHumans();
                 $fechaFormateada = $agenda_fecha_modal->isoFormat('dddd D [de] MMMM, HH:mm');
-                $comentarioTextoFinal .= "\nPróximo seguimiento agendado: {$textoRelativo} (el {$fechaFormateada}).";
-                $notificacionBody .= "\nPróximo seguimiento: " . $agenda_fecha_modal->format('d/m/Y H:i');
-            } catch (\Exception $e) {
+                $comentarioTextoFinal .= " -- Próximo seguimiento agendado: {$textoRelativo} (el {$fechaFormateada}).";
+                $notificacionBody .= " -- Próximo seguimiento: " . $agenda_fecha_modal->format('d/m/Y H:i');
+            } catch (Exception $e) {
                 Log::error('Error al procesar o guardar fecha de agenda en acción ' . $tipo_accion . ' para Proyecto ID ' . $record->id . ': ' . $e->getMessage());
                 Notification::make()->title('Error al procesar fecha')->body('La fecha de agenda proporcionada no es válida o no se pudo guardar.')->danger()->send();
                 $notificacionTipo = "warning"; // Notificación de error si falla la agenda
@@ -1023,7 +1109,7 @@ public static function infolist(Infolist $infolist): Infolist
                 'user_id' => $currentUser->id,
                 'contenido' => $comentarioTextoFinal,
             ]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Error al guardar comentario de interacción para Proyecto ID ' . $record->id . ': ' . $e->getMessage());
             Notification::make()->title('Error interno')->body('No se pudo guardar el comentario asociado.')->warning()->send();
             $notificacionTipo = "warning"; // Notificación de error si falla el comentario
@@ -1031,5 +1117,6 @@ public static function infolist(Infolist $infolist): Infolist
 
         // 4. Enviar Notificación final
         Notification::make()->title($notificacionTitulo)->body($notificacionBody)->{$notificacionTipo}()->send();
+         
     }
 }

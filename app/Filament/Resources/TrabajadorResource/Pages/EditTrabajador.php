@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\TrabajadorResource\Pages;
 
+use Filament\Actions\DeleteAction;
 use App\Filament\Resources\TrabajadorResource;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -14,7 +15,7 @@ class EditTrabajador extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            DeleteAction::make(),
         ];
     }
 

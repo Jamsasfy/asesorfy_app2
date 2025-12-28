@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\ClienteResource\RelationManagers;
 
+use Filament\Tables\Columns\TextColumn;
+use Filament\Actions\ViewAction;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -26,13 +28,13 @@ class LeadsRelationManager extends RelationManager
             ->recordUrl(null) 
             ->columns([
                 // Procedencia del Lead
-                Tables\Columns\TextColumn::make('procedencia.procedencia')
+                TextColumn::make('procedencia.procedencia')
                     ->label('Procedencia')
                     ->badge()
                     ->color('gray'),
 
                 // Estado del Lead
-                Tables\Columns\TextColumn::make('estado')
+                TextColumn::make('estado')
                     ->badge()
                     ->formatStateUsing(fn (LeadEstadoEnum $state): string => $state->getLabel())
                     ->color(fn (LeadEstadoEnum $state): string => match ($state) {
@@ -44,7 +46,7 @@ class LeadsRelationManager extends RelationManager
                     }),
 
                 // Comercial Asignado
-            Tables\Columns\TextColumn::make('asignado_display') // Usamos un nombre virtual
+            TextColumn::make('asignado_display') // Usamos un nombre virtual
     ->label('Comercial')
     ->badge()
     ->getStateUsing(function (Lead $record): string {
@@ -56,22 +58,22 @@ class LeadsRelationManager extends RelationManager
         // Hacemos que la búsqueda funcione con el nombre del usuario asignado
         $query->whereHas('asignado', fn($q) => $q->where('name', 'like', "%{$search}%"));
     }),
-                                
-                   Tables\Columns\TextColumn::make('demandado')
+
+                   TextColumn::make('demandado')
                     ->label('Demandado')
                     ->wrap() // <-- Hace que el texto largo salte a la siguiente línea
                     ->lineClamp(2) // Opcional: Limita el texto a 2 líneas y pone "ver más"
                     ->color('gray'),
 
                 // Fecha de última actualización
-                Tables\Columns\TextColumn::make('updated_at')
+                TextColumn::make('updated_at')
                     ->label('Actualizado')
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true), // Oculto por defecto para limpiar la vista
 
                 // Fecha de creación (la he añadido como extra, es útil)
-                Tables\Columns\TextColumn::make('created_at')
+                TextColumn::make('created_at')
                     ->label('Creado')
                     ->dateTime('d/m/Y H:i')
                     ->sortable(),
@@ -80,11 +82,11 @@ class LeadsRelationManager extends RelationManager
                 //
             ])
             ->headerActions([
-                
+
             ])
-            ->actions([
+            ->recordActions([
                 // Botón para ver el Lead en una nueva pestaña
-                Tables\Actions\ViewAction::make()
+                ViewAction::make()
                 ->label('Ver como esta el Leads')
                     ->url(fn (Lead $record): string => LeadResource::getUrl('view', ['record' => $record]))
                     ->openUrlInNewTab(),

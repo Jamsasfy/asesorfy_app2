@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ProcedenciaResource\Pages;
 
+use Filament\Actions\DeleteAction;
 use App\Filament\Resources\ProcedenciaResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
@@ -18,7 +19,7 @@ class EditProcedencia extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            DeleteAction::make(),
         ];
     }
 }

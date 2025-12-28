@@ -4,13 +4,21 @@ namespace App\Filament\Resources;
 
 
 
+use Filament\Schemas\Schema;
+use Filament\Forms\Components\TextInput;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\DepartamentoResource\RelationManagers\TrabajadoresRelationManager;
+use App\Filament\Resources\DepartamentoResource\Pages\ListDepartamentos;
+use App\Filament\Resources\DepartamentoResource\Pages\CreateDepartamento;
+use App\Filament\Resources\DepartamentoResource\Pages\EditDepartamento;
 use App\Filament\Resources\DepartamentoResource\Pages;
 use App\Filament\Resources\DepartamentoResource\RelationManagers;
 use App\Models\Departamento;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -24,8 +32,8 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Departamento::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-rectangle-group';
-    protected static ?string $navigationGroup = 'Configuración plataforma';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-group';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
     protected static ?string $navigationLabel = 'Departamentos';
     protected static ?string $modelLabel = 'Departamento';
     protected static ?string $pluralModelLabel = 'Departamentos';
@@ -44,11 +52,11 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
     }
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
-                Forms\Components\TextInput::make('nombre')
+        return $schema
+            ->components([
+                TextInput::make('nombre')
                     ->required()
                     ->maxLength(191),
                  Select::make('coordinador_id')
@@ -71,7 +79,7 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('nombre')
+                TextColumn::make('nombre')
                     ->searchable(),
 
                      TextColumn::make('coordinador.name')
@@ -96,7 +104,7 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
                         ->dateTime('d/m/y - H:m')
                         ->sortable()
                         ->toggleable(isToggledHiddenByDefault: false),
-                Tables\Columns\TextColumn::make('updated_at')
+                TextColumn::make('updated_at')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -104,12 +112,12 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -117,16 +125,16 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
     public static function getRelations(): array
     {
         return [
-        RelationManagers\TrabajadoresRelationManager::class,
+        TrabajadoresRelationManager::class,
         ];
     }
 
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListDepartamentos::route('/'),
-            'create' => Pages\CreateDepartamento::route('/create'),
-            'edit' => Pages\EditDepartamento::route('/{record}/edit'),
+            'index' => ListDepartamentos::route('/'),
+            'create' => CreateDepartamento::route('/create'),
+            'edit' => EditDepartamento::route('/{record}/edit'),
         ];
     }
 }

@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use Throwable;
+use BackedEnum;
+use Exception;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Enums\ProyectoEstadoEnum;
 use App\Enums\ServicioTipoEnum;
@@ -162,7 +165,7 @@ class Venta extends Model
                 
                 try {
                     StripeSubscriptionService::activarSuscripcion($suscripcion);
-                } catch (\Throwable $e) {}
+                } catch (Throwable $e) {}
             }
         }
     }
@@ -185,7 +188,7 @@ class Venta extends Model
     }
 
     // --- PROCESO POST-FIRMA (CREACIÓN ESTRUCTURAS) ---
-    public function processSaleAfterCreation(array $extraData = []): void
+   /*  public function processSaleAfterCreation(array $extraData = []): void
     {
         $this->loadMissing('items.servicio', 'cliente');
 
@@ -266,7 +269,7 @@ class Venta extends Model
                 : $servicio->requiere_proyecto_activacion;
 
             if (!$debeCrearProyecto) continue;
-            if (\App\Models\Proyecto::where('venta_item_id', $item->id)->exists()) continue;
+            if (Proyecto::where('venta_item_id', $item->id)->exists()) continue;
 
             $nombreProyecto = $item->nombre_personalizado ?: $servicio->nombre;
             $nombreNorm = $normalize($nombreProyecto);
@@ -301,14 +304,14 @@ class Venta extends Model
                 $descripcion .= "\n\nDatos del Formulario:\n" . implode("\n", $detalles);
             }
 
-            \App\Models\Proyecto::create([
+            Proyecto::create([
                 'nombre'        => "{$nombreProyecto} ({$this->cliente->razon_social})",
                 'cliente_id'    => $this->cliente_id,
                 'venta_id'      => $this->id,
                 'lead_id'       => $this->lead_id,
                 'venta_item_id' => $item->id,
                 'servicio_id'   => $servicio->id,
-                'estado'        => \App\Enums\ProyectoEstadoEnum::Pendiente,
+                'estado'        => ProyectoEstadoEnum::Pendiente,
                 'descripcion'   => $descripcion,
                 'user_id'       => null,
             ]);
@@ -321,10 +324,10 @@ class Venta extends Model
             $servicio = $item->servicio;
             if (!$servicio) continue;
 
-            $tipoServicio = $servicio->tipo instanceof \BackedEnum ? $servicio->tipo->value : $servicio->tipo;
-            if ($tipoServicio !== \App\Enums\ServicioTipoEnum::RECURRENTE->value) continue;
+            $tipoServicio = $servicio->tipo instanceof BackedEnum ? $servicio->tipo->value : $servicio->tipo;
+            if ($tipoServicio !== ServicioTipoEnum::RECURRENTE->value) continue;
 
-            if (\App\Models\ClienteSuscripcion::where('venta_origen_id', $this->id)
+            if (ClienteSuscripcion::where('venta_origen_id', $this->id)
                 ->where('servicio_id', $item->servicio_id)
                 ->exists()) {
                 continue;
@@ -332,12 +335,12 @@ class Venta extends Model
 
             // Estado inicial: Si hay proyecto -> Pendiente. Si no -> Activa (se confirmará en el cobro)
             $estadoInicial = $ventaRequiereProyecto
-                ? \App\Enums\ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION
-                : \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA;
+                ? ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION
+                : ClienteSuscripcionEstadoEnum::ACTIVA;
 
             $fechaInicio = $ventaRequiereProyecto ? null : ($item->fecha_inicio_servicio ?? now());
 
-            $suscripcion = \App\Models\ClienteSuscripcion::create([
+            $suscripcion = ClienteSuscripcion::create([
                 'cliente_id'             => $this->cliente_id,
                 'servicio_id'            => $item->servicio_id,
                 'venta_origen_id'        => $this->id,
@@ -359,7 +362,225 @@ class Venta extends Model
             $item->cliente_suscripcion_id = $suscripcion->id;
             $item->save();
         }
+    } */
+// --- PROCESO POST-FIRMA (CREACIÓN ESTRUCTURAS) ---
+public function processSaleAfterCreation(array $extraData = []): void
+{
+    $this->loadMissing('items.servicio', 'cliente');
+
+    $normalize = function ($text) {
+        $text = strtolower((string) $text);
+        $text = str_replace(['á','é','í','ó','ú','ñ'], ['a','e','i','o','u','n'], $text);
+        return $text;
+    };
+
+    // Detectar si ALGÚN servicio requiere proyecto PARA ACTIVAR (bloqueo)
+    // ✅ OJO: esto ya NO define si creamos proyecto o no; solo bloqueo de activación.
+    $ventaRequiereProyecto = $this->items->contains(function ($item) {
+        if (! $item->servicio) return false;
+
+        return (bool) (
+            $item->servicio->es_editable
+                ? ($item->requiere_proyecto ?? false)
+                : ($item->servicio->requiere_proyecto_activacion ?? false)
+        );
+    });
+
+    // ---------------------------------------------------------
+    // 1. PREPARAR DATOS DEL FORMULARIO (Mapeo)
+    // ---------------------------------------------------------
+    // A) Alta Autónomo
+    $altaAutonomo = array_filter([
+        'Fecha Inicio'        => $extraData['extra_auto_fecha_inicio'] ?? null,
+        'Fecha Nacimiento'    => $extraData['fecha_nacimiento'] ?? null,
+        'Nº Seg. Social'      => $extraData['seguridad_social'] ?? null,
+        'Certificado Digital' => isset($extraData['extra_auto_certificado_digital'])
+            ? (($extraData['extra_auto_certificado_digital'] ? 'Sí' : 'No'))
+            : null,
+        'Actividad (IAE)'     => $extraData['extra_auto_actividad'] ?? null,
+        'Lugar Trabajo'       => $extraData['extra_auto_lugar'] ?? null,
+        'Dirección Local'     => $extraData['extra_auto_direccion_local'] ?? null,
+        'Tarifa Plana'        => isset($extraData['extra_auto_tarifa_plana'])
+            ? (($extraData['extra_auto_tarifa_plana'] ? 'Sí' : 'No'))
+            : null,
+    ]);
+
+    // B) Capitalización Paro
+    $capitalizacion = array_filter([
+        'Forma Jurídica'      => $extraData['extra_cap_forma_juridica'] ?? null,
+        'Inversión Prevista'  => $extraData['extra_cap_inversion'] ?? null,
+        'Importe Solicitado'  => $extraData['extra_cap_solicitado'] ?? null,
+        'Modalidad'           => $extraData['extra_cap_modalidad'] ?? null,
+        'Memoria Explicativa' => $extraData['extra_cap_memoria'] ?? null,
+        'Fecha Paro'          => $extraData['extra_cap_fecha_paro'] ?? null,
+        'Prestación Mensual'  => $extraData['extra_cap_prestacion_mensual'] ?? null,
+        'Duración Paro'       => $extraData['extra_cap_duracion_paro'] ?? null,
+        'Oficina SEPE'        => $extraData['extra_cap_oficina_sepe'] ?? null,
+    ]);
+
+    // C) Constitución SL
+    $crearSL = [
+        'Nombres Propuestos' => array_filter([
+            $extraData['extra_sl_nombre1'] ?? null,
+            $extraData['extra_sl_nombre2'] ?? null,
+            $extraData['extra_sl_nombre3'] ?? null,
+            $extraData['extra_sl_nombre4'] ?? null,
+            $extraData['extra_sl_nombre5'] ?? null,
+        ]),
+        'Tipo Aportación'    => $extraData['extra_sl_aportacion_tipo'] ?? null,
+        'Capital Social'     => $extraData['extra_sl_capital'] ?? null,
+        'Descripción Bienes' => $extraData['extra_sl_bienes_descripcion'] ?? null,
+        'Actividad'          => $extraData['extra_sl_actividad'] ?? null,
+
+        // Arrays paralelos
+        'Socios'             => $extraData['extra_sl_socios_nombre'] ?? [],
+        'Socios DNI'         => $extraData['extra_sl_socios_dni'] ?? [],
+        'Socios %'           => $extraData['extra_sl_socios_porcentaje'] ?? [],
+        'Socios Régimen'     => $extraData['extra_sl_socios_regimen'] ?? [],
+
+        'Tipo Admin'         => $extraData['extra_sl_tipo_admin'] ?? null,
+        'Admin Nombre'       => $extraData['extra_sl_admin_nombre'] ?? null,
+        'Ciudad Firma'       => $extraData['extra_sl_ciudad_firma'] ?? null,
+    ];
+
+    // ---------------------------------------------------------
+    // 2. CREAR PROYECTOS
+    // ✅ Proyecto SIEMPRE para servicios ÚNICOS
+    // ---------------------------------------------------------
+    foreach ($this->items as $item) {
+        $servicio = $item->servicio;
+        if (! $servicio) continue;
+
+        $tipoServicio = $servicio->tipo instanceof BackedEnum
+            ? $servicio->tipo->value
+            : (string) $servicio->tipo;
+
+        // ✅ Regla nueva: solo servicios UNICOS generan proyecto (si quieres incluir otros, lo ampliamos)
+        $debeCrearProyecto = ($tipoServicio === ServicioTipoEnum::UNICO->value);
+
+        if (! $debeCrearProyecto) {
+            continue;
+        }
+
+        // idempotencia
+        if (Proyecto::where('venta_item_id', $item->id)->exists()) {
+            continue;
+        }
+
+        $nombreProyecto = $item->nombre_personalizado ?: $servicio->nombre;
+        $nombreNorm = $normalize($nombreProyecto);
+
+        $descripcion = "Proyecto generado por la venta #{$this->id}.";
+        $detalles = [];
+
+        if (str_contains($nombreNorm, 'autonomo') || str_contains($nombreNorm, 'alta')) {
+            foreach ($altaAutonomo as $k => $v) $detalles[] = "- {$k}: {$v}";
+        }
+        elseif (str_contains($nombreNorm, 'capitaliz') || str_contains($nombreNorm, 'paro')) {
+            foreach ($capitalizacion as $k => $v) $detalles[] = "- {$k}: {$v}";
+        }
+        elseif (str_contains($nombreNorm, 'sociedad') || str_contains($nombreNorm, 'sl') || str_contains($nombreNorm, 'constitu')) {
+            if (! empty($crearSL['Nombres Propuestos'])) {
+                $detalles[] = "- Nombres: " . implode(', ', $crearSL['Nombres Propuestos']);
+            }
+
+            if (! empty($crearSL['Capital Social'])) {
+                $detalles[] = "- Capital: {$crearSL['Capital Social']} € ({$crearSL['Tipo Aportación']})";
+            }
+
+            if (! empty($crearSL['Actividad'])) {
+                $detalles[] = "- Actividad: {$crearSL['Actividad']}";
+            }
+
+            if (! empty($crearSL['Tipo Admin'])) {
+                $detalles[] = "- Administración: {$crearSL['Tipo Admin']} (" . ($crearSL['Admin Nombre'] ?? '-') . ")";
+            }
+
+            // ✅ Socios + % + DNI + Régimen/Estado civil
+            $socios = (array) ($crearSL['Socios'] ?? []);
+            if (! empty($socios)) {
+                $detalles[] = "- Socios:";
+                foreach ($socios as $idx => $socioNombre) {
+                    $socioNombre = trim((string) $socioNombre);
+                    if ($socioNombre === '') continue;
+
+                    $pct = $crearSL['Socios %'][$idx] ?? '?';
+                    $dni = $crearSL['Socios DNI'][$idx] ?? null;
+                    $reg = $crearSL['Socios Régimen'][$idx] ?? null;
+
+                    $line = "  * {$socioNombre} ({$pct}%)";
+                    if ($dni) $line .= " - DNI: {$dni}";
+                    if ($reg) $line .= " - Régimen: {$reg}";
+
+                    $detalles[] = $line;
+                }
+            }
+        }
+
+        if (! empty($detalles)) {
+            $descripcion .= "\n\nDatos del Formulario:\n" . implode("\n", $detalles);
+        }
+
+        Proyecto::create([
+            'nombre'        => "{$nombreProyecto} ({$this->cliente->razon_social})",
+            'cliente_id'    => $this->cliente_id,
+            'venta_id'      => $this->id,
+            'lead_id'       => $this->lead_id,
+            'venta_item_id' => $item->id,
+            'servicio_id'   => $servicio->id,
+            'estado'        => ProyectoEstadoEnum::Pendiente,
+            'descripcion'   => $descripcion,
+            'user_id'       => null,
+        ]);
     }
+
+    // ---------------------------------------------------------
+    // 3. CREAR SUSCRIPCIONES (Lógica Inicial)
+    // ---------------------------------------------------------
+    foreach ($this->items as $item) {
+        $servicio = $item->servicio;
+        if (! $servicio) continue;
+
+        $tipoServicio = $servicio->tipo instanceof BackedEnum ? $servicio->tipo->value : (string) $servicio->tipo;
+        if ($tipoServicio !== ServicioTipoEnum::RECURRENTE->value) continue;
+
+        // idempotencia
+        if (ClienteSuscripcion::where('venta_origen_id', $this->id)
+            ->where('servicio_id', $item->servicio_id)
+            ->exists()) {
+            continue;
+        }
+
+        // Estado inicial: Si hay BLOQUEO -> Pendiente. Si no -> Activa
+        $estadoInicial = $ventaRequiereProyecto
+            ? ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION
+            : ClienteSuscripcionEstadoEnum::ACTIVA;
+
+        $fechaInicio = $ventaRequiereProyecto ? null : ($item->fecha_inicio_servicio ?? now());
+
+        $suscripcion = ClienteSuscripcion::create([
+            'cliente_id'               => $this->cliente_id,
+            'servicio_id'              => $item->servicio_id,
+            'venta_origen_id'          => $this->id,
+            'nombre_personalizado'     => $item->nombre_personalizado,
+            'es_tarifa_principal'      => (bool) ($servicio->es_tarifa_principal ?? false),
+            'precio_acordado'          => $item->subtotal_aplicado,
+            'cantidad'                 => $item->cantidad,
+            'fecha_inicio'             => $fechaInicio,
+            'estado'                   => $estadoInicial,
+            'ciclo_facturacion'        => $servicio->ciclo_facturacion,
+            'descuento_tipo'           => $item->descuento_tipo,
+            'descuento_valor'          => $item->descuento_valor,
+            'descuento_duracion_meses' => $item->descuento_duracion_meses,
+            'descuento_descripcion'    => $item->observaciones_descuento,
+            'descuento_valido_hasta'   => $item->descuento_valido_hasta,
+            'observaciones'            => $item->observaciones_item,
+        ]);
+
+        $item->cliente_suscripcion_id = $suscripcion->id;
+        $item->save();
+    }
+}
 
     // --- MÉTODOS DE ESTADO ---
     public function esVentaReal(): bool
@@ -367,26 +588,61 @@ class Venta extends Model
         return $this->estado === VentaEstadoEnum::COMPLETADA;
     }
 
-    public function tienePagoInicialCompletado(): bool
-    {
-        return $this->facturas()
-            ->where('estado', FacturaEstadoEnum::PAGADA)
-            ->exists();
+   public function tienePagoInicialCompletado(): bool
+{
+    // ✅ si ya marcamos pago inicial en la propia venta, es completado
+    if (!empty($this->pago_inicial_fecha) || !empty($this->pago_inicial_referencia)) {
+        return true;
     }
+
+    // ✅ fallback legacy: factura pagada
+    return $this->facturas()
+        ->where('estado', FacturaEstadoEnum::PAGADA)
+        ->exists();
+}
+
 
     public function scopeCompletadas($query)
     {
         return $query->where('estado', VentaEstadoEnum::COMPLETADA);
     }
 
-    public function requierePagoInicial(): bool
-    {
-        return $this->items()
-            ->whereHas('servicio', function ($q) {
-                $q->where('tipo', ServicioTipoEnum::UNICO->value);
-            })
-            ->exists();
+   public function requierePagoInicial(): bool
+{
+    // Si ya están cargados los items, evitamos query extra
+    if ($this->relationLoaded('items')) {
+        $this->loadMissing('items.servicio');
+
+        return $this->items->contains(function ($item) {
+            if (! $item->servicio) return false;
+
+            $tipo = $item->servicio->tipo instanceof \BackedEnum
+                ? $item->servicio->tipo->value
+                : $item->servicio->tipo;
+
+            if ($tipo !== \App\Enums\ServicioTipoEnum::UNICO->value) {
+                return false;
+            }
+
+            $importe = (float) ($item->subtotal_aplicado ?? $item->subtotal ?? 0);
+
+            // ✅ Solo requiere pago inicial si hay importe > 0
+            return $importe > 0;
+        });
     }
+
+    // Query directa: existe algún item ÚNICO con subtotal_aplicado > 0 (o subtotal > 0 si subtotal_aplicado es null)
+    return $this->items()
+        ->whereHas('servicio', fn ($q) => $q->where('tipo', \App\Enums\ServicioTipoEnum::UNICO->value))
+        ->where(function ($q) {
+            $q->where('subtotal_aplicado', '>', 0)
+              ->orWhere(function ($qq) {
+                  $qq->whereNull('subtotal_aplicado')
+                     ->where('subtotal', '>', 0);
+              });
+        })
+        ->exists();
+}
 
     public function marcarComoCompletada(?Carbon $fecha = null): void
     {
@@ -421,97 +677,201 @@ class Venta extends Model
      * ✅ MÉTODO CORREGIDO Y UNIFICADO
      * Procesa el cobro inicial y activa suscripciones usando el servicio unificado.
      */
-    public function procesarCobroInicial(
-        \Carbon\Carbon $fechaPago,
-        string $metodoPago = 'suscripcion_directa',
-        ?string $paymentIntentId = null,
-        array $extraData = []
-    ): void {
+public function procesarCobroInicial(
+    \Carbon\Carbon $fechaPago,
+    string $metodoPago = 'suscripcion_directa',
+    ?string $paymentIntentId = null,
+    array $extraData = []
+): void {
+    Log::info('🔵 procesarCobroInicial INICIO', [
+        'venta_id' => $this->id,
+        'metodo' => $metodoPago,
+        'payment_intent' => $paymentIntentId,
+    ]);
 
-        Log::info('🔵 procesarCobroInicial INICIO', ['venta_id' => $this->id]);
+    $this->loadMissing('cliente', 'items.servicio', 'suscripciones');
+    $cliente = $this->cliente;
 
-        $this->loadMissing('cliente', 'items.servicio', 'suscripciones');
-        $cliente = $this->cliente;
+    if (! $cliente) {
+        throw new Exception('Venta sin cliente asociado');
+    }
 
-        if (!$cliente) {
-            throw new \Exception('Venta sin cliente asociado');
-        }
+    // =========================================================
+    // 0️⃣ POST-VENTA: Proyectos + Suscripciones locales
+    // =========================================================
+    try {
+        $this->processSaleAfterCreation($extraData);
+    } catch (\Throwable $e) {
+        Log::error('❌ Error en processSaleAfterCreation', [
+            'venta_id' => $this->id,
+            'error' => $e->getMessage(),
+        ]);
+    }
 
-        // 1. Crear suscripciones locales pendientes si no existen (Lógica de seguridad)
-        foreach ($this->items as $item) {
-            if (!$item->servicio) continue;
+    $this->refresh();
+    $this->loadMissing('items.servicio', 'suscripciones');
 
-            $tipo = $item->servicio->tipo instanceof \BackedEnum
-                ? $item->servicio->tipo->value
-                : $item->servicio->tipo;
+    // =========================================================
+    // 1️⃣ Activar suscripciones (solo si NO requiere proyecto)
+    // =========================================================
+    $requiereProyecto = $this->items->contains(fn ($i) =>
+        $i->servicio && ($i->servicio->es_editable ? $i->requiere_proyecto : $i->servicio->requiere_proyecto_activacion)
+    );
 
-            if ($tipo !== 'recurrente') continue;
-
-            // Si no tiene suscripción vinculada, la creamos
-            if (!$item->cliente_suscripcion_id) {
-                
-                // Doble check para no duplicar por error
-                $existe = $this->suscripciones()
-                    ->where('servicio_id', $item->servicio_id)
-                    ->exists();
-
-                if ($existe) continue;
-
-                $suscripcion = $this->suscripciones()->create([
-                    'cliente_id'           => $cliente->id,
-                    'servicio_id'          => $item->servicio_id,
-                    'nombre_personalizado' => $item->nombre_personalizado,
-                    'precio_acordado'      => $item->subtotal_aplicado,
-                    'cantidad'             => $item->cantidad,
-                    'estado'               => \App\Enums\ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION,
-                    'fecha_inicio'         => now(),
-                    // Copiamos datos del item/servicio
-                    'ciclo_facturacion'        => $item->servicio->ciclo_facturacion,
-                    'descuento_tipo'           => $item->descuento_tipo,
-                    'descuento_valor'          => $item->descuento_valor,
-                    'descuento_duracion_meses' => $item->descuento_duracion_meses,
-                    'descuento_descripcion'    => $item->observaciones_descuento,
-                    'descuento_valido_hasta'   => $item->descuento_valido_hasta,
-                    'observaciones'            => $item->observaciones_item,
-                ]);
-
-                $item->cliente_suscripcion_id = $suscripcion->id;
-                $item->save();
-            }
-        }
-        
-        $this->refresh();
-
-        // 2. ACTIVACIÓN REAL (Unificada)
-        // Detectar si requiere proyecto. Si lo requiere, NO activamos Stripe aún (esperamos a que acabe el proyecto).
-        $requiereProyecto = $this->items->contains(fn($i) => 
-            $i->servicio && ($i->servicio->es_editable ? $i->requiere_proyecto : $i->servicio->requiere_proyecto_activacion)
-        );
-
-        if (!$requiereProyecto) {
-            foreach ($this->suscripciones as $suscripcion) {
-                // Solo si no tiene ID de Stripe (no está activada)
-                if (!$suscripcion->stripe_subscription_id) {
-                    try {
-                        // Llamada al servicio ÚNICO que gestiona Tarjeta/SEPA y Prorratas
-                        StripeSubscriptionService::activarSuscripcion($suscripcion);
-                    } catch (\Exception $e) {
-                         Log::error("Error activando suscripción {$suscripcion->id}: " . $e->getMessage());
-                    }
+    if (! $requiereProyecto) {
+        foreach ($this->suscripciones as $suscripcion) {
+            if (! $suscripcion->stripe_subscription_id) {
+                try {
+                    StripeSubscriptionService::activarSuscripcion($suscripcion);
+                } catch (Exception $e) {
+                    Log::error("❌ Error activando suscripción {$suscripcion->id}: " . $e->getMessage(), [
+                        'venta_id' => $this->id,
+                        'suscripcion_id' => $suscripcion->id,
+                    ]);
                 }
             }
-        } else {
-            Log::info("⏳ Venta #{$this->id} requiere proyecto. Suscripciones quedan pendientes de activación.");
         }
+    } else {
+        Log::info("⏳ Venta #{$this->id} requiere proyecto. Suscripciones quedan pendientes de activación.");
+    }
 
-        // 3. Finalizar Venta
+    // =========================================================
+    // 2️⃣ Determinar escenarios
+    // =========================================================
+    $esTransfer = in_array($metodoPago, ['transferencia', 'transferencia_confirmada', 'transferencia_recibida'], true);
+    $transferConfirmada = in_array($metodoPago, ['transferencia_confirmada', 'transferencia_recibida'], true);
+
+    // Guardamos método de pago inicial “real” en la venta
+    $metodoPagoVenta = $esTransfer ? 'transferencia' : $metodoPago;
+
+    // =========================================================
+    // 3️⃣ Actualizar campos base del pago inicial
+    // =========================================================
+    $this->forceFill([
+        'pago_inicial_fecha'      => $fechaPago,
+        'pago_inicial_metodo'     => $metodoPagoVenta,
+        'pago_inicial_referencia' => $paymentIntentId,
+    ])->save();
+
+    // =========================================================
+    // 4️⃣ Determinar método/estado de factura
+    // =========================================================
+    $metodoFactura = $esTransfer ? 'transferencia' : (match ($metodoPago) {
+        'stripe', 'stripe_automatico', 'suscripcion_directa', 'tarjeta' => 'stripe',
+        default => $metodoPago,
+    });
+
+    // ✅ Si es transferencia confirmada => PAGADA
+    // ✅ Si fuese transferencia “pendiente” (si algún día lo usas) => PENDIENTE
+    $estadoFactura = ($esTransfer && ! $transferConfirmada)
+        ? \App\Enums\FacturaEstadoEnum::PENDIENTE_PAGO
+        : \App\Enums\FacturaEstadoEnum::PAGADA;
+
+    // =========================================================
+    // 5️⃣ Generar factura con estado correcto (y vencimiento correcto)
+    // =========================================================
+    try {
+        \App\Services\FacturacionService::generarFacturaInicial(
+            $this->fresh(),
+            $fechaPago,
+            $metodoFactura,
+            $estadoFactura
+        );
+
+        Log::info("🧾 Factura generada para venta {$this->id} ({$metodoFactura}) estado={$estadoFactura->value}");
+    } catch (\Throwable $e) {
+        Log::error('❌ Error generando factura inicial tras cobro', [
+            'venta_id' => $this->id,
+            'metodo_factura' => $metodoFactura,
+            'estado_factura' => $estadoFactura->value,
+            'error' => $e->getMessage(),
+        ]);
+    }
+
+    // =========================================================
+    // 6️⃣ Cambiar estado de venta
+    // =========================================================
+    if ($esTransfer && ! $transferConfirmada) {
+        $this->update(['estado' => \App\Enums\VentaEstadoEnum::PENDIENTE]);
+        Log::info("💤 Venta #{$this->id} pendiente (transferencia aún no confirmada)");
+    } else {
         $this->update([
-            'estado'        => VentaEstadoEnum::COMPLETADA,
-            'fecha_pago'    => $fechaPago,
-            'metodo_pago'   => $metodoPago,
+            'estado'        => \App\Enums\VentaEstadoEnum::COMPLETADA,
             'confirmada_at' => now(),
         ]);
-
-        Log::info('🟢 procesarCobroInicial FIN');
+        Log::info("✅ Venta #{$this->id} marcada como COMPLETADA ({$metodoPago})");
     }
+
+    Log::info('🟢 procesarCobroInicial FIN', [
+        'venta_id' => $this->id,
+        'metodo_factura' => $metodoFactura,
+        'estado_factura' => $estadoFactura->value,
+    ]);
+}
+
+public function enviarBienvenidaSiProcede(string $triggerSource = 'conversion_finished', array $ctx = []): bool
+{
+    $this->loadMissing('cliente', 'lead');
+
+    $cliente = $this->cliente;
+    $lead    = $this->lead;
+
+    if (! $cliente || ! $cliente->email_contacto) {
+        return false;
+    }
+
+    if ($lead && \App\Models\LeadAutoEmailLog::where('lead_id', $lead->id)
+        ->where('template_identifier', 'welcome_client')
+        ->where('status', 'sent')
+        ->exists()) {
+        return false;
+    }
+
+    try {
+Mail::to($cliente->email_contacto)->send(new \App\Mail\WelcomeClientMail($cliente, $this));
+
+        if ($lead) {
+            \App\Models\LeadAutoEmailLog::create([
+                'lead_id'              => $lead->id,
+                'estado'               => 'bienvenida',
+                'intento'              => 1,
+                'template_identifier'  => 'welcome_client',
+                'subject'              => 'Bienvenido a ' . config('app.name') . ' - Próximos pasos',
+                'body_preview'         => 'Email de bienvenida enviado.',
+                'scheduled_at'         => now(),
+                'sent_at'              => now(),
+                'status'               => 'sent',
+                'mail_driver'          => config('mail.default'),
+                'triggered_by_user_id' => 9999,
+                'trigger_source'       => $triggerSource,
+            ]);
+        }
+
+        \App\Models\Comentario::create([
+            'comentable_type' => \App\Models\Cliente::class,
+            'comentable_id'   => $cliente->id,
+            'user_id'         => 9999,
+            'contenido'       => "✅ Email de bienvenida enviado automáticamente a {$cliente->email_contacto}.",
+        ]);
+
+        Log::info('✅ WelcomeClientMail enviado', [
+            'venta_id' => $this->id,
+            'cliente_id' => $cliente->id,
+            'ctx' => $ctx,
+        ]);
+
+        return true;
+
+    } catch (\Throwable $e) {
+        Log::error('❌ Error enviando WelcomeClientMail', [
+            'venta_id' => $this->id,
+            'error' => $e->getMessage(),
+        ]);
+
+        return false;
+    }
+}
+
+
+
 }

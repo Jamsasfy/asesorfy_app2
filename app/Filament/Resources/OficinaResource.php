@@ -2,12 +2,19 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Forms\Components\TextInput;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\OficinaResource\Pages\ListOficinas;
+use App\Filament\Resources\OficinaResource\Pages\CreateOficina;
+use App\Filament\Resources\OficinaResource\Pages\EditOficina;
 use App\Filament\Resources\OficinaResource\Pages;
 use App\Filament\Resources\OficinaResource\RelationManagers;
 use App\Models\Oficina;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -19,8 +26,8 @@ class OficinaResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Oficina::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-building-office';
-    protected static ?string $navigationGroup = 'Configuración plataforma';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-building-office';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
     protected static ?string $navigationLabel = 'Oficinas';
     protected static ?string $modelLabel = 'Oficina';
     protected static ?string $pluralModelLabel = 'Oficinas';
@@ -38,11 +45,11 @@ class OficinaResource extends Resource implements HasShieldPermissions
     }
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
-                Forms\Components\TextInput::make('nombre')
+        return $schema
+            ->components([
+                TextInput::make('nombre')
                     ->required()
                     ->maxLength(191),
             ]);
@@ -52,14 +59,14 @@ class OficinaResource extends Resource implements HasShieldPermissions
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('nombre')
+                TextColumn::make('nombre')
                     ->searchable(),
                 TextColumn::make('created_at')
                     ->label('Fecha creación')
                         ->dateTime('d/m/y - H:m')
                         ->sortable()
                         ->toggleable(isToggledHiddenByDefault: false),
-                Tables\Columns\TextColumn::make('updated_at')
+                TextColumn::make('updated_at')
                     ->dateTime()
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
@@ -67,12 +74,12 @@ class OficinaResource extends Resource implements HasShieldPermissions
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -87,9 +94,9 @@ class OficinaResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListOficinas::route('/'),
-            'create' => Pages\CreateOficina::route('/create'),
-            'edit' => Pages\EditOficina::route('/{record}/edit'),
+            'index' => ListOficinas::route('/'),
+            'create' => CreateOficina::route('/create'),
+            'edit' => EditOficina::route('/{record}/edit'),
         ];
     }
 }

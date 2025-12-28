@@ -2,11 +2,11 @@
 
 namespace App\Observers;
 
+use Filament\Actions\Action;
 use App\Enums\ClienteEstadoEnum;
 use App\Models\Cliente;
 use App\Models\User;
-use Filament\Notifications\Notification;
-use Filament\Notifications\Actions\Action; // <-- Importante añadir este 'use'
+use Filament\Notifications\Notification; // <-- Importante añadir este 'use'
 use App\Filament\Resources\ClienteResource; // <-- Y este también
 
 class ClienteObserver

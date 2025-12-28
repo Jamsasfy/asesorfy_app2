@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\DocumentoResource\Pages;
 
+use Filament\Actions\CreateAction;
 use App\Filament\Resources\DocumentoResource;
 use App\Filament\Resources\DocumentoResource\Widgets\DocumentoStats;
 use Filament\Actions;
@@ -16,7 +17,7 @@ class ListDocumentos extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 

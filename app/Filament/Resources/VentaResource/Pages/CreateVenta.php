@@ -2,6 +2,10 @@
 
 namespace App\Filament\Resources\VentaResource\Pages;
 
+use App\Models\Servicio;
+use Filament\Actions\Action;
+use Log;
+use Exception;
 use App\Filament\Resources\VentaResource;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Notifications\Notification;
@@ -50,13 +54,13 @@ class CreateVenta extends CreateRecord
         
         // Consultamos si alguno de los servicios seleccionados es de tipo 'unico'
         // AJUSTA 'unico' al valor real de tu ENUM o base de datos
-        return \App\Models\Servicio::whereIn('id', $ids)
+        return Servicio::whereIn('id', $ids)
             ->where('tipo', 'unico') 
             ->exists();
     };
 
     return [
-        Actions\Action::make('guardar')
+        Action::make('guardar')
             ->label('Guardar')
             ->color('primary')
             
@@ -67,7 +71,7 @@ class CreateVenta extends CreateRecord
             ->modalDescription(fn() => $necesitaPagoInicial() ? '¿Cómo ha acordado el cliente que va a pagar los servicios ÚNICOS de esta venta?' : null)
             
             // 4. Condicionamos el formulario. Si devuelve [], no hay campos que mostrar.
-            ->form(function () use ($necesitaPagoInicial) {
+            ->schema(function () use ($necesitaPagoInicial) {
                 if (! $necesitaPagoInicial()) {
                     return []; // Array vacío = No mostrar campos
                 }
@@ -94,7 +98,7 @@ class CreateVenta extends CreateRecord
                 $this->create();
             }),
 
-        Actions\Action::make('cancelar')
+        Action::make('cancelar')
             ->label('Cancelar')
             ->color('gray')
             ->url($this->getResource()::getUrl('index')),
@@ -131,7 +135,7 @@ class CreateVenta extends CreateRecord
         ];
     }
 
-    \Log::info("🧩 BLUEPRINT GENERADO UNIFICADO:", $blueprint);
+    Log::info("🧩 BLUEPRINT GENERADO UNIFICADO:", $blueprint);
 
     return $blueprint;
 }
@@ -210,9 +214,9 @@ protected function afterCreate(): void
     ];
 
     // 7) Crear link de firma (manual)
-    $link = \App\Models\LeadConversionLink::create([
+    $link = LeadConversionLink::create([
         'lead_id'    => $venta->lead_id,
-        'token'      => \Illuminate\Support\Str::uuid(),
+        'token'      => Str::uuid(),
         'expires_at' => now()->addDays(15),
         'mode'       => 'manual', // ⬅ IMPORTANTE
         'meta'       => [
@@ -231,10 +235,10 @@ protected function afterCreate(): void
     try {
 
         \Mail::to($cliente->email_contacto)
-            ->send(new \App\Mail\LeadConversionLinkMail($venta->lead, $link));
+            ->send(new LeadConversionLinkMail($venta->lead, $link));
 
         // Registrar log
-        \App\Models\LeadAutoEmailLog::create([
+        LeadAutoEmailLog::create([
             'lead_id'             => $venta->lead_id,
             'estado'              => $venta->lead->estado->value ?? 'unknown',
             'intento'             => 1,
@@ -261,7 +265,7 @@ protected function afterCreate(): void
             ->body('El cliente ha recibido el enlace para completar datos, firmar y luego pagar.')
             ->send();
 
-    } catch (\Exception $e) {
+    } catch (Exception $e) {
 
         Notification::make()
             ->title('Error al enviar el contrato')

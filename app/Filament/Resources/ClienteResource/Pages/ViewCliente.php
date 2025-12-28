@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ClienteResource\Pages;
 
+use Filament\Actions\EditAction;
 use App\Enums\LeadEstadoEnum;
 use App\Filament\Resources\ClienteResource;
 use Filament\Resources\Pages\ViewRecord;
@@ -53,7 +54,7 @@ class ViewCliente extends ViewRecord
          $solicitudInternaId = Procedencia::where('key', 'solicitud_interna')
          ->value('id');
         return [
-            Actions\EditAction::make()
+            EditAction::make()
             ->label('Editar')
             ->icon('icon-customer')
             ->visible(fn (ViewRecord $livewire): bool =>
@@ -63,7 +64,7 @@ class ViewCliente extends ViewRecord
             ->label('Añadir Comentario')           
             ->icon('heroicon-o-chat-bubble-left-ellipsis')
             ->color('warning') // 🟠 Naranja
-            ->form([
+            ->schema([
                 Textarea::make('comentario')
                     ->label('Comentario')
                     ->required()
@@ -84,7 +85,7 @@ class ViewCliente extends ViewRecord
                 ->label('Nueva solicitud interna')
                 ->icon('heroicon-o-clipboard-document-list')
                 ->color('primary')
-                ->form([
+                ->schema([
                     Hidden::make('cliente_id')
                         ->default(fn ($record) => $record->getKey()),
 
@@ -140,11 +141,12 @@ class ViewCliente extends ViewRecord
             Action::make('cambiar_estado')
             ->label('Cambiar Estado')
             ->color('info')
-             ->visible(fn (ViewRecord $livewire): bool =>
-                    auth()->user()?->can('cambiar_estado_cliente', $livewire->getRecord()) ?? false
+                ->visible(fn (ViewRecord $livewire): bool =>
+                    auth()->user()?->can('cambiarEstado', $livewire->getRecord()) ?? false
                 )
+
             ->icon('heroicon-o-pencil')
-            ->form([
+            ->schema([
                 Select::make('estado')
                     ->label('Nuevo Estado')
                     ->options([
@@ -175,9 +177,9 @@ class ViewCliente extends ViewRecord
                     is_null($livewire->getRecord()->asesor_id) &&
 
                     // Condición 2: El usuario actual debe tener el permiso para asignar
-                    (auth()->user()?->can('asignar_asesor_cliente', $livewire->getRecord()) ?? false)
+                    (auth()->user()?->can('asignarAsesor', $livewire->getRecord()) ?? false)
                 )
-            ->form([
+            ->schema([
                 Select::make('asesor_id')
                     ->label('Selecciona asesor')
                     ->options(
@@ -190,7 +192,7 @@ class ViewCliente extends ViewRecord
             ])
             ->action(function ($record, array $data) {
                 $record->update(['asesor_id' => $data['asesor_id']]);
-                \Filament\Notifications\Notification::make()
+                Notification::make()
                     ->title('✅ Asesor asignado')
                     ->body("El cliente ahora tiene al asesor {$record->asesor->name}.")
                     ->success()
@@ -209,9 +211,9 @@ class ViewCliente extends ViewRecord
                     !is_null($livewire->getRecord()->asesor_id) &&
 
                     // Condición 2: El usuario actual debe tener el permiso para cambiar asesor
-                    (auth()->user()?->can('cambiar_asesor_cliente', $livewire->getRecord()) ?? false)
+                    (auth()->user()?->can('cambiarAsesor', $livewire->getRecord()) ?? false)
                 )
-            ->form([
+            ->schema([
                 Select::make('asesor_id')
                     ->label('Selecciona nuevo asesor')
                     ->options(
@@ -224,7 +226,7 @@ class ViewCliente extends ViewRecord
             ])
             ->action(function ($record, array $data) {
                 $record->update(['asesor_id' => $data['asesor_id']]);
-                \Filament\Notifications\Notification::make()
+                Notification::make()
                     ->title('🔄 Asesor cambiado')
                     ->body("Se ha reasignado al asesor {$record->asesor->name}.")
                     ->success()
@@ -244,7 +246,7 @@ class ViewCliente extends ViewRecord
                     !is_null($livewire->getRecord()->asesor_id) &&
 
                     // Condición 2: Comprobación de Permiso (esta es la clave)
-                    (auth()->user()?->can('quitar_asesor_cliente', $livewire->getRecord()) ?? false)
+                    (auth()->user()?->can('quitarAsesor', $livewire->getRecord()) ?? false)
                 )
         ->requiresConfirmation()              // pide confirmación
         ->modalHeading('¿Quitar asesor?')
@@ -252,7 +254,7 @@ class ViewCliente extends ViewRecord
         ->modalSubmitActionLabel('Sí, quitar')
         ->action(function ($record) {
             $record->update(['asesor_id' => null]);
-            \Filament\Notifications\Notification::make()
+            Notification::make()
                 ->title('🗑️ Asesor quitado')
                 ->body('El cliente ya no tiene asesor asignado.')
                 ->danger()

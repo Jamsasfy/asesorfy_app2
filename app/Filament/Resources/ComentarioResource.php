@@ -2,6 +2,17 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use App\Models\Lead;
+use Filament\Schemas\Components\Grid;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\ComentarioResource\Pages\ListComentarios;
+use App\Filament\Resources\ComentarioResource\Pages\CreateComentario;
+use App\Filament\Resources\ComentarioResource\Pages\EditComentario;
 use App\Filament\Resources\ComentarioResource\Pages;
 use App\Filament\Resources\ComentarioResource\RelationManagers;
 use App\Models\Cliente;
@@ -9,11 +20,8 @@ use App\Models\Comentario;
 use App\Models\User;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
-use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Form;
-use Filament\Forms\Get;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -30,9 +38,9 @@ class ComentarioResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Comentario::class;
 
-    protected static ?string $navigationIcon = 'icon-comentario-clientes';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-comentario-clientes';
 
-    protected static ?string $navigationGroup = 'Admin Comentarios';
+    protected static string | \UnitEnum | null $navigationGroup = 'Admin Comentarios';
     protected static ?string $navigationLabel = 'Comentarios Clientes';
     protected static ?string $modelLabel = 'Comentario Cliente';
     protected static ?string $pluralModelLabel = 'Comentarios Clientes';
@@ -64,13 +72,13 @@ public static function canAccess(): bool
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Select::make('comentable_type')
                 ->label('Tipo de entidad')
-                ->options(\App\Models\Comentario::getComentableModels())
+                ->options(Comentario::getComentableModels())
                 ->required()
                 ->reactive()
                 ->afterStateUpdated(fn ($state, callable $set) => $set('comentable_id', null))
@@ -80,17 +88,17 @@ public static function canAccess(): bool
                 ->label('Entidad relacionada')
                 ->options(function (callable $get) {
                     $model = $get('comentable_type');
-            
+
                     if (! $model || !class_exists($model)) return [];
-            
-                    if ($model === \App\Models\Cliente::class) {
+
+                    if ($model === Cliente::class) {
                         return $model::all()->pluck('razon_social', 'id');
                     }
-            
-                    if ($model === \App\Models\Lead::class) {
+
+                    if ($model === Lead::class) {
                         return $model::all()->pluck('nombre', 'id');
                     }
-            
+
                     return $model::all()->pluck('id', 'id'); // fallback
                 })
                 ->searchable()
@@ -153,15 +161,15 @@ public static function canAccess(): bool
         ->filters([    
                 Filter::make('entidad')
                     ->label('Entidad relacionada')
-                    ->form([
+                    ->schema([
                         Grid::make(2)->schema([
-                            Forms\Components\Select::make('tipo')
+                            Select::make('tipo')
                                 ->label('Tipo de comentario')
-                                ->options(\App\Models\Comentario::getComentableModels()) // ['App\Models\Cliente' => 'Cliente', ...]
+                                ->options(Comentario::getComentableModels()) // ['App\Models\Cliente' => 'Cliente', ...]
                                 ->reactive()
                                 ->afterStateUpdated(fn ($state, callable $set) => $set('entidad_id', null)),
 
-                            Forms\Components\Select::make('entidad_id')
+                            Select::make('entidad_id')
                                 ->label('Cliente ')
                                 ->visible(fn (Get $get) => filled($get('tipo')))
                                 ->options(function (callable $get) {
@@ -198,13 +206,13 @@ public static function canAccess(): bool
         ], layout: FiltersLayout::AboveContent)
         ->filtersFormColumns(3)
           
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+            ->recordActions([
+                EditAction::make(),
+                DeleteAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -219,9 +227,9 @@ public static function canAccess(): bool
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListComentarios::route('/'),
-            'create' => Pages\CreateComentario::route('/create'),
-            'edit' => Pages\EditComentario::route('/{record}/edit'),
+            'index' => ListComentarios::route('/'),
+            'create' => CreateComentario::route('/create'),
+            'edit' => EditComentario::route('/{record}/edit'),
         ];
     }
 }

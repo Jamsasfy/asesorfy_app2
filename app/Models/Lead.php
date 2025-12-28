@@ -138,7 +138,7 @@ public function cliente(): BelongsTo
 
    public function autoEmailLogs()
 {
-    return $this->hasMany(\App\Models\LeadAutoEmailLog::class)
+    return $this->hasMany(LeadAutoEmailLog::class)
     ->orderByDesc('sent_at')
         ->orderByDesc('id');
 }
@@ -155,6 +155,11 @@ public function cliente(): BelongsTo
     public function comentarios(): MorphMany
 {
     return $this->morphMany(Comentario::class, 'comentable')->latest();
+}
+
+public function documentosPolimorficos(): MorphMany
+{
+    return $this->morphMany(Documento::class, 'documentable');
 }
 
   // Relación uno-a-muchos con Ventas (las ventas originadas por este lead)
@@ -227,7 +232,7 @@ public function puedeSugerirPrimerEmailIa(): bool
     }
 
     // Estado actual
-    $estadoValue = $this->estado instanceof \App\Enums\LeadEstadoEnum
+    $estadoValue = $this->estado instanceof LeadEstadoEnum
         ? $this->estado->value
         : (string) $this->estado;
 
@@ -277,17 +282,17 @@ public function estaFirmado(): bool
 
 public function estaEsperandoDatos(): bool
 {
-    return $this->estado === \App\Enums\LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS;
+    return $this->estado === LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS;
 }
 
 public function estaEsperandoFirma(): bool
 {
-    return $this->estado === \App\Enums\LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
+    return $this->estado === LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
 }
 
 public function conversionLinks()
 {
-    return $this->hasMany(\App\Models\LeadConversionLink::class, 'lead_id');
+    return $this->hasMany(LeadConversionLink::class, 'lead_id');
 }
 
 

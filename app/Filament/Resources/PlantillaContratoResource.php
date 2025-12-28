@@ -2,10 +2,23 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Set;
+use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\RichEditor;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\IconColumn;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\PlantillaContratoResource\Pages\ListPlantillaContratos;
+use App\Filament\Resources\PlantillaContratoResource\Pages\CreatePlantillaContrato;
+use App\Filament\Resources\PlantillaContratoResource\Pages\EditPlantillaContrato;
 use App\Filament\Resources\PlantillaContratoResource\Pages;
 use App\Models\PlantillaContrato;
 use Filament\Forms;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -15,46 +28,46 @@ class PlantillaContratoResource extends Resource
 {
     protected static ?string $model = PlantillaContrato::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-document-text';
-    protected static ?string $navigationGroup = 'Configuración del Negocio';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-document-text';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración del Negocio';
     protected static ?string $modelLabel = 'Legal - Plantilla de Contrato';
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
-                Forms\Components\Section::make('Identificación del Bloque')
+        return $schema
+            ->components([
+                Section::make('Identificación del Bloque')
                     ->columns(2)
                     ->schema([
-                        Forms\Components\TextInput::make('titulo')
+                        TextInput::make('titulo')
                             ->label('Título descriptivo')
                             ->required()
                             ->maxLength(255)
                             ->placeholder('Ej: Anexo I - Recurrentes')
                             ->live(onBlur: true)
-                            ->afterStateUpdated(function ($state, Forms\Set $set, $operation) {
+                            ->afterStateUpdated(function ($state, Set $set, $operation) {
                                 // Autogenerar clave slugificada solo al crear
                                 if ($operation === 'create' && filled($state)) {
                                     $set('clave', Str::slug($state, '_'));
                                 }
                             }),
 
-                        Forms\Components\TextInput::make('clave')
+                        TextInput::make('clave')
                             ->label('Clave Interna (Slug)')
                             ->required()
                             ->unique(ignoreRecord: true)
                             ->helperText('Esta es la ID que usaremos en el código. Ej: "anexo_1", "rgpd", "cabecera".')
                             ->prefix('plantilla_'),
                             
-                        Forms\Components\Toggle::make('activo')
+                        Toggle::make('activo')
                             ->label('Activo para nuevos contratos')
                             ->default(true)
                             ->columnSpanFull(),
                     ]),
 
-                Forms\Components\Section::make('Contenido Legal')
+                Section::make('Contenido Legal')
                     ->schema([
-                        Forms\Components\RichEditor::make('contenido')
+                        RichEditor::make('contenido')
                             ->label('Texto de la Cláusula')
                             ->required()
                             ->columnSpanFull()
@@ -80,29 +93,29 @@ class PlantillaContratoResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('titulo')
+                TextColumn::make('titulo')
                     ->searchable()
                     ->sortable()
                     ->weight('bold'),
-                Tables\Columns\TextColumn::make('clave')
+                TextColumn::make('clave')
                     ->badge()
                     ->color('info')
                     ->copyable(),
-                Tables\Columns\IconColumn::make('activo')
+                IconColumn::make('activo')
                     ->boolean(),
-                Tables\Columns\TextColumn::make('updated_at')
+                TextColumn::make('updated_at')
                     ->dateTime('d/m/Y H:i')
                     ->label('Última edición'),
             ])
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -110,9 +123,9 @@ class PlantillaContratoResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListPlantillaContratos::route('/'),
-            'create' => Pages\CreatePlantillaContrato::route('/create'),
-            'edit' => Pages\EditPlantillaContrato::route('/{record}/edit'),
+            'index' => ListPlantillaContratos::route('/'),
+            'create' => CreatePlantillaContrato::route('/create'),
+            'edit' => EditPlantillaContrato::route('/{record}/edit'),
         ];
     }
 }

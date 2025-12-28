@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use Throwable;
 use App\Mail\LeadGenericTemplateMail;
 use App\Models\EmailTemplate;
 use App\Models\Lead;
@@ -71,7 +72,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                     'triggered_by_user_id'=> null,
                     'trigger_source'      => 'auto_job',
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error("Error al registrar LeadAutoEmailLog skipped para lead {$lead->id}: {$e->getMessage()}");
             }
 
@@ -84,7 +85,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                     'contenido' => "🤖 Email automático IA NO enviado en estado {$label} porque el lead no tiene email. ".
                         "Cuando añadas un email podrás lanzar el primer email IA desde esta ficha.",
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error("Error al crear comentario skipped por falta de email para lead {$lead->id}: {$e->getMessage()}");
             }
 
@@ -165,7 +166,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                     'triggered_by_user_id'=> null,
                     'trigger_source'      => 'auto_job',
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error("Error al registrar LeadAutoEmailLog rate-limited para lead {$lead->id}: {$e->getMessage()}");
             }
 
@@ -177,7 +178,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                     'user_id'   => 9999, // Boot IA Fy
                     'contenido' => "🤖 Email automático IA NO enviado en estado {$label} porque ya se envió otro hace menos de 30 minutos (protección antispam).",
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error("Error al crear comentario de rate-limit para lead {$lead->id}: {$e->getMessage()}");
             }
 
@@ -226,7 +227,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                 'triggered_by_user_id'=> null,
                 'trigger_source'      => 'auto_job',
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error("Error al registrar LeadAutoEmailLog (pending) para lead {$lead->id}: {$e->getMessage()}");
         }
 
@@ -250,12 +251,12 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
             // ✅ Sumamos 1 al contador de emails del lead (acciones)
             try {
                 $lead->increment('emails');
-            } catch (\Throwable $ex) {
+            } catch (Throwable $ex) {
                 Log::error("No se pudo incrementar el contador 'emails' para lead {$lead->id}: {$ex->getMessage()}");
             }
 
             Log::info("Email enviado correctamente a {$lead->email} para estado {$estadoValue}, intento {$nuevoIntento}");
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error("Error enviando email a {$lead->email} para estado {$estadoValue}, intento {$nuevoIntento}: {$e->getMessage()}");
 
             if ($log) {
@@ -323,7 +324,7 @@ class SendLeadEstadoChangedEmailJob implements ShouldQueue
                     'user_id'   => 9999,
                     'contenido' => $texto,
                 ]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error("Error al crear comentario autospam para lead {$lead->id}: {$e->getMessage()}");
             }
         }

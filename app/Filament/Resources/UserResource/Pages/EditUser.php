@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\UserResource\Pages;
 
+use Filament\Actions\DeleteAction;
+use Exception;
 use App\Filament\Resources\UserResource;
 use Filament\Actions;
 use Filament\Notifications\Notification;
@@ -26,7 +28,7 @@ class EditUser extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            DeleteAction::make(),
         ];
     }
 
@@ -63,7 +65,7 @@ class EditUser extends EditRecord
 
             Log::info('ÉXITO (FLAG): Email de bienvenida enviado y flag marcado.');
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('ERROR (FLAG): Fallo al enviar email: ' . $e->getMessage());
         }
     } else {

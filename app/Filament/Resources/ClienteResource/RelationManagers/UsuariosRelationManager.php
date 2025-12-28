@@ -2,17 +2,24 @@
 
 namespace App\Filament\Resources\ClienteResource\RelationManagers;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Tables\Filters\Filter;
+use Filament\Actions\CreateAction;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\Action;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
 use App\Models\Cliente;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
-use Filament\Tables\Actions\CreateAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
@@ -38,11 +45,11 @@ class UsuariosRelationManager extends RelationManager
 
      
 
-    public function form(Form $form): Form
+    public function form(Schema $schema): Schema
     {
-        return $form
-        ->schema([
-            \Filament\Forms\Components\Section::make()
+        return $schema
+        ->components([
+            Section::make()
                 ->schema([
                     TextInput::make('name')
         ->label('Nombre')
@@ -114,9 +121,9 @@ class UsuariosRelationManager extends RelationManager
                 ])
             ->filters([
                 
-                \Filament\Tables\Filters\Filter::make('nombre')
-                    ->form([
-                        Forms\Components\TextInput::make('nombre'),
+                Filter::make('nombre')
+                    ->schema([
+                        TextInput::make('nombre'),
                     ])
                     ->query(function ($query, array $data) {
                         if ($data['nombre']) {
@@ -125,9 +132,9 @@ class UsuariosRelationManager extends RelationManager
 
                         return $query;
                     }),
-                    \Filament\Tables\Filters\Filter::make('email')
-                    ->form([
-                        Forms\Components\TextInput::make('email'),
+                    Filter::make('email')
+                    ->schema([
+                        TextInput::make('email'),
                     ])
                     ->query(function ($query, array $data) {
                         if ($data['email']) {
@@ -141,22 +148,22 @@ class UsuariosRelationManager extends RelationManager
             ->filtersFormColumns(3)
 
             ->headerActions([
-                Tables\Actions\CreateAction::make()
+                CreateAction::make()
                 ->label('➕ Añadir usuario con accesoa este cliente')
                 ->icon('heroicon-o-user-plus')
                 ->modalHeading('Nuevo usuario con acceso al cliente')
-                ->mutateFormDataUsing(function (array $data): array {
+                ->mutateDataUsing(function (array $data): array {
                     $data['password'] = bcrypt($data['password']);
                     return $data;
                 })
-                ->using(function (array $data): \App\Models\User {
+                ->using(function (array $data): User {
                     $cliente = $this->getOwnerRecord(); // ✅ Obtener el cliente padre desde el relation manager
-                    $user = \App\Models\User::create($data);
+                    $user = User::create($data);
                     $user->assignRole('cliente_acceso');
                     $cliente->usuarios()->attach($user->id);
                     return $user;
                 })
-               ->after(function (\App\Models\User $record, \App\Models\Cliente $ownerRecord) {
+               ->after(function (User $record, Cliente $ownerRecord) {
                     Notification::make()
                         ->title('✅ Usuario  correctamente')
                         ->body("Se ha creado un usuario con NOMBRE: 👤 <span style='color:#2563eb; font-weight:bold'>{$record->name}</span> para acceder a este cliente en la plataforma AsesorFy.")
@@ -166,15 +173,15 @@ class UsuariosRelationManager extends RelationManager
                 
 
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
-                Tables\Actions\Action::make('toggle_acceso_app')
+            ->recordActions([
+                EditAction::make(),
+                DeleteAction::make(),
+                Action::make('toggle_acceso_app')
                 ->label(fn ($record) => $record->acceso_app ? 'Quitar acceso' : 'Dar acceso')
                 ->icon(fn ($record) => $record->acceso_app ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
                 ->color(fn ($record) => $record->acceso_app ? 'danger' : 'success')
-                ->form([
-                    Forms\Components\Toggle::make('acceso_app')
+                ->schema([
+                    Toggle::make('acceso_app')
                         ->label('¿Acceso permitido?')
                         ->helperText('Activa o desactiva el acceso del usuario a la plataforma.')
                         ->default(fn ($record) => $record->acceso_app),
@@ -190,9 +197,9 @@ class UsuariosRelationManager extends RelationManager
                 ->modalCancelActionLabel('Cancelar')
                 ->requiresConfirmation(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }

@@ -24,12 +24,12 @@ class Documento extends Model
 
     public function tipo(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\DocumentoCategoria::class, 'tipo_documento_id');
+        return $this->belongsTo(DocumentoCategoria::class, 'tipo_documento_id');
     }
 
     public function subtipo(): BelongsTo
     {
-        return $this->belongsTo(\App\Models\DocumentoSubtipo::class, 'subtipo_documento_id');
+        return $this->belongsTo(DocumentoSubtipo::class, 'subtipo_documento_id');
     }
 
     public function user(): BelongsTo

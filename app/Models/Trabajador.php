@@ -11,9 +11,9 @@ class Trabajador extends Model
     protected $guarded = [];
 
       // Relación con el modelo User
-      public function user(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+      public function user(): BelongsTo
       {
-          return $this->belongsTo(\App\Models\User::class);
+          return $this->belongsTo(User::class);
       }
   
       // Relación con el modelo Oficina

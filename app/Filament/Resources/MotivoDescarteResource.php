@@ -2,15 +2,22 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Actions\EditAction;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\MotivoDescarteResource\Pages\ListMotivoDescartes;
+use App\Filament\Resources\MotivoDescarteResource\Pages\CreateMotivoDescarte;
+use App\Filament\Resources\MotivoDescarteResource\Pages\EditMotivoDescarte;
 use App\Filament\Resources\MotivoDescarteResource\Pages;
 use App\Filament\Resources\MotivoDescarteResource\RelationManagers;
 use App\Models\MotivoDescarte;
-use Filament\Forms;
-use Filament\Forms\Components\Section; // Para agrupar
+use Filament\Forms; // Para agrupar
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\IconColumn;
@@ -25,8 +32,8 @@ class MotivoDescarteResource extends Resource
 {
     protected static ?string $model = MotivoDescarte::class;
 
-    protected static ?string $navigationIcon = 'motivo-descarte-lead'; // Icono sugerido
-    protected static ?string $navigationGroup = 'Gestión LEADS'; // Agrupar con otros ajustes
+    protected static string | \BackedEnum | null $navigationIcon = 'motivo-descarte-lead'; // Icono sugerido
+    protected static string | \UnitEnum | null $navigationGroup = 'Gestión LEADS'; // Agrupar con otros ajustes
     protected static ?string $modelLabel = 'Motivo de Descarte';
     protected static ?string $pluralModelLabel = 'Motivos de Descarte de un Leads';
     protected static ?string $navigationLabel = 'Motivos de Descarte';
@@ -36,10 +43,10 @@ class MotivoDescarteResource extends Resource
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Section::make('Información del Motivo')
                     ->columns(1) // Una columna para este layout simple
                     ->schema([
@@ -96,15 +103,15 @@ class MotivoDescarteResource extends Resource
                 TernaryFilter::make('activo') // Filtro Activo / Inactivo / Todos
                     ->label('Estado Activo'),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make() // Acción de borrado estándar
+            ->recordActions([
+                EditAction::make(),
+                DeleteAction::make() // Acción de borrado estándar
                  // Consideración: Si borras un motivo usado por leads, el campo en leads se pondrá a NULL
                  // (por el nullOnDelete). Podrías querer desactivarlo ('activo'=false) en lugar de borrarlo.
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -119,9 +126,9 @@ class MotivoDescarteResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListMotivoDescartes::route('/'),
-            'create' => Pages\CreateMotivoDescarte::route('/create'),
-            'edit' => Pages\EditMotivoDescarte::route('/{record}/edit'),
+            'index' => ListMotivoDescartes::route('/'),
+            'create' => CreateMotivoDescarte::route('/create'),
+            'edit' => EditMotivoDescarte::route('/{record}/edit'),
         ];
     }
 }

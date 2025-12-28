@@ -1,108 +1,45 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Policies;
 
-use App\Models\User;
+use Illuminate\Foundation\Auth\User as AuthUser;
 use App\Models\Venta;
 use Illuminate\Auth\Access\HandlesAuthorization;
 
 class VentaPolicy
 {
     use HandlesAuthorization;
-
-    /**
-     * Determine whether the user can view any models.
-     */
-    public function viewAny(User $user): bool
+    
+    public function viewAny(AuthUser $authUser): bool
     {
-        return $user->can('view_any_venta');
+        return $authUser->can('ViewAny:Venta');
     }
 
-    /**
-     * Determine whether the user can view the model.
-     */
-    public function view(User $user, Venta $venta): bool
+    public function view(AuthUser $authUser, Venta $venta): bool
     {
-        return $user->can('view_venta');
+        return $authUser->can('View:Venta');
     }
 
-    /**
-     * Determine whether the user can create models.
-     */
-    public function create(User $user): bool
+    public function create(AuthUser $authUser): bool
     {
-        return $user->can('create_venta');
+        return $authUser->can('Create:Venta');
     }
 
-    /**
-     * Determine whether the user can update the model.
-     */
-    public function update(User $user, Venta $venta): bool
+    public function update(AuthUser $authUser, Venta $venta): bool
     {
-        return $user->can('update_venta');
+        return $authUser->can('Update:Venta');
     }
 
-    /**
-     * Determine whether the user can delete the model.
-     */
-    public function delete(User $user, Venta $venta): bool
+    public function delete(AuthUser $authUser, Venta $venta): bool
     {
-        return $user->can('delete_venta');
+        return $authUser->can('Delete:Venta');
     }
 
-    /**
-     * Determine whether the user can bulk delete.
-     */
-    public function deleteAny(User $user): bool
+    public function deleteAny(AuthUser $authUser): bool
     {
-        return $user->can('delete_any_venta');
+        return $authUser->can('DeleteAny:Venta');
     }
 
-    /**
-     * Determine whether the user can permanently delete.
-     */
-    public function forceDelete(User $user, Venta $venta): bool
-    {
-        return $user->can('{{ ForceDelete }}');
-    }
-
-    /**
-     * Determine whether the user can permanently bulk delete.
-     */
-    public function forceDeleteAny(User $user): bool
-    {
-        return $user->can('{{ ForceDeleteAny }}');
-    }
-
-    /**
-     * Determine whether the user can restore.
-     */
-    public function restore(User $user, Venta $venta): bool
-    {
-        return $user->can('{{ Restore }}');
-    }
-
-    /**
-     * Determine whether the user can bulk restore.
-     */
-    public function restoreAny(User $user): bool
-    {
-        return $user->can('{{ RestoreAny }}');
-    }
-
-    /**
-     * Determine whether the user can replicate.
-     */
-    public function replicate(User $user, Venta $venta): bool
-    {
-        return $user->can('{{ Replicate }}');
-    }
-
-    /**
-     * Determine whether the user can reorder.
-     */
-    public function reorder(User $user): bool
-    {
-        return $user->can('{{ Reorder }}');
-    }
 }

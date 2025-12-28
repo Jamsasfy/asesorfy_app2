@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Public;
 
+use Exception;
 use App\Http\Controllers\Controller;
 use App\Models\Factura;
 use App\Enums\FacturaEstadoEnum;
@@ -31,7 +32,7 @@ class PaymentLinkController extends Controller
                 ->send(new EnlacePagoFacturaMail($factura, $urlPago));
 
             return back()->with('success', 'Enlace de pago enviado correctamente al cliente.');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             Log::error('Error enviando enlace de pago: '.$e->getMessage());
             return back()->with('error', 'No se pudo enviar el enlace de pago. Revisa la configuración de correo.');
         }

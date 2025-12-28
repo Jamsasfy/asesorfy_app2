@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ClienteSuscripcionResource\Pages;
 
+use Filament\Actions\CreateAction;
 use App\Filament\Resources\ClienteSuscripcionResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
@@ -13,7 +14,7 @@ class ListClienteSuscripcions extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
 }

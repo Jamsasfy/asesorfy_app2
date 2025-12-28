@@ -2,16 +2,22 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\TipoClienteResource\Pages\ListTipoClientes;
+use App\Filament\Resources\TipoClienteResource\Pages\CreateTipoCliente;
+use App\Filament\Resources\TipoClienteResource\Pages\EditTipoCliente;
 use App\Filament\Resources\TipoClienteResource\Pages;
 use App\Filament\Resources\TipoClienteResource\RelationManagers;
 use App\Models\TipoCliente;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\IconColumn;
@@ -24,8 +30,8 @@ class TipoClienteResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = TipoCliente::class;
 
-    protected static ?string $navigationIcon = 'icon-group-by-ref-type';
-    protected static ?string $navigationGroup = 'Configuración plataforma';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-group-by-ref-type';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
 
     public static function getPermissionPrefixes(): array
     {
@@ -41,10 +47,10 @@ class TipoClienteResource extends Resource implements HasShieldPermissions
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Section::make('Información del tipo de cliente')->schema([
                     TextInput::make('nombre')
                         ->label('Tipo de cliente')
@@ -85,12 +91,12 @@ class TipoClienteResource extends Resource implements HasShieldPermissions
             ->filters([
                 //
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -105,9 +111,9 @@ class TipoClienteResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListTipoClientes::route('/'),
-            'create' => Pages\CreateTipoCliente::route('/create'),
-            'edit' => Pages\EditTipoCliente::route('/{record}/edit'),
+            'index' => ListTipoClientes::route('/'),
+            'create' => CreateTipoCliente::route('/create'),
+            'edit' => EditTipoCliente::route('/{record}/edit'),
         ];
     }
 }

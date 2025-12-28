@@ -2,6 +2,20 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use App\Models\Proyecto;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Group;
+use Filament\Actions\Action;
+use Filament\Support\Enums\TextSize;
+use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\DocumentoResource\Pages\ListDocumentos;
+use App\Filament\Resources\DocumentoResource\Pages\CreateDocumento;
+use App\Filament\Resources\DocumentoResource\Pages\EditDocumento;
+use App\Filament\Resources\DocumentoResource\Pages\ViewDocumento;
 use App\Filament\Resources\DocumentoResource\Pages;
 use App\Filament\Resources\DocumentoResource\Widgets\DocumentoStats;
 use App\Models\Cliente;
@@ -9,18 +23,14 @@ use App\Models\Documento;
 use App\Models\DocumentoCategoria;
 use App\Models\DocumentoSubtipo;
 use App\Models\User;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
-use Filament\Tables\Actions\ViewAction;
+
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Form;
-use Filament\Infolists\Components\Group;
 use Filament\Infolists\Components\IconEntry;
-use Filament\Infolists\Components\Section;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -28,12 +38,10 @@ use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Storage;
-use Filament\Infolists\Infolist;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Joaopaulolndev\FilamentPdfViewer\Infolists\Components\PdfViewerEntry;
-use Filament\Infolists\Components\Actions\Action;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
@@ -41,32 +49,21 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 
-class DocumentoResource extends Resource implements HasShieldPermissions
+class DocumentoResource extends Resource 
 {
     protected static ?string $model = Documento::class;
 
-    protected static ?string $navigationIcon = 'icon-databasesearch-o';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-databasesearch-o';
 
   //  protected static ?string $navigationIcon = 'icon-customer';
-    protected static ?string $navigationGroup = 'Documentos y BBDD';
+    protected static string | \UnitEnum | null $navigationGroup = 'Documentos y BBDD';
     protected static ?string $navigationLabel = 'Documentos de Clientes';
     protected static ?string $modelLabel = 'Documento';
     protected static ?string $pluralModelLabel = 'Todos los Documentos';
 
 
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-            'verificado',
-        ];
-    }
+   
 
     public static function getNavigationLabel(): string
     {
@@ -89,7 +86,7 @@ public static function getNavigationGroup(): ?string
 
     public static function getEloquentQuery(): Builder
 {
-    /** @var \App\Models\User|null $user */
+    /** @var User|null $user */
     $user = Auth::user();
     $query = static::getModel()::query(); // Comienza con la consulta del modelo del recurso
 
@@ -117,7 +114,7 @@ public static function getNavigationGroup(): ?string
 
     public static function shouldRegisterNavigation(): bool
 {
-    /** @var \App\Models\User|null $user */
+    /** @var User|null $user */
     $user = auth()->user();
 
     if (!$user) {
@@ -142,14 +139,14 @@ public static function getNavigationGroup(): ?string
 }
 
 
-    
-   
 
-    public static function form(Form $form): Form
+
+
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
-            
+        return $schema
+            ->components([
+
             Select::make('tipo_documento_id')
                 ->label('Tipo de documento')
                 ->helperText('Selecciona el tipo generico o familia del documento que vas a subir al cliente.')
@@ -159,12 +156,12 @@ public static function getNavigationGroup(): ?string
             Select::make('subtipo_documento_id')
                 ->label('Subtipo')
                 ->helperText('Selecciona el subtipo. Si no existe, contacta con tu superior.')
-                ->options(fn (callable $get) => \App\Models\DocumentoSubtipo::where('documento_categoria_id', $get('tipo_documento_id'))->pluck('nombre', 'id'))
+                ->options(fn (callable $get) => DocumentoSubtipo::where('documento_categoria_id', $get('tipo_documento_id'))->pluck('nombre', 'id'))
                 ->reactive()
                 ->required()
                 ->searchable()
                 ->placeholder('Selecciona primero el tipo'),
-          
+
             FileUpload::make('ruta')
                 ->label('Archivo')
                 ->disk('public')
@@ -186,7 +183,7 @@ public static function getNavigationGroup(): ?string
                 ->preserveFilenames(false)
                 ->visibility('public')
                 ->visible(fn (string $context) => $context === 'create') // 👈 Aquí está la clave
-             
+
                 ->validationMessages([
                     'required' => 'Por favor, selecciona un archivo.',
                     'accepted_file_types' => 'Solo se permiten PDF, imágenes, Word y Excel.',
@@ -215,7 +212,7 @@ public static function getNavigationGroup(): ?string
     name: 'cliente',
     titleAttribute: 'razon_social',
     modifyQueryUsing: function (Builder $query) {
-        /** @var \App\Models\User|null $user */
+        /** @var User|null $user */
         $user = Auth::user();
 
         if ($user) {
@@ -229,7 +226,7 @@ public static function getNavigationGroup(): ?string
                 // Si NO es super_admin PERO SÍ es asesor, filtramos por sus clientes.
                 $query->where('asesor_id', $user->id);
             }
-           
+
         } else {
             // No hay usuario autenticado (no debería ocurrir en Filament)
             $query->whereRaw('1 = 0'); // No muestra nada
@@ -263,12 +260,12 @@ public static function getNavigationGroup(): ?string
 
                 if ($type === 'App\Models\Cliente' && $clienteId) {
                     // Solo deja elegir el cliente seleccionado
-                    $cliente = \App\Models\Cliente::find($clienteId);
+                    $cliente = Cliente::find($clienteId);
                     return $cliente ? [$cliente->id => $cliente->razon_social] : [];
                 }
                 if ($type === 'App\Models\Proyecto' && $clienteId) {
                     // Filtra proyectos SOLO de ese cliente
-                    return \App\Models\Proyecto::where('cliente_id', $clienteId)
+                    return Proyecto::where('cliente_id', $clienteId)
                         ->pluck('nombre', 'id');
                 }
                 return [];
@@ -279,213 +276,235 @@ public static function getNavigationGroup(): ?string
     ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
-    {
-        return $infolist
-            ->schema([
-                Section::make()
-    ->schema([
-        Group::make([
-            Section::make('Información general')
+public static function infolist(Schema $schema): Schema
+{
+    return $schema
+        ->columns(1) // 🔑 TODO en una sola columna
+        ->components([
+
+            /* ===============================
+             | INFO + ESTADO (FULL WIDTH)
+             =============================== */
+            Section::make()
                 ->schema([
-                    TextEntry::make('nombre')
-                        ->label('📄 Nombre')
-                        ->weight(FontWeight::Bold),
-
-                    TextEntry::make('tipo.nombre')
-                        ->label('📁 Tipo')
-                        ->badge()
-                        ->color(fn ($record) => $record->tipo->color ?? 'gray'),
-
-                    TextEntry::make('subtipo.nombre')
-                        ->label('📂 Subtipo')
-                        ->badge()
-                        ->color('info'),
-
-                    TextEntry::make('observaciones')
-                        ->label('📝 Observaciones'),
-
-                    TextEntry::make('cliente.razon_social')
-                        ->label('Cliente')
-                        ->state(function ($record) {
-                            $nombre = $record->cliente?->razon_social ?? 'No asignado';
-                            $url = route('filament.admin.resources.clientes.edit', ['record' => $record->cliente_id]);
-
-                            return "<a href='{$url}' target='_blank' class='text-yellow-500 underline font-semibold'>🏢 $nombre</a>";
-                        })
-                        ->html(),
-                ])
-                ->columns(5)
-                ->columnSpan(2), // 2/3
-
-            Section::make('Estado')
-                ->schema([
-                   
-                        TextEntry::make('verificado')
-                            ->label('Verificado')
-                            ->state(function ($record) {
-                                return $record->verificado
-                                    ? '<span style="color: #16a34a; font-weight: bold;">✅ Verificado</span>'
-                                    : '<span style="color: #dc2626; font-weight: bold;">⚠️ No verificado</span>';
-                            })
-                            ->html()
-                            ->suffixActions([
-                                Action::make('toggle_verificacion')
-                                ->label('')
-                                ->icon(fn ($record) => $record->verificado ? 'heroicon-o-x-circle' : 'heroicon-o-check-circle')
-                                ->iconButton()
-                                ->color(fn ($record) => $record->verificado ? 'danger' : 'success')
-                                ->tooltip(fn ($record) => $record->verificado ? 'Marcar como NO verificado' : 'Marcar como verificado')
-                                ->requiresConfirmation()
-                                ->modalHeading(fn ($record) => $record->verificado ? '¿Quitar verificación?' : '¿Verificar documento?')
-                                ->modalDescription(fn ($record) => $record->verificado
-                                    ? 'El documento se marcará como no verificado.'
-                                    : 'Esto marcará el documento como verificado.')
-                                ->modalSubmitActionLabel(fn ($record) => $record->verificado ? 'Quitar verificación' : 'Verificar')
-                                ->action(function ($record) {
-                                    $record->verificado = ! $record->verificado;
-                                    $record->save();
-                            
-                                    Notification::make()
-                                        ->title($record->verificado ? 'Documento verificado' : 'Verificación retirada')
-                                        ->success()
-                                        ->send();
-                                })
-                                ->visible(fn () => auth()->user()?->can('verificado_documento')),
-                            
-                                    
-
-                                ]),
-                               
-                    TextEntry::make('user.name')
-                        ->label('👤 Subido por')
-                        ->state(function ($record) {
-                            $user = $record->user;
-                            if (! $user) return 'Usuario desconocido';
-
-                            $nombre = $user->full_name ?? $user->name;
-                            $tipo = $user->tipoDeUsuario();
-
-                            if ($tipo === 'Trabajador') {
-                                $roles = $user->roles->pluck('name')->implode(', ');
-                                return "{$nombre} ({$roles})";
-                            }
-
-                            return "{$nombre} ({$tipo})";
-                        })
-                        ->weight(FontWeight::Bold),
-
-                    TextEntry::make('created_at')
-                        ->label('🕓 Subido el')
-                        ->dateTime('d/m/Y - H:i')
-                        ->weight(FontWeight::Bold),
-                ])
-                ->columns(3)
-                ->columnSpan(1), // 1/3
-        ])->columns(3) // Esta es la clave: controla layout interno
-    ]),        
-                        Section::make('Archivo')
+                    Section::make('Información general')
                         ->schema([
-                            // Enlace al archivo (para todos los tipos)
-                            TextEntry::make('archivo_nombre')
-                            ->label(false)
-                            ->icon('heroicon-m-document-text')
-                            ->iconColor('primary')
-                            ->size(TextEntry\TextEntrySize::Large)
-                            ->state(fn ($record) => basename($record->ruta)) // solo el nombre del archivo
-                            ->url(fn ($record) => Storage::url($record->ruta), true) // abre en nueva pestaña
-                            ->openUrlInNewTab()
-                            ->weight(FontWeight::Bold)
-                            ->visible(fn ($record) => filled($record->ruta)),
-                                // Botones para imagen
-                            TextEntry::make('imagen_action_button')
-                                ->label('Acciones imagen')
-                               ->state(function ($record) {
-                                    $url = Storage::url($record->ruta);
-                                    return <<<HTML
-                                        <div style="text-align: right; margin-bottom: 0.5rem;">
-                                            <a href="$url" target="_blank" 
-                                                style="background-color: #3b82f6; color: white; padding: 6px 12px; border-radius: 6px; font-size: 14px; text-decoration: none;">
-                                                🔗 Abrir en nueva pestaña
-                                            </a>
-                                            <a href="$url" download 
-                                                style="background-color: #10b981; color: white; padding: 6px 12px; border-radius: 6px; font-size: 14px; text-decoration: none; margin-left: 8px;">
-                                                ⬇️ Descargar
-                                            </a>
-                                        </div>
-                                    HTML;
-                                })
-                                ->html()
-                                ->visible(fn ($record) => str_starts_with($record->mime_type, 'image/')),
+                            TextEntry::make('nombre')
+                                ->label('📄 Nombre')
+                                ->weight(FontWeight::Bold),
 
-                            // Previsualización de imágenes
-                            TextEntry::make('preview_imagen')
-                            ->label('Vista previa de imagen')
-                            ->state(function ($record) {
-                                $fullUrl = Storage::url($record->ruta);
-                                $urlParts = explode('/', $fullUrl);
-                                $filename = array_pop($urlParts); // Captura el nombre del archivo
-                                $encodedName = rawurlencode($filename); // Espacios -> %20, etc.
-                                $finalUrl = implode('/', $urlParts) . '/' . $encodedName;
+                            TextEntry::make('tipo.nombre')
+                                ->label('📁 Tipo')
+                                ->badge()
+                                ->color(fn ($record) => $record->tipo->color ?? 'gray'),
 
-                                return <<<HTML
-                                    <style>
-                                        .zoomable-image:hover {
-                                            transform: scale(1.05);
-                                        }
-                                        .zoomable-image {
-                                            transition: transform 0.3s ease;
-                                            max-width: 100%;
-                                            max-height: 600px;
-                                            border-radius: 10px;
-                                            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-                                        }
-                                    </style>
-                                    <a href="$finalUrl" target="_blank" title="Abrir en nueva pestaña">
-                                        <img src="$finalUrl" class="zoomable-image">
-                                    </a>
-                                HTML;
-                            })
-                            ->html()
-                            ->visible(fn ($record) => str_starts_with($record->mime_type, 'image/')),
-                 
-                            PdfViewerEntry::make('preview_pdf')
-                                ->label('Vista previa del PDF')
-                                ->fileUrl(fn ($record) => Storage::url($record->ruta))
-                                ->minHeight('700px')
-                                ->visible(fn ($record) => $record->mime_type === 'application/pdf'),
+                            TextEntry::make('subtipo.nombre')
+                                ->label('📂 Subtipo')
+                                ->badge()
+                                ->color('info'),
 
-                                TextEntry::make('otros_action_button')
-                                ->label('Este archivo no se puede previsualizar, pero puedes descargarlo')
+                            TextEntry::make('observaciones')
+                                ->label('📝 Observaciones'),
+
+                            TextEntry::make('cliente.razon_social')
+                                ->label('Cliente')
                                 ->state(function ($record) {
-                                    $url = Storage::url($record->ruta);
-                                    return <<<HTML
-                                        <div style="text-align: right; margin-bottom: 0.5rem;">
-                                           
-                                            <a href="$url" download 
-                                               style="background-color: #10b981; color: white; padding: 6px 12px; border-radius: 6px; font-size: 14px; text-decoration: none; margin-left: 8px;">
-                                                ⬇️ Descargar
-                                            </a>
-                                        </div>
-                                    HTML;
+                                    $nombre = $record->cliente?->razon_social ?? 'No asignado';
+                                    $url = route(
+                                        'filament.admin.resources.clientes.view',
+                                        ['record' => $record->cliente_id]
+                                    );
+
+                                    return "<a href='{$url}' target='_blank'
+                                            class='text-yellow-500 underline font-semibold'>
+                                            🏢 {$nombre}
+                                        </a>";
                                 })
-                                ->html()
-                                ->visible(fn ($record) =>
-                                    filled($record->ruta)
-                                    && filled($record->mime_type)
-                                    && !str_starts_with($record->mime_type, 'image/')
-                                    && $record->mime_type !== 'application/pdf'
-                                ),   
-                        ]),
-                    
-                ]);
-    }
+                                ->html(),
+                        ])
+                        ->columns(5),
+
+                    Section::make('Estado')
+                        ->schema([
+                         TextEntry::make('verificado')
+    ->label('Verificado')
+    ->formatStateUsing(fn (bool $state) =>
+        $state ? '✅ Verificado' : '⚠️ No verificado'
+    )
+    ->color(fn (bool $state) =>
+        $state ? 'success' : 'danger'
+    )
+    ->belowContent([
+        Action::make('toggle_verificacion')
+            ->label(fn ($record) =>
+                $record->verificado
+                    ? 'Quitar verificación'
+                    : 'Verificar documento'
+            )
+            ->icon(fn ($record) =>
+                $record->verificado
+                    ? 'heroicon-o-x-circle'
+                    : 'heroicon-o-check-circle'
+            )
+            ->color(fn ($record) =>
+                $record->verificado ? 'danger' : 'success'
+            )
+            ->size('sm')
+            ->requiresConfirmation()
+            ->modalHeading(fn ($record) =>
+                $record->verificado
+                    ? '¿Quitar verificación?'
+                    : '¿Verificar documento?'
+            )
+            ->action(function ($record) {
+                $record->verificado = ! $record->verificado;
+                $record->save();
+
+                Notification::make()
+                    ->title(
+                        $record->verificado
+                            ? 'Documento verificado'
+                            : 'Verificación retirada'
+                    )
+                    ->success()
+                    ->send();
+            })
+            ->visible(fn ($record) =>
+                auth()->user()?->can('verificar', $record) ?? false
+            ),
+        ]),
+
+
+                            TextEntry::make('user.name')
+                                ->label('👤 Subido por')
+                                ->weight(FontWeight::Bold),
+
+                            TextEntry::make('created_at')
+                                ->label('🕓 Subido el')
+                                ->dateTime('d/m/Y - H:i'),
+                        ])
+                        ->columns(3),
+                ]),
+
+            /* ===============================
+             | ARCHIVO (FULL WIDTH ABAJO)
+             =============================== */
+            Section::make('Archivo')
+                ->schema([
+                    // 🔘 BOTONES VER / DESCARGAR
+                    TextEntry::make('archivo_actions')
+    ->label(false)
+    ->state(fn () => '')
+    ->belowContent([
+        Action::make('ver_archivo')
+            ->label('Ver')
+            ->icon('heroicon-o-eye')
+            ->color('info')
+            ->url(fn ($record) => Storage::url($record->ruta))
+            ->openUrlInNewTab(),
+
+      Action::make('descargar_archivo')
+    ->label('Descargar')
+    ->icon('heroicon-o-arrow-down-tray')
+    ->color('success')
+    ->action(function ($record) {
+
+        $path = Storage::disk('public')->path($record->ruta);
+
+        // 🔑 Nombre final con extensión REAL
+        $filename = $record->nombre;
+
+        if (! str_contains($filename, '.')) {
+            $extension = pathinfo($record->ruta, PATHINFO_EXTENSION);
+            $filename .= '.' . $extension;
+        }
+
+        return response()->download($path, $filename);
+    }),
+
+        Action::make('toggle_verificacion')
+            ->label(fn ($record) =>
+                $record->verificado ? 'Quitar verificación' : 'Verificar'
+            )
+            ->icon(fn ($record) =>
+                $record->verificado
+                    ? 'heroicon-o-x-circle'
+                    : 'heroicon-o-check-circle'
+            )
+            ->color(fn ($record) =>
+                $record->verificado ? 'danger' : 'success'
+            )
+            ->requiresConfirmation()
+            ->action(function ($record) {
+                $record->verificado = ! $record->verificado;
+                $record->save();
+
+                Notification::make()
+                    ->title(
+                        $record->verificado
+                            ? 'Documento verificado'
+                            : 'Verificación retirada'
+                    )
+                    ->success()
+                    ->send();
+            })
+            ->visible(fn ($record) =>
+                auth()->user()?->can('verificar', $record) ?? false
+            ),
+    ])
+    ->visible(fn ($record) => filled($record->ruta)),
+
+
+                    // 🖼 Imagen
+                  TextEntry::make('preview_imagen')
+    ->label('Vista previa de imagen')
+    ->state(function ($record) {
+        $url = Storage::url($record->ruta);
+
+        return <<<HTML
+            <div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background: #0f0f0f;
+                padding: 1rem;
+                border-radius: 12px;
+            ">
+                <img 
+                    src="$url"
+                    style="
+                        max-width: 100%;
+                        max-height: 600px;
+                        width: auto;
+                        height: auto;
+                        object-fit: contain;
+                        border-radius: 10px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,.4);
+                    "
+                >
+            </div>
+        HTML;
+    })
+    ->html()
+    ->visible(fn ($record) => str_starts_with($record->mime_type, 'image/')),
+                    // 📄 PDF
+                    PdfViewerEntry::make('preview_pdf')
+                        ->label('Vista previa del PDF')
+                        ->fileUrl(fn ($record) => Storage::url($record->ruta))
+                        ->minHeight('700px')
+                        ->visible(fn ($record) =>
+                            $record->mime_type === 'application/pdf'
+                        ),
+                ]),
+        ]);
+}
+
 
     public static function table(Table $table): Table
     {
         return $table
         ->recordUrl(null)
-        
+
         ->columns([
             TextColumn::make('user.name')
                 ->label('Subido por')
@@ -504,18 +523,69 @@ public static function getNavigationGroup(): ?string
 
                     return "{$nombre} ({$tipo})";
                 }),
-                   // A quién pertenece el documento
-                   TextColumn::make('cliente.razon_social')
-                   ->label('Cliente')
-                   ->url(fn ($record) => route('filament.admin.resources.clientes.edit', ['record' => $record->cliente_id]))
-                   ->openUrlInNewTab()
-                   ->icon('icon-customer')
-                   ->searchable()
-                   ->iconPosition('before')
-                   ->formatStateUsing(fn ($state) => $state ?? 'Cliente eliminado')
-                   ->color('warning'), // Esto aplica el color amarillo en Filament
-          
-            
+                 TextColumn::make('cliente_origen')
+                    ->label('Origen')
+                    ->icon('icon-customer')
+                    ->iconPosition('before')
+                    ->badge()
+                    ->searchable()
+                    ->getStateUsing(function ($record) {
+                        if ($record->cliente) {
+                            return $record->cliente->razon_social;
+                        }
+
+                        if ($record->documentable_type === \App\Models\Lead::class) {
+                            return 'Lead';
+                        }
+
+                        if ($record->documentable_type === \App\Models\Proyecto::class) {
+                            return 'Proyecto';
+                        }
+
+                        return '—';
+                    })
+                    ->color(function ($record) {
+                        if ($record->cliente) {
+                            return 'warning';   // Cliente
+                        }
+
+                        if ($record->documentable_type === \App\Models\Lead::class) {
+                            return 'info';      // Lead
+                        }
+
+                        if ($record->documentable_type === \App\Models\Proyecto::class) {
+                            return 'primary';  // Proyecto
+                        }
+
+                        return 'gray';
+                    })
+                    ->url(function ($record) {
+                        // 🔗 Cliente
+                        if ($record->cliente_id) {
+                            return \App\Filament\Resources\ClienteResource::getUrl('view', [
+                                'record' => $record->cliente_id,
+                            ]);
+                        }
+
+                        // 🔗 Lead
+                        if ($record->documentable_type === \App\Models\Lead::class) {
+                            return \App\Filament\Resources\LeadResource::getUrl('view', [
+                                'record' => $record->documentable_id,
+                            ]);
+                        }
+
+                        // 🔗 Proyecto
+                        if ($record->documentable_type === \App\Models\Proyecto::class) {
+                            return \App\Filament\Resources\ProyectoResource::getUrl('view', [
+                                'record' => $record->documentable_id,
+                            ]);
+                        }
+
+                        return null;
+                    })
+                    ->openUrlInNewTab(),
+
+
             TextColumn::make('tipo.nombre')
                 ->label('Tipo')
                 ->badge()
@@ -533,7 +603,7 @@ public static function getNavigationGroup(): ?string
             TextColumn::make('observaciones')
                 ->label('Observaciones')
                 ->limit(30),
-                 
+
 
                 IconColumn::make('verificado')
                 ->label('Verificado')
@@ -544,7 +614,8 @@ public static function getNavigationGroup(): ?string
                 ->falseColor('danger')
                 ->action(function ($record, $livewire) {
                     // Verificamos si el usuario tiene el permiso "verificado_documento"
-                    if (! auth()->user()->can('verificado_documento')) {
+                    if (! auth()->user()->can('verificar', $record)) {
+
                         Notification::make()
                             ->title('No tienes permiso para verificar este documento.')
                             ->danger()
@@ -554,7 +625,7 @@ public static function getNavigationGroup(): ?string
                     // Si tiene permiso, alterna el estado de verificado
                     $record->verificado = ! $record->verificado;
                     $record->save();
-            
+
                     Notification::make()
                         ->title($record->verificado ? 'Documento verificado' : 'Verificación retirada')
                         ->success()
@@ -571,25 +642,25 @@ public static function getNavigationGroup(): ?string
                 ->icon(function ($record) {
                     $mime = $record->mime_type ?? '';
                     $extension = strtolower(pathinfo($record->ruta, PATHINFO_EXTENSION));
-                
+
                     // Tipos de imagen diferenciados
                     if ($mime === 'image/png' || $extension === 'png') {
                         return 'icon-png'; // PNG
                     }
-                
+
                     if ($mime === 'image/jpeg' && $extension === 'jpg') {
                         return 'icon-jpg'; // JPG
                     }
-                
+
                     if ($mime === 'image/jpeg' && $extension === 'jpeg') {
                         return 'icon-jpeg'; // JPEG
                     }
-                
+
                     // PDF
                     if ($mime === 'application/pdf') {
                         return 'icon-pdf';
                     }
-                
+
                     // Word
                     if (in_array($mime, [
                         'application/msword',
@@ -597,7 +668,7 @@ public static function getNavigationGroup(): ?string
                     ])) {
                         return 'icon-doc';
                     }
-                
+
                     // Excel
                     if (in_array($mime, [
                         'application/vnd.ms-excel',
@@ -605,36 +676,36 @@ public static function getNavigationGroup(): ?string
                     ])) {
                         return 'icon-excel';
                     }
-                
+
                     // Por defecto
                     return 'heroicon-o-question-mark-circle';
                 })
                 ->tooltip(fn ($record) => $record->mime_type ?? 'Desconocido')
                 ->color(function ($record) {
                     $mime = $record->mime_type ?? '';
-                
+
                     if (str_starts_with($mime, 'image/')) {
                         return 'info'; // Azul
                     }
-                
+
                     if ($mime === 'application/pdf') {
                         return 'danger'; // Rojo
                     }
-                
+
                     if (in_array($mime, [
                         'application/msword',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     ])) {
                         return 'primary'; // Azul oscuro
                     }
-                
+
                     if (in_array($mime, [
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     ])) {
                         return 'success'; // Verde
                     }
-                
+
                     return 'gray'; // Por defecto
                 }),
 
@@ -661,7 +732,7 @@ public static function getNavigationGroup(): ?string
                 ->trueLabel('Solo verificados')
                 ->falseLabel('Solo no verificados')
                 ->native(false),
-    
+
             // 📂 Tipo de documento
             SelectFilter::make('tipo_documento_id')
                 ->label('Tipo')
@@ -675,10 +746,10 @@ public static function getNavigationGroup(): ?string
                 ->searchable()
                 ->native(false),
              // 🧑‍💼 Cliente
-           
+
             SelectFilter::make('mime_type')
                 ->label('Buscar por extensión')
-                
+
                 ->options([
                     'application/pdf' => 'PDF',
                     'image/png' => 'Imagen PNG',
@@ -694,6 +765,7 @@ public static function getNavigationGroup(): ?string
                 ->options([
                     'App\Models\Cliente' => 'Cliente',
                     'App\Models\Proyecto' => 'Proyecto',
+                    'App\Models\Lead' => 'Lead',
                 ]),
                // ->native(false),     
             DateRangeFilter::make('created_at')
@@ -704,20 +776,20 @@ public static function getNavigationGroup(): ?string
                 ->placeholder('Rango de fechas a buscar'),      
             ],layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(7)
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
                 ViewAction::make()
                 ->label('Ver'), // Automáticamente usa ViewDocumento
-               
+
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
 
-    
+
 
     public static function getRelations(): array
     {
@@ -729,10 +801,10 @@ public static function getNavigationGroup(): ?string
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListDocumentos::route('/'),
-            'create' => Pages\CreateDocumento::route('/create'),
-            'edit' => Pages\EditDocumento::route('/{record}/edit'),
-            'view' => Pages\ViewDocumento::route('/{record}/view'),
+            'index' => ListDocumentos::route('/'),
+            'create' => CreateDocumento::route('/create'),
+            'edit' => EditDocumento::route('/{record}/edit'),
+            'view' => ViewDocumento::route('/{record}/view'),
 
         ];
     }

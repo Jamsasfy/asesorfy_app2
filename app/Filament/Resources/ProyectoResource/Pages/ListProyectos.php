@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ProyectoResource\Pages;
 
+use Filament\Actions\CreateAction;
 use App\Filament\Resources\ProyectoResource;
 use App\Filament\Resources\ProyectoResource\Widgets\ProyectoStatsOverview;
 use Filament\Actions;
@@ -15,7 +16,7 @@ class ListProyectos extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make(),
+            CreateAction::make(),
         ];
     }
     public function getFilters(): array

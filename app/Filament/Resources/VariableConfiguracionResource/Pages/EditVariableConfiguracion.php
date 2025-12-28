@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\VariableConfiguracionResource\Pages;
 
+use Illuminate\Contracts\Encryption\DecryptException;
 use App\Filament\Resources\VariableConfiguracionResource;
 use App\Models\VariableConfiguracion;
 use App\Services\ConfiguracionService;
@@ -42,7 +43,7 @@ class EditVariableConfiguracion extends EditRecord
             if (str_starts_with($valorParaGuardar, 'eyJpdiI')) {
                 try {
                     $valorParaGuardar = Crypt::decryptString($valorParaGuardar);
-                } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
+                } catch (DecryptException $e) {
                     Log::warning("Intento de descifrar un valor no válido para {$data['nombre_variable']}: " . $e->getMessage());
                 }
             }

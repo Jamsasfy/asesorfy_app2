@@ -317,48 +317,34 @@
           </div>
         </div>
 
-        @if($tieneRecurrente)
-        <div class="section">
-          <div class="section-title">4. Facturación</div>
-          <div class="grid">
-            
-            <div class="field full-width">
-              <label id="labelIBAN">Cuenta IBAN (Impuestos / SS) <span class="req">*</span></label>
-              <input type="text" id="cuenta_bancaria_ss" name="cuenta_bancaria_ss" value="{{ $getValue('cuenta_bancaria_ss') }}" required 
-                     placeholder="ES..." style="text-transform: uppercase; letter-spacing: 1px; font-family: monospace;">
-              <div id="ibanFeedback" style="font-size: 12px; margin-top: 4px; min-height: 18px;"></div>
-              @error('cuenta_bancaria_ss') <div class="error-msg">{{ $message }}</div> @enderror
-            </div>
+      @if($tieneRecurrente)
+    <div class="section">
+        <div class="section-title">4. Facturación</div>
 
+        <div class="grid">
             <div class="field full-width">
-                <label>Método de pago para cuotas mensuales de AsesorFy <span class="req">*</span></label>
-                <div class="payment-grid">
-                    <label class="payment-option">
-                        <input type="radio" id="pref_tarjeta" name="preferencia_pago_recurrente" value="tarjeta" @checked(old('preferencia_pago_recurrente', 'tarjeta') == 'tarjeta')>
-                        <div class="payment-card">
-                            <span class="p-icon">💳</span>
-                            <div>
-                                <span class="p-title">Tarjeta</span>
-                                <span class="p-desc">Cobro automático en tarjeta.</span>
-                            </div>
-                        </div>
-                    </label>
-                    <label class="payment-option">
-                        <input type="radio" id="pref_domiciliacion" name="preferencia_pago_recurrente" value="domiciliacion" @checked(old('preferencia_pago_recurrente') == 'domiciliacion')>
-                        <div class="payment-card">
-                            <span class="p-icon">🏦</span>
-                            <div>
-                                <span class="p-title">Domiciliación</span>
-                                <span class="p-desc">Recibo bancario al IBAN.</span>
-                            </div>
-                        </div>
-                    </label>
+                <label id="labelIBAN">Cuenta IBAN (Impuestos / SS) <span class="req">*</span></label>
+                <input
+                    type="text"
+                    id="cuenta_bancaria_ss"
+                    name="cuenta_bancaria_ss"
+                    value="{{ $getValue('cuenta_bancaria_ss') }}"
+                    required
+                    placeholder="ES..."
+                    style="text-transform: uppercase; letter-spacing: 1px; font-family: monospace;"
+                >
+                <div id="ibanFeedback" style="font-size: 12px; margin-top: 4px; min-height: 18px;"></div>
+
+                <div style="font-size: 12px; color: #64748b; margin-top: 2px; line-height: 1.25;">
+                    Este IBAN se usará para gestiones con Hacienda y Seguridad Social, y para el pago de tu cuota de autónomo.
                 </div>
+
+                @error('cuenta_bancaria_ss') <div class="error-msg">{{ $message }}</div> @enderror
             </div>
-         
-          </div>
         </div>
-        @endif
+    </div>
+@endif
+
 
         <div class="section">
             <div class="section-title">Información adicional</div>

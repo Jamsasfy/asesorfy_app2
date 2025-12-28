@@ -2,16 +2,22 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\Filter;
+use Filament\Forms\Components\DatePicker;
+use Filament\Actions\ViewAction;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Grid;
+use App\Filament\Resources\LeadAutoEmailLogResource\Pages\ListLeadAutoEmailLogs;
+use App\Filament\Resources\LeadAutoEmailLogResource\Pages\ViewLeadAutoEmailLog;
 use App\Filament\Resources\LeadAutoEmailLogResource\Pages;
 use App\Filament\Resources\LeadResource;
 use App\Models\LeadAutoEmailLog;
-use Filament\Forms\Form;
 use Filament\Infolists\Components\KeyValueEntry;
-use Filament\Infolists\Components\Section;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\IconEntry;
-use Filament\Infolists\Components\Grid;
-use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
@@ -25,8 +31,8 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = LeadAutoEmailLog::class;
 
-    protected static ?string $navigationIcon = 'heroicon-o-inbox-stack';
-    protected static ?string $navigationGroup = 'Comunicación';
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-inbox-stack';
+    protected static string | \UnitEnum | null $navigationGroup = 'Comunicación';
     protected static ?string $navigationLabel = 'Historial de Envíos 🤖';
     protected static ?string $modelLabel = 'Envío';
     protected static ?string $pluralModelLabel = 'Historial de Envíos';
@@ -43,9 +49,9 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
         ];
     }
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form->schema([]);
+        return $schema->components([]);
     }
 
     public static function table(Table $table): Table
@@ -53,7 +59,7 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
         return $table
             ->defaultSort('created_at', 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('status')
+                TextColumn::make('status')
                     ->label('Estado')
                     ->badge()
                     ->formatStateUsing(fn (string $state): string => match ($state) {
@@ -81,7 +87,7 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
                     })
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('lead.nombre')
+                TextColumn::make('lead.nombre')
                     ->label('Destinatario')
                     ->weight('bold')
                     ->description(fn (LeadAutoEmailLog $record) => $record->lead?->email)
@@ -90,36 +96,36 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
                     ->openUrlInNewTab()
                     ->color('primary'),
 
-                Tables\Columns\TextColumn::make('subject')
+                TextColumn::make('subject')
                     ->label('Asunto')
                     ->limit(40)
                     ->searchable()
                     ->weight('medium'),
 
-                Tables\Columns\TextColumn::make('template_identifier')
+                TextColumn::make('template_identifier')
                     ->label('Tipo')
                     ->formatStateUsing(fn (string $state) => Str::headline(str_replace('_', ' ', $state)))
                     ->badge()
                     ->color('gray')
                     ->toggleable(),
 
-                Tables\Columns\TextColumn::make('sent_at')
+                TextColumn::make('sent_at')
                     ->label('Enviado')
                     ->dateTime('d/m/Y H:i')
                     ->sortable(),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('status')
+                SelectFilter::make('status')
                     ->label('Estado')
                     ->options([
                         'sent' => 'Enviados',
                         'failed' => 'Fallidos',
                         'pending' => 'Pendientes',
                     ]),
-                Tables\Filters\Filter::make('created_at')
-                    ->form([
-                        \Filament\Forms\Components\DatePicker::make('desde'),
-                        \Filament\Forms\Components\DatePicker::make('hasta'),
+                Filter::make('created_at')
+                    ->schema([
+                        DatePicker::make('desde'),
+                        DatePicker::make('hasta'),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
                         return $query
@@ -127,14 +133,14 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
                             ->when($data['hasta'], fn (Builder $query, $date) => $query->whereDate('created_at', '<=', $date));
                     }),
             ], layout: FiltersLayout::AboveContent)
-            ->actions([
-                Tables\Actions\ViewAction::make()->label('')->tooltip('Ver detalle'),
+            ->recordActions([
+                ViewAction::make()->label('')->tooltip('Ver detalle'),
             ]);
     }
-public static function infolist(Infolist $infolist): Infolist
+public static function infolist(Schema $schema): Schema
     {
-        return $infolist
-            ->schema([
+        return $schema
+            ->components([
                 
                 // --- CABECERA DE ESTADO ---
                 Section::make()
@@ -259,8 +265,8 @@ public static function infolist(Infolist $infolist): Infolist
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListLeadAutoEmailLogs::route('/'),
-            'view'  => Pages\ViewLeadAutoEmailLog::route('/{record}'),
+            'index' => ListLeadAutoEmailLogs::route('/'),
+            'view'  => ViewLeadAutoEmailLog::route('/{record}'),
         ];
     }
 }

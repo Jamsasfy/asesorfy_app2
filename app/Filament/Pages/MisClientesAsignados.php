@@ -2,6 +2,10 @@
 
 namespace App\Filament\Pages;
 
+use Filament\Tables\Contracts\HasTable;
+use Filament\Tables\Concerns\InteractsWithTable;
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
 use App\Enums\ClienteEstadoEnum;
 use App\Filament\Resources\ClienteResource;
 use Filament\Pages\Page;
@@ -18,23 +22,23 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 
-class MisClientesAsignados extends Page implements Tables\Contracts\HasTable // Para poder usar una tabla
+class MisClientesAsignados extends Page implements HasTable // Para poder usar una tabla
 {
-    use Tables\Concerns\InteractsWithTable; // Funcionalidad para la tabla
+    use InteractsWithTable; // Funcionalidad para la tabla
     use HasPageShield; // Para la protección de la página con Shield
 
     // Conservamos el icono que te generó si te gusta, o puedes cambiarlo
-    protected static ?string $navigationIcon = 'icon-cliente-asignado'; // Cambié a 'user-group', pero usa el que prefieras
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-cliente-asignado'; // Cambié a 'user-group', pero usa el que prefieras
     protected ?string $subheading = 'Clientes que tienes asignados como asesor' ; // Subtítulo opcional para la página
 
- protected static ?string $navigationGroup = 'Mi espacio de trabajo';
+ protected static string | \UnitEnum | null $navigationGroup = 'Mi espacio de trabajo';
     // Propiedades que definimos para la página
     protected static ?string $navigationLabel = 'Mis Clientes Asignados'; // Nombre en el menú
     protected static ?string $title = 'Mis Clientes Asignados'; // Título que se muestra en la página
     protected static ?string $slug = 'mis-clientes-asignados'; // URL: tu-dominio.com/admin/mis-clientes-asignados
 
     // Vista Blade que se usará para esta página (ya lo tenías)
-    protected static string $view = 'filament.pages.mis-clientes-asignados';
+    protected string $view = 'filament.pages.mis-clientes-asignados';
 
     public static function getNavigationBadge(): ?string
     {
@@ -232,10 +236,10 @@ protected function getTableFiltersLayout(): ?FiltersLayout
    protected function getTableActions(): array
     {
         return [
-            Tables\Actions\ViewAction::make()
+            ViewAction::make()
                 ->url(fn (Cliente $record): string => ClienteResource::getUrl('view', ['record' => $record]))
                 ->openUrlInNewTab(),
-            Tables\Actions\EditAction::make()
+            EditAction::make()
                 ->url(fn (Cliente $record): string => ClienteResource::getUrl('edit', ['record' => $record]))
                 ->openUrlInNewTab(),
             // No incluimos DeleteAction aquí si la política/permisos de ClienteResource lo manejan

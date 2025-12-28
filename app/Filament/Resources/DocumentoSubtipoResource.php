@@ -2,6 +2,13 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Actions\EditAction;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use App\Filament\Resources\DocumentoSubtipoResource\Pages\ListDocumentoSubtipos;
+use App\Filament\Resources\DocumentoSubtipoResource\Pages\CreateDocumentoSubtipo;
+use App\Filament\Resources\DocumentoSubtipoResource\Pages\EditDocumentoSubtipo;
 use App\Filament\Resources\DocumentoSubtipoResource\Pages;
 use App\Filament\Resources\DocumentoSubtipoResource\RelationManagers;
 use App\Models\DocumentoSubtipo;
@@ -9,7 +16,6 @@ use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -22,9 +28,9 @@ class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = DocumentoSubtipo::class;
 
-    protected static ?string $navigationIcon = 'icon-subtipodocumento';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-subtipodocumento';
 
-    protected static ?string $navigationGroup = 'Configuración plataforma';
+    protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
     protected static ?string $navigationLabel = 'Subtipo documento';
     protected static ?string $modelLabel = 'Subtipo documento';
     protected static ?string $pluralModelLabel = 'Subtipos de documentos';
@@ -45,10 +51,10 @@ class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
 
 
 
-    public static function form(Form $form): Form
+    public static function form(Schema $schema): Schema
     {
-        return $form
-            ->schema([
+        return $schema
+            ->components([
                 Select::make('documento_categoria_id')
                 ->label('Categoría')
                 ->relationship('categoria', 'nombre')
@@ -92,12 +98,12 @@ class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
                     ->relationship('categoria', 'nombre')
                     ->searchable(),
             ])
-            ->actions([
-                Tables\Actions\EditAction::make(),
+            ->recordActions([
+                EditAction::make(),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                 ]),
             ]);
     }
@@ -112,9 +118,9 @@ class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListDocumentoSubtipos::route('/'),
-            'create' => Pages\CreateDocumentoSubtipo::route('/create'),
-            'edit' => Pages\EditDocumentoSubtipo::route('/{record}/edit'),
+            'index' => ListDocumentoSubtipos::route('/'),
+            'create' => CreateDocumentoSubtipo::route('/create'),
+            'edit' => EditDocumentoSubtipo::route('/{record}/edit'),
         ];
     }
 }

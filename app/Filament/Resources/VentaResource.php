@@ -2,6 +2,36 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
+use App\Models\Cliente;
+use Filament\Tables\Filters\Filter;
+use Filament\Actions\Action;
+use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Checkbox;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\CambioMetodoPagoMail;
+use App\Models\LeadAutoEmailLog;
+use Exception;
+use App\Models\LeadConversionLink;
+use App\Mail\PagoFacturaConfirmado;
+use Illuminate\Support\Str;
+use App\Mail\LeadConversionLinkMail;
+use Filament\Actions\ViewAction;
+use Filament\Actions\EditAction;
+use Filament\Tables\Enums\RecordActionsPosition;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteBulkAction;
+use pxlrbt\FilamentExcel\Exports\ExcelExport;
+use pxlrbt\FilamentExcel\Columns\Column;
+use Filament\Schemas\Components\Grid;
+use Illuminate\Support\Facades\Blade;
+use App\Filament\Resources\VentaResource\Pages\ListVentas;
+use App\Filament\Resources\VentaResource\Pages\CreateVenta;
+use App\Filament\Resources\VentaResource\Pages\ViewVenta;
+use App\Filament\Resources\VentaResource\Pages\EditVenta;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Filament\Resources\VentaResource\Pages;
 use App\Filament\Resources\VentaResource\RelationManagers;
@@ -13,13 +43,9 @@ use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Form;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Columns\TextColumn;
@@ -34,9 +60,6 @@ use App\Models\ClienteSuscripcion;
 use Filament\Tables\Enums\FiltersLayout;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Carbon\Carbon;
-use Filament\Infolists\Infolist;
-use Filament\Infolists\Components\Grid;
-use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Illuminate\Support\HtmlString;
@@ -44,11 +67,9 @@ use App\Models\Proyecto;
 use App\Enums\ProyectoEstadoEnum;
 use Filament\Forms\Components\Toggle;
 use App\Models\User;
-use App\Enums\VentaCorreccionEstadoEnum; 
-use Filament\Tables\Actions\Action;
+use App\Enums\VentaCorreccionEstadoEnum;
 use Filament\Notifications\Notification;
 use Filament\Forms\Components\Placeholder;
-use Filament\Tables\Enums\ActionsPosition;
 use App\Enums\VentaEstadoEnum;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
@@ -64,8 +85,8 @@ class VentaResource extends Resource implements HasShieldPermissions
     protected static ?string $model = Venta::class;
 
 
-    protected static ?string $navigationIcon = 'heroicon-o-currency-dollar'; // O un icono de venta
-    protected static ?string $navigationGroup = 'Gestión VENTAS'; // O un grupo propio de Ventas
+    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-currency-dollar'; // O un icono de venta
+    protected static string | \UnitEnum | null $navigationGroup = 'Gestión VENTAS'; // O un grupo propio de Ventas
    // protected static ?string $navigationLabel = 'Admin Ventas';
     protected static ?string $modelLabel = 'Venta';
     protected static ?string $pluralModelLabel = 'Admin Ventas';
@@ -80,7 +101,7 @@ class VentaResource extends Resource implements HasShieldPermissions
     }
     public static function getEloquentQuery(): Builder
 {
-    /** @var \App\Models\User|null $user */
+    /** @var User|null $user */
     $user = Auth::user();
     // Empezamos con la consulta base y las precargas que ya tenías
     $query = parent::getEloquentQuery()->with(['items.servicio', 'cliente', 'comercial']); // Añadí cliente y comercial a with para eficiencia
@@ -128,10 +149,10 @@ class VentaResource extends Resource implements HasShieldPermissions
     }
 
     
-public static function form(Form $form): Form
+public static function form(Schema $schema): Schema
 {
-    return $form
-        ->schema([
+    return $schema
+        ->components([
             Section::make('Datos de la Venta')
                 ->columns(3)
                 ->schema([
@@ -285,9 +306,9 @@ public static function form(Form $form): Form
                                 ->suffix('€')
                                 ->columnSpan(1),
 
-                            Forms\Components\Hidden::make('precio_unitario_aplicado')->dehydrated(true),
-                            Forms\Components\Hidden::make('subtotal_aplicado')->dehydrated(true),
-                            Forms\Components\Hidden::make('subtotal_aplicado_con_iva')->dehydrated(true),
+                            Hidden::make('precio_unitario_aplicado')->dehydrated(true),
+                            Hidden::make('subtotal_aplicado')->dehydrated(true),
+                            Hidden::make('subtotal_aplicado_con_iva')->dehydrated(true),
 
                             TextInput::make('subtotal_con_iva')
                                 ->label('Subtotal con IVA (Base)')
@@ -412,14 +433,14 @@ public static function form(Form $form): Form
                 if (empty($get('descuento_tipo')) || !$servicioId = $get('servicio_id')) {
                     return false;
                 }
-                return \App\Models\Servicio::find($servicioId)?->tipo?->value === 'recurrente';
+                return Servicio::find($servicioId)?->tipo?->value === 'recurrente';
             })
             ->afterStateUpdated(function (Get $get, Set $set, ?string $state) {
                 $fechaInicio = $get('fecha_inicio_servicio');
                 $duracion = (int) $state;
 
                 if ($fechaInicio && $duracion > 0) {
-                    $fechaFin = \Carbon\Carbon::parse($fechaInicio)
+                    $fechaFin = Carbon::parse($fechaInicio)
                         ->addMonths($duracion - 1)
                         ->endOfMonth()
                         ->format('Y-m-d');
@@ -443,7 +464,7 @@ public static function form(Form $form): Form
                 if (empty($get('descuento_tipo')) || !$servicioId = $get('servicio_id')) {
                     return false;
                 }
-                return \App\Models\Servicio::find($servicioId)?->tipo?->value === 'recurrente';
+                return Servicio::find($servicioId)?->tipo?->value === 'recurrente';
             })
             ->dehydrated(true),
 
@@ -538,10 +559,10 @@ public static function form(Form $form): Form
         $clienteId = $get('cliente_id') ?? $get('../../cliente_id');
         
         if ($clienteId) {
-            $cliente = \App\Models\Cliente::find($clienteId);
+            $cliente = Cliente::find($clienteId);
             if ($cliente) {
                 // El helper decide: 0.00 si es Canarias, variable IVA_general si no
-                $impuesto = \App\Models\Cliente::getPorcentajeImpuesto(
+                $impuesto = Cliente::getPorcentajeImpuesto(
                     $cliente->codigo_postal, 
                     $cliente->provincia
                 );
@@ -597,7 +618,7 @@ public static function form(Form $form): Form
                     ->formatStateUsing(fn (VentaEstadoEnum $state) => $state->getLabel())
                     ->color(fn (VentaEstadoEnum $state) => $state->getColor()),
              // Columna de Estado de Firma (BLINDADA PARA NULOS)
-                Tables\Columns\TextColumn::make('signed_at')
+                TextColumn::make('signed_at')
                 ->label('Contrato')
                 ->badge()
                 ->getStateUsing(fn (Venta $record) => $record->signed_at ? 'Firmado' : 'Pendiente de firma')
@@ -612,7 +633,7 @@ public static function form(Form $form): Form
                     default            => null,
                 })
                 ->sortable(),
-Tables\Columns\TextColumn::make('confirmada_at')
+TextColumn::make('confirmada_at')
     ->label('Fecha Cierre') // Cambio de nombre para ser más preciso
     ->sortable()
     ->badge()
@@ -637,7 +658,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
         default     => 'success', // La fecha se verá en verde
     })
     ->placeholder('—'), // Esto pone el guion elegante cuando es null
-                Tables\Columns\TextColumn::make('cliente.razon_social')
+                TextColumn::make('cliente.razon_social')
                     ->label('Cliente')
                     ->url(fn (Venta $record): ?string => 
                     $record->cliente_id
@@ -652,7 +673,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     )
                     ->searchable()
                     ->sortable(),
-                   Tables\Columns\TextColumn::make('lead_id')
+                   TextColumn::make('lead_id')
                     ->label('Lead')
                     ->formatStateUsing(function ($state, Venta $record) {
                         return $record->lead_id ? "#{$record->lead_id}" : '—';
@@ -666,12 +687,12 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     )
                     ->openUrlInNewTab()
                     ->sortable(),
-                Tables\Columns\TextColumn::make('comercial.full_name')
+                TextColumn::make('comercial.full_name')
                 ->label('Vendido por')
                    ->badge()
                    ->color('info')
                     ->sortable(),
-                Tables\Columns\TextColumn::make('fecha_venta')
+                TextColumn::make('fecha_venta')
                     ->dateTime('d/m/y - H:i')
                     ->sortable(),
                 
@@ -750,7 +771,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
         ->color(fn ($state) => $state > 0 ? 'danger' : 'gray')
            ->toggleable(isToggledHiddenByDefault: true),
 
-                Tables\Columns\TextColumn::make('importe_total')
+                TextColumn::make('importe_total')
                     ->label('Importe Total')
                     ->color('success')
                    ->size('lg')
@@ -761,12 +782,12 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €')
                     
                     ->sortable(),
-                Tables\Columns\TextColumn::make('created_at')
+                TextColumn::make('created_at')
                 ->label('Venta creada')
                     ->dateTime('d/m/y - H:i')
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
-                Tables\Columns\TextColumn::make('updated_at')
+                TextColumn::make('updated_at')
                 ->label('Venta actualizada')
                 ->dateTime('d/m/y - H:i')
                 ->toggleable(isToggledHiddenByDefault: true)
@@ -794,7 +815,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
                 false: fn ($query) => $query->where('estado', '!=', VentaEstadoEnum::COMPLETADA),
                 blank: fn ($query) => $query,
             ),
-                Tables\Filters\TernaryFilter::make('signed_at')
+                TernaryFilter::make('signed_at')
                     ->label('Estado del Contrato')
                     ->placeholder('Todas')
                     ->trueLabel('Firmadas')
@@ -809,7 +830,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     ->preload()
                     ->label('Filtrar por Cliente'), */
 
-              Tables\Filters\SelectFilter::make('user_id')
+              SelectFilter::make('user_id')
                     ->relationship('comercial', 'name', fn (Builder $query) => 
                         // Filtra para mostrar usuarios con el rol 'comercial' O 'super_admin'
                         $query->whereHas('roles', fn (Builder $query) => 
@@ -822,7 +843,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     ->label('Comercial'),
 
                 // Filtro por Tipo de Servicio (Único/Recurrente)
-                Tables\Filters\SelectFilter::make('tipo_servicio')
+                SelectFilter::make('tipo_servicio')
                     ->options([
                         'unico'      => 'Servicio Único',    // Usa la cadena literal 'unico'
                         'recurrente' => 'Servicio Recurrente', // Usa la cadena literal 'recurrente'
@@ -847,7 +868,7 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     ->label('Venta consolidada'),
 
                 // Filtro por si tiene Descuento (cualquier tipo)
-                Tables\Filters\Filter::make('con_descuento')
+                Filter::make('con_descuento')
                     ->query(function (Builder $query): Builder {
                         // Filtra ventas que tengan al menos un item con descuento
                         return $query->whereHas('items', function (Builder $query) {
@@ -860,22 +881,22 @@ Tables\Columns\TextColumn::make('confirmada_at')
                     })
                     ->toggle() // Se activa/desactiva con un switch
                     ->label('Descuento'),
-                      Tables\Filters\Filter::make('correccion_solicitada')
+                      Filter::make('correccion_solicitada')
                         ->label('Corrección solicitada')
                         ->query(fn (Builder $query): Builder => $query->where('correccion_estado', VentaCorreccionEstadoEnum::SOLICITADA))
                        
                         ->toggle(),
                                         ],layout: FiltersLayout::AboveContent)
                                             ->filtersFormColumns(9)
-            ->actions([
+            ->recordActions([
     // 🔄 ACCIÓN: CAMBIAR MÉTODO DE PAGO (Con Log y Comentario)
-Tables\Actions\Action::make('cambiar_metodo_pago')
+Action::make('cambiar_metodo_pago')
     ->label('') 
     ->tooltip('Cambiar método de pago (Tarjeta/Transferencia)')
     ->icon('heroicon-o-arrows-right-left')
     ->color('gray')
-    ->form([
-        Forms\Components\Radio::make('nuevo_metodo')
+    ->schema([
+        Radio::make('nuevo_metodo')
             ->label('Selecciona el nuevo método de pago')
             ->options([
                 'tarjeta'       => 'Tarjeta (Stripe)',
@@ -884,11 +905,11 @@ Tables\Actions\Action::make('cambiar_metodo_pago')
             ->required()
             ->default(fn (Venta $record) => $record->pago_inicial_metodo),
         
-        Forms\Components\Textarea::make('notas')
+        Textarea::make('notas')
             ->label('Notas internas')
             ->rows(2),
 
-        Forms\Components\Checkbox::make('notificar_cliente')
+        Checkbox::make('notificar_cliente')
             ->label('Enviar email al cliente con las nuevas instrucciones')
             ->default(true)
             ->helperText('Si lo marcas, el cliente recibirá el IBAN o el enlace de pago por correo.'),
@@ -903,12 +924,12 @@ Tables\Actions\Action::make('cambiar_metodo_pago')
         // 2. Enviar Email y Guardar Log Técnico
         if ($data['notificar_cliente'] && $record->cliente && $record->cliente->email_contacto) {
             try {
-                \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
-                    ->send(new \App\Mail\CambioMetodoPagoMail($record));
+                Mail::to($record->cliente->email_contacto)
+                    ->send(new CambioMetodoPagoMail($record));
                 
                 // ✅ LOG TÉCNICO
                 if ($record->lead_id) {
-                    \App\Models\LeadAutoEmailLog::create([
+                    LeadAutoEmailLog::create([
                         'lead_id'             => $record->lead_id,
                         'estado'              => $record->lead->estado->value ?? 'unknown',
                         'intento'             => 1,
@@ -924,7 +945,7 @@ Tables\Actions\Action::make('cambiar_metodo_pago')
                 }
 
                 Notification::make()->title('Email de instrucciones enviado')->success()->send();
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 Notification::make()->title('Error enviando email')->body($e->getMessage())->warning()->send();
             }
         }
@@ -951,10 +972,10 @@ Tables\Actions\Action::make('cambiar_metodo_pago')
     })
     ->visible(fn (Venta $record) => 
         !$record->tienePagoInicialCompletado() && 
-        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA
+        $record->estado !== VentaEstadoEnum::CANCELADA
     ),
                 // ✅ ACCIÓN: CONFIRMAR PAGO TRANSFERENCIA (Con envío de Factura)
-Tables\Actions\Action::make('confirmar_transferencia')
+Action::make('confirmar_transferencia')
     ->label('')
     ->tooltip('Confirmar recepción de Transferencia')
     ->icon('heroicon-o-banknotes')
@@ -962,62 +983,55 @@ Tables\Actions\Action::make('confirmar_transferencia')
     ->requiresConfirmation()
     ->modalHeading('¿Confirmar recepción de transferencia?')
     ->modalDescription(fn (Venta $record) =>
-        "Se generará la factura de " . number_format($record->importe_total, 2, ',', '.') .
-        " €, se activarán los servicios y se enviará la factura por email al cliente."
+        "Se generará la factura, se activarán los servicios y se enviará la factura por email al cliente."
     )
     ->visible(fn (Venta $record) =>
         $record->pago_inicial_metodo === 'transferencia' &&
-        !$record->tienePagoInicialCompletado() &&
-        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA
+        ! $record->tienePagoInicialCompletado() &&
+        $record->estado !== VentaEstadoEnum::CANCELADA
     )
     ->action(function (Venta $record) {
 
-        // ========================================================
         // 1️⃣ RECUPERAR extraData DEL FORMULARIO FIRMADO
-        // ========================================================
         $extraData = [];
 
         try {
-            $link = \App\Models\LeadConversionLink::where('meta->existing_venta_id', $record->id)
+            $link = LeadConversionLink::where('meta->existing_venta_id', $record->id)
                 ->latest()
                 ->first();
 
             if ($link) {
                 $extraData = $link->meta['form_data'] ?? [];
             }
-        } catch (\Exception $e) {
-            // No hacemos nada, simplemente no hay extraData
+        } catch (Exception $e) {
+            // no-op
         }
 
         try {
 
-            // ========================================================
-            // 2️⃣ PROCESAR COBRO INICIAL (Proyectos + Suscripciones + Factura)
-            // ========================================================
+            // 2️⃣ CONFIRMAR TRANSFERENCIA (esto ya es "pagado")
             $record->procesarCobroInicial(
                 fechaPago: now(),
-                metodoPago: 'transferencia',
+                metodoPago: 'transferencia_confirmada', // ✅ CLAVE
                 paymentIntentId: null,
                 extraData: $extraData
             );
 
-            // ========================================================
             // 3️⃣ ENVIAR FACTURA AL CLIENTE (SI EXISTE)
-            // ========================================================
             $factura = $record->facturas()->latest()->first();
 
             if ($factura && $record->cliente && $record->cliente->email_contacto) {
                 try {
-                    \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
-                        ->send(new \App\Mail\PagoFacturaConfirmado($factura));
+                    Mail::to($record->cliente->email_contacto)
+                        ->send(new PagoFacturaConfirmado($factura));
 
-                    \Filament\Notifications\Notification::make()
+                    Notification::make()
                         ->title('Pago confirmado y factura enviada')
                         ->success()
                         ->send();
-                } catch (\Exception $e) {
+                } catch (Exception $e) {
 
-                    \Filament\Notifications\Notification::make()
+                    Notification::make()
                         ->title('Pago confirmado, pero falló el email')
                         ->body($e->getMessage())
                         ->warning()
@@ -1025,15 +1039,15 @@ Tables\Actions\Action::make('confirmar_transferencia')
                 }
             } else {
 
-                \Filament\Notifications\Notification::make()
+                Notification::make()
                     ->title('Pago confirmado correctamente')
                     ->success()
                     ->send();
             }
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
 
-            \Filament\Notifications\Notification::make()
+            Notification::make()
                 ->title('Error')
                 ->body($e->getMessage())
                 ->danger()
@@ -1041,8 +1055,10 @@ Tables\Actions\Action::make('confirmar_transferencia')
         }
     }),
 
+
+
 // 🚀 ENVIAR CONTRATO (Manual)
-            Tables\Actions\Action::make('enviar_contrato')
+            Action::make('enviar_contrato')
                 ->label('') // <--- SIN TEXTO
                 ->tooltip('Enviar Contrato para Firma') // Tooltip al pasar el ratón
                 ->icon('heroicon-o-paper-airplane')
@@ -1054,7 +1070,7 @@ Tables\Actions\Action::make('confirmar_transferencia')
                         $record->lead_id && 
                         $record->lead && 
                         is_null($record->lead->contract_signed_at) && // Que no haya firmado
-                        $record->estado !== \App\Enums\VentaEstadoEnum::CANCELADA && // Que no esté cancelada
+                        $record->estado !== VentaEstadoEnum::CANCELADA && // Que no esté cancelada
                         $record->items()->exists() // Que tenga servicios (evita errores)
                     )
                 ->action(function (Venta $record) {
@@ -1140,9 +1156,9 @@ Tables\Actions\Action::make('confirmar_transferencia')
                     ];
 
                     // Crear Link
-                    $link = \App\Models\LeadConversionLink::create([
+                    $link = LeadConversionLink::create([
                         'lead_id'    => $record->lead_id,
-                        'token'      => \Illuminate\Support\Str::uuid(),
+                        'token'      => Str::uuid(),
                         'expires_at' => now()->addDays(15),
                         'mode'       => 'manual',
                         'meta'       => [
@@ -1156,11 +1172,11 @@ Tables\Actions\Action::make('confirmar_transferencia')
 
                     // Enviar
                     try {
-                        \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
-                            ->send(new \App\Mail\LeadConversionLinkMail($record->lead, $link));
+                        Mail::to($record->cliente->email_contacto)
+                            ->send(new LeadConversionLinkMail($record->lead, $link));
                         
                         // Logs
-                        \App\Models\LeadAutoEmailLog::create([
+                        LeadAutoEmailLog::create([
                             'lead_id'             => $record->lead_id,
                             'estado'              => $record->lead->estado->value ?? 'unknown',
                             'intento'             => 1,
@@ -1181,16 +1197,16 @@ Tables\Actions\Action::make('confirmar_transferencia')
                         ]);
                         
                         Notification::make()->title('Contrato Enviado')->success()->send();
-                    } catch (\Exception $e) {
+                    } catch (Exception $e) {
                         Notification::make()->title('Error email')->body($e->getMessage())->danger()->send();
                     }
                 }),
              
                 // 1. Añadimos la acción para VER los detalles (el ojo)
-                    Tables\Actions\ViewAction::make()
+                    ViewAction::make()
                         ->label('') // Sin texto, solo el icono
                         ->tooltip('Ver Venta'),
-                Tables\Actions\EditAction::make()
+                EditAction::make()
                 ->label('')
                 ->tooltip('Editar Venta')
                  ->visible(function (Venta $record): bool {
@@ -1207,7 +1223,7 @@ Tables\Actions\Action::make('confirmar_transferencia')
         empty($record->getRawOriginal('correccion_estado')) &&
         auth()->user()->hasAnyRole(['comercial', 'coordinador', 'super_admin'])
     )
-    ->form([
+    ->schema([
         Textarea::make('motivo')
             ->label('Motivo de la corrección')
             ->required()
@@ -1223,7 +1239,7 @@ Tables\Actions\Action::make('confirmar_transferencia')
         ]);
 
         // Notificar a admins y coordinadores
-        $destinatarios = \App\Models\User::whereHas('roles', fn ($q) =>
+        $destinatarios = User::whereHas('roles', fn ($q) =>
             $q->whereIn('name', ['super_admin', 'coordinador'])
         )->get();
 
@@ -1283,33 +1299,33 @@ Tables\Actions\Action::make('confirmar_transferencia')
           ->openUrlInNewTab(),
 
 
-            ])->actionsPosition(ActionsPosition::BeforeColumns)
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+            ])->recordActionsPosition(RecordActionsPosition::BeforeColumns)
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    DeleteBulkAction::make(),
                      ExportBulkAction::make('exportar_completo')
         ->label('Exportar seleccionados')
         ->exports([
-            \pxlrbt\FilamentExcel\Exports\ExcelExport::make('ventas')
+            ExcelExport::make('ventas')
                 //->fromTable() // usa los registros seleccionados
                 ->withColumns([
                    // Columnas ya existentes
-                                \pxlrbt\FilamentExcel\Columns\Column::make('id')
+                                Column::make('id')
                                     ->heading('ID Venta'), // Etiqueta más clara
-                                \pxlrbt\FilamentExcel\Columns\Column::make('cliente.razon_social')
+                                Column::make('cliente.razon_social')
                                     ->heading('Cliente'),
-                                \pxlrbt\FilamentExcel\Columns\Column::make('lead.id') // Usar lead.nombre para el nombre del Lead
+                                Column::make('lead.id') // Usar lead.nombre para el nombre del Lead
                                     ->heading('Lead Asociado')
                                     ->formatStateUsing(fn ($state, $record) => $record->lead ? $record->lead->nombre : ''), // Asegura que solo muestre el nombre si existe
-                                \pxlrbt\FilamentExcel\Columns\Column::make('comercial.full_name')
+                                Column::make('comercial.full_name')
                                     ->heading('Vendido por'),
                                 
-                                \pxlrbt\FilamentExcel\Columns\Column::make('fecha_venta')
+                                Column::make('fecha_venta')
                                     ->heading('Fecha de venta')
-                                    ->formatStateUsing(fn ($state) => \Carbon\Carbon::parse($state)->format('d/m/Y H:i')), // Formato para Excel
+                                    ->formatStateUsing(fn ($state) => Carbon::parse($state)->format('d/m/Y H:i')), // Formato para Excel
                                 
                              // IMPORTE RECURRENTE (USANDO LA LÓGICA DE LA COLUMNA DE LA TABLA)
-                                    \pxlrbt\FilamentExcel\Columns\Column::make('importe_recurrente')
+                                    Column::make('importe_recurrente')
                                         ->heading('Importe Recurrente')
                                         // <<< CAMBIO AQUI: Usar la cadena literal 'recurrente'
                                         ->getStateUsing(function (Venta $record): float {
@@ -1322,7 +1338,7 @@ Tables\Actions\Action::make('confirmar_transferencia')
                                         ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €'),
                                     
                                     // IMPORTE ÚNICO (USANDO LA LÓGICA DE LA COLUMNA DE LA TABLA)
-                                    \pxlrbt\FilamentExcel\Columns\Column::make('importe_unico')
+                                    Column::make('importe_unico')
                                         ->heading('Importe Único')
                                         // <<< CAMBIO AQUI: Usar la cadena literal 'unico'
                                         ->getStateUsing(function (Venta $record): float {
@@ -1337,7 +1353,7 @@ Tables\Actions\Action::make('confirmar_transferencia')
                                     
                                 
                                 // DESCUENTO MENSUAL RECURRENTE (CORRECCIÓN EN formatStateUsing)
-                                \pxlrbt\FilamentExcel\Columns\Column::make('descuento_mensual_recurrente_total')
+                                Column::make('descuento_mensual_recurrente_total')
                                     ->heading('Descuento Mensual Rec.')
                                     ->formatStateUsing(function ($state, $record) {
                                         if ((float)$state > 0) {
@@ -1357,22 +1373,22 @@ Tables\Actions\Action::make('confirmar_transferencia')
                                     }),
                                 
                                 // DESCUENTO ÚNICO (CORRECCIÓN EN formatStateUsing)
-                                \pxlrbt\FilamentExcel\Columns\Column::make('descuento_unico_total')
+                                Column::make('descuento_unico_total')
                                     ->heading('Descuento Único')
                                     ->formatStateUsing(fn ($state) => ((float)$state > 0) ? '-' . number_format($state, 2, ',', '.') . ' €' : 'Sin Dto.'),
                                 // FIN AÑADIDO
 
                                 // Importe Total (asumo que este es el total final con IVA)
-                                \pxlrbt\FilamentExcel\Columns\Column::make('importe_total')
+                                Column::make('importe_total')
                                     ->heading('Importe Total Final') // Etiqueta más clara
                                     ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €'),
                                 
-                                \pxlrbt\FilamentExcel\Columns\Column::make('observaciones')
+                                Column::make('observaciones')
                                     ->heading('Observaciones'),
-                                \pxlrbt\FilamentExcel\Columns\Column::make('created_at')
+                                Column::make('created_at')
                                     ->heading('Creado en App')
-                                    ->formatStateUsing(fn ($state) => \Carbon\Carbon::parse($state)->format('d/m/Y H:i')),
-                                \pxlrbt\FilamentExcel\Columns\Column::make('updated_at')
+                                    ->formatStateUsing(fn ($state) => Carbon::parse($state)->format('d/m/Y H:i')),
+                                Column::make('updated_at')
                                     ->heading('Actualizado en App')
                 ]),
         ])
@@ -1386,14 +1402,14 @@ Tables\Actions\Action::make('confirmar_transferencia')
             ]);
     }
 
-public static function infolist(Infolist $infolist): Infolist
+public static function infolist(Schema $schema): Schema
 {
-    return $infolist
-        ->schema([
+    return $schema
+        ->components([
             // --- BLOQUE 1: Información General y Contexto ---
             Grid::make(3)->schema([
                 // Columna izquierda
-                InfoSection::make('Detalles de la Venta')
+                Section::make('Detalles de la Venta')
                     ->columnSpan(2)
                     ->columns(2)
                     ->schema([
@@ -1406,7 +1422,7 @@ public static function infolist(Infolist $infolist): Infolist
                     ]),
 
                 // Columna derecha
-                InfoSection::make('Contexto y Estado')
+                Section::make('Contexto y Estado')
                     ->columnSpan(1)
                     ->schema([
                         TextEntry::make('comercial.name')->label('Comercial')->badge(),
@@ -1433,7 +1449,7 @@ public static function infolist(Infolist $infolist): Infolist
             ]),
             
             // --- BLOQUE 2: Resumen Económico ---
-    InfoSection::make('Resumen Económico')
+    Section::make('Resumen Económico')
                         ->columns(2)
                         ->schema([
                             Grid::make(2)->schema([
@@ -1468,7 +1484,7 @@ public static function infolist(Infolist $infolist): Infolist
                                     ->money('EUR')->weight('extrabold')->size('lg')->color('success')
                                     ->state(function (Venta $record) {
                                         // Detectamos impuesto según el cliente de la venta
-                                        $porcentaje = \App\Models\Cliente::getPorcentajeImpuesto(
+                                        $porcentaje = Cliente::getPorcentajeImpuesto(
                                             $record->cliente?->codigo_postal, 
                                             $record->cliente?->provincia
                                         );
@@ -1476,13 +1492,13 @@ public static function infolist(Infolist $infolist): Infolist
                                         return round($record->importe_total * (1 + ($porcentaje / 100)), 2);
                                     })
                                     ->helperText(fn (Venta $record) => 
-                                        "Calculado con " . \App\Models\Cliente::getPorcentajeImpuesto($record->cliente?->codigo_postal, $record->cliente?->provincia) . "% de impuestos."
+                                        "Calculado con " . Cliente::getPorcentajeImpuesto($record->cliente?->codigo_postal, $record->cliente?->provincia) . "% de impuestos."
                                     ),
                             ])->columnSpan(1),
                         ]),
             
             // --- BLOQUE 3: Desglose de Servicios Vendidos ---
-            InfoSection::make('Desglose de Servicios Vendidos')
+            Section::make('Desglose de Servicios Vendidos')
                 ->schema([
                     RepeatableEntry::make('items')->label(false)->contained(false)
                         ->schema([
@@ -1494,13 +1510,13 @@ public static function infolist(Infolist $infolist): Infolist
                                     ->formatStateUsing(function ($state, VentaItem $record): HtmlString {
                                         $nombreServicioHtml = e($state);
                                         if ($record->proyecto) {
-                                            $url = \App\Filament\Resources\ProyectoResource::getUrl('view', ['record' => $record->proyecto]);
-                                            $icon = \Illuminate\Support\Facades\Blade::render("<x-heroicon-s-briefcase class='h-5 w-5 text-primary-600 mr-2' />");
+                                            $url = ProyectoResource::getUrl('view', ['record' => $record->proyecto]);
+                                            $icon = Blade::render("<x-heroicon-s-briefcase class='h-5 w-5 text-primary-600 mr-2' />");
                                             $nombreServicioHtml = "<a href='{$url}' target='_blank' class='text-primary-600 hover:underline font-semibold flex items-center'>{$icon}" . e($state) . "</a>";
                                         }
                                         $precioOriginal = number_format($record->precio_unitario, 2, ',', '.');
                                         $textoPVP = "PVP: {$precioOriginal} €";
-                                        if ($record->servicio->tipo === \App\Enums\ServicioTipoEnum::RECURRENTE) {
+                                        if ($record->servicio->tipo === ServicioTipoEnum::RECURRENTE) {
                                             $periodicidad = $record->servicio->ciclo_facturacion?->value ?? '';
                                             if($periodicidad) $textoPVP .= " ({$periodicidad})";
                                         }
@@ -1535,7 +1551,7 @@ public static function infolist(Infolist $infolist): Infolist
                 ]),
                 
             // --- BLOQUE 4: Detalles de la Corrección (NUEVO) ---
-            InfoSection::make('Detalles de la Corrección')
+            Section::make('Detalles de la Corrección')
                 ->heading('Gestión de la Corrección - ¡Atención!') // <-- AÑADE ESTA LÍNEA
                 ->description('Si esta venta tiene una corrección solicitada, aquí encontrarás los detalles y podrás gestionarla. Una corrección de la venta modifica el estado de suscripciones del cliente y las facturas que estvieran emitidas, generaidno rectificativa y nueva factura')
                 ->icon('heroicon-o-exclamation-triangle')
@@ -1568,10 +1584,10 @@ public static function infolist(Infolist $infolist): Infolist
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListVentas::route('/'),
-            'create' => Pages\CreateVenta::route('/create'),
-            'view' => Pages\ViewVenta::route('/{record}'), 
-            'edit' => Pages\EditVenta::route('/{record}/edit'),
+            'index' => ListVentas::route('/'),
+            'create' => CreateVenta::route('/create'),
+            'view' => ViewVenta::route('/{record}'), 
+            'edit' => EditVenta::route('/{record}/edit'),
         ];
     }
 }

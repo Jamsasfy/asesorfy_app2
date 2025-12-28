@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\ProyectoResource\Pages;
 
+use Filament\Actions\EditAction;
+use App\Filament\Resources\ProyectoResource\RelationManagers\DocumentosRelationManager;
 use App\Filament\Resources\ProyectoResource;
 use App\Models\Proyecto;
 use App\Models\User;
@@ -18,7 +20,7 @@ class ViewProyecto extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\EditAction::make(), // Permite editar el proyecto desde la vista
+            EditAction::make(), // Permite editar el proyecto desde la vista
             // ▼▼▼ AQUÍ VA EL NUEVO BOTÓN ▼▼▼
             Action::make('asignarAsesor')
                 ->label('Asignar Asesor')
@@ -28,13 +30,11 @@ class ViewProyecto extends ViewRecord
                 ->modalHeading('Asignar responsable al proyecto')
                 ->modalSubmitActionLabel('Asignar')
                 // El botón solo es visible si el proyecto NO tiene un asesor (user_id) y tienepermisos para asignar asesores
-                 ->visible(fn (Proyecto $record): bool =>
-                            // Condición 1: El proyecto no tiene asesor
-                            is_null($record->user_id) &&
-                            // Condición 2: El usuario actual tiene el permiso
-                            auth()->user()?->can('assign_assessor_proyecto')
-                        )
-                ->form([
+                ->visible(fn (Proyecto $record): bool =>
+                    is_null($record->user_id)
+                    && auth()->user()?->can('assignAssessor', $record)
+                )
+                ->schema([
                     Select::make('user_id') // El campo a actualizar en el modelo Proyecto
                         ->label('Selecciona Asesor')
                         ->options(
@@ -56,10 +56,12 @@ class ViewProyecto extends ViewRecord
         ->icon('heroicon-o-arrow-path')
         ->color('warning')
         ->modalHeading('Cambiar responsable del proyecto')
-        ->visible(fn (Proyecto $record): bool => 
-            !is_null($record->user_id) && auth()->user()?->can('unassign_assessor_proyecto')
-        )
-        ->form([
+      ->visible(fn (Proyecto $record): bool =>
+    ! is_null($record->user_id)
+    && auth()->user()?->can('unassignAssessor', $record)
+)
+
+        ->schema([
             Select::make('user_id')->label('Selecciona Nuevo Asesor')->options(User::whereHas('roles', fn ($q) => $q->where('name', 'asesor'))->pluck('name', 'id'))->searchable()->required(),
         ])
         ->action(fn (Proyecto $record, array $data) => $record->update(['user_id' => $data['user_id']])),
@@ -72,9 +74,11 @@ class ViewProyecto extends ViewRecord
         ->requiresConfirmation()
         ->modalHeading('Quitar asesor del proyecto')
         ->modalDescription('¿Estás seguro? El proyecto se quedará sin responsable asignado.')
-        ->visible(fn (Proyecto $record): bool => 
-            !is_null($record->user_id) && auth()->user()?->can('unassign_assessor_proyecto')
-        )
+      ->visible(fn (Proyecto $record): bool =>
+    ! is_null($record->user_id)
+    && auth()->user()?->can('unassignAssessor', $record)
+)
+
         ->action(fn (Proyecto $record) => $record->update(['user_id' => null])),
 
         ];
@@ -84,11 +88,10 @@ class ViewProyecto extends ViewRecord
 public function relations(): array
 {
     return [
-        \App\Filament\Resources\ProyectoResource\RelationManagers\DocumentosRelationManager::class,
+        DocumentosRelationManager::class,
         // ...otros relationmanagers
     ];
 }
-
 
 
     

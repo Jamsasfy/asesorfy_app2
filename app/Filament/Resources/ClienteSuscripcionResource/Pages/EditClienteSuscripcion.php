@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ClienteSuscripcionResource\Pages;
 
+use Filament\Actions\DeleteAction;
 use App\Filament\Resources\ClienteSuscripcionResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
@@ -19,7 +20,7 @@ class EditClienteSuscripcion extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            DeleteAction::make(),
         ];
     }
 }

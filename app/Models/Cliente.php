@@ -2,6 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\ClienteSuscripcionEstadoEnum;
+use Stripe\Stripe;
+use Stripe\Customer;
+use Exception;
+use App\Models\Factura;
+
+use Log;
 use App\Enums\ServicioTipoEnum;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -10,9 +17,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use App\Enums\ClienteEstadoEnum;
-use App\Services\ConfiguracionService; 
-
-
+use App\Services\ConfiguracionService;
+use App\Services\StripePaymentMethodResolver;
 
 class Cliente extends Model
 {
@@ -62,6 +68,10 @@ public function tipoCliente()
     return $this->belongsTo(TipoCliente::class, 'tipo_cliente_id');
 }
 
+public function facturas(): HasMany
+{
+    return $this->hasMany(Factura::class);
+}
 public function asesor()
 {
     return $this->belongsTo(User::class, 'asesor_id');
@@ -79,10 +89,10 @@ public function recordTitle(): string
     return $this->razon_social ?? 'Cliente sin nombre';
 }
 
-public function documentos(): HasMany
+/* public function documentos(): HasMany
 {
-    return $this->hasMany(\App\Models\Documento::class);
-}
+    return $this->hasMany(Documento::class);
+} */
 
 public function comentarios(): MorphMany
 {
@@ -108,8 +118,13 @@ public function suscripciones(): HasMany
 }
 public function documentosPolimorficos()
 {
-    return $this->morphMany(\App\Models\Documento::class, 'documentable');
+    return $this->morphMany(Documento::class, 'documentable');
 }
+public function documentosVinculados(): HasMany
+{
+    return $this->hasMany(Documento::class, 'cliente_id');
+}
+
 
 
   /**
@@ -121,7 +136,7 @@ public function documentosPolimorficos()
         return Attribute::make(
             get: fn () => $this->suscripciones()
                 ->where('es_tarifa_principal', true)
-                ->where('estado', \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA)
+                ->where('estado', ClienteSuscripcionEstadoEnum::ACTIVA)
                 ->first()
         );
     }
@@ -144,7 +159,7 @@ public function documentosPolimorficos()
                     return "{$acronimo} - {$precioFormateado}";
                 }
                 
-                return 'Sin tarifa principal';
+                return 'SIN TARIFA';
             }
         );
     }
@@ -188,14 +203,14 @@ public function tieneMetodoPagoStripe(): bool
     }
 
     try {
-        \Stripe\Stripe::setApiKey(config('services.stripe.secret'));
+        Stripe::setApiKey(config('services.stripe.secret'));
 
-        $customer = \Stripe\Customer::retrieve($this->stripe_customer_id);
+        $customer = Customer::retrieve($this->stripe_customer_id);
 
         return !empty($customer->invoice_settings->default_payment_method);
 
-    } catch (\Exception $e) {
-        \Log::error("Stripe ERROR comprobando método de pago cliente {$this->id}: " . $e->getMessage());
+    } catch (Exception $e) {
+        Log::error("Stripe ERROR comprobando método de pago cliente {$this->id}: " . $e->getMessage());
         return false;
     }
 }
@@ -239,10 +254,37 @@ public function tieneMetodoPagoStripe(): bool
         }
 
         // 3. RESTO DE ESPAÑA: 21%
-        if (class_exists(\App\Services\ConfiguracionService::class)) {
-             return (float) \App\Services\ConfiguracionService::get('IVA_general', 21.00);
+        if (class_exists(ConfiguracionService::class)) {
+             return (float) ConfiguracionService::get('IVA_general', 21.00);
         }
 
         return 21.00;
     }
+
+    public function leadConContrato()
+{
+    return $this->ventas()
+        ->whereHas('lead.conversionLinks', function ($q) {
+            $q->whereNotNull('used_at')
+              ->whereNotNull('meta->pdf');
+        })
+        ->with(['lead.conversionLinks' => function ($q) {
+            $q->whereNotNull('used_at')
+              ->whereNotNull('meta->pdf')
+              ->latest('used_at');
+        }])
+        ->first()
+        ?->lead;
+}
+
+
+
+protected function stripeMetodoPago(): Attribute
+{
+    return Attribute::make(
+        get: fn () => StripePaymentMethodResolver::resolve($this)
+    );
+}
+
+
 }

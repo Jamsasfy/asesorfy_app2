@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\LeadResource\Pages;
 
+use Filament\Actions\ViewAction;
+use Filament\Actions\DeleteAction;
 use App\Filament\Resources\LeadResource;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
@@ -20,8 +22,8 @@ class EditLead extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\ViewAction::make(),
-            Actions\DeleteAction::make(),
+            ViewAction::make(),
+            DeleteAction::make(),
         ];
     }
 }

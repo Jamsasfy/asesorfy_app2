@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\VentaResource\Pages;
 
+use Filament\Actions\CreateAction;
 use App\Filament\Resources\VentaResource;
 use App\Filament\Resources\VentaResource\Widgets\AnnualSalesChart;
 use Filament\Actions;
@@ -14,7 +15,7 @@ class ListVentas extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()
+            CreateAction::make()
             ->visible(fn (): bool => auth()->user()?->can('boton_crear_venta_venta') ?? false),
         ];
     }

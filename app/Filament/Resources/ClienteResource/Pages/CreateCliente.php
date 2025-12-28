@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ClienteResource\Pages;
 
+use App\Filament\Resources\LeadResource;
 use App\Filament\Resources\ClienteResource;
 use App\Filament\Resources\VentaResource;
 use App\Models\Cliente;
@@ -37,8 +38,8 @@ class CreateCliente extends CreateRecord
             ->body('Solo se pueden crear clientes a partir de un Lead convertido.')
             ->danger()
             ->send();
-        
-        $this->redirect(\App\Filament\Resources\LeadResource::getUrl('index'));
+
+        $this->redirect(LeadResource::getUrl('index'));
         return;
     }
 
@@ -60,7 +61,7 @@ class CreateCliente extends CreateRecord
         );
         return;
     }
-    
+
     // Si no existe, continuamos con la carga normal del formulario.
     parent::mount();
 }
@@ -104,7 +105,7 @@ class CreateCliente extends CreateRecord
         }
         return parent::handleRecordCreation($data);
     }
-    
+
     protected function getCreatedNotification(): ?Notification
     {
         return Notification::make()
@@ -148,7 +149,7 @@ class CreateCliente extends CreateRecord
         }
     } 
 
-  
+
 
     public function mount(): void
     {
@@ -181,7 +182,7 @@ class CreateCliente extends CreateRecord
 
      protected array $leadParams = [];
 
-   
+
      protected function getRedirectUrl(): string
 {
     $state  = $this->form->getState();
@@ -209,8 +210,8 @@ class CreateCliente extends CreateRecord
         'record' => $this->record->getKey(),
     ]);
 }
- 
-   
+
+
     protected function handleRecordCreation(array $data): Model
     {
         // Tu validación y autocompletado de razon_social…
@@ -233,7 +234,7 @@ class CreateCliente extends CreateRecord
         return parent::handleRecordCreation($data);
     }
 
-    
+
     protected function getCreatedNotification(): ?Notification
 {
     return Notification::make()
