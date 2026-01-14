@@ -619,7 +619,7 @@ public static function infolist(Schema $schema): Schema
                 ->icon('heroicon-o-arrow-path')
                 ->visible(fn ($record) =>
                 !empty($record->asesor_id) &&
-                auth()->user()?->can('cambiar_asesor_cliente')
+                auth()->user()?->can('CambiarAsesor:Cliente')
             )
                 ->schema([
                     Select::make('asesor_id')
@@ -652,7 +652,7 @@ public static function infolist(Schema $schema): Schema
                 ->color('danger')
                 ->visible(fn ($record) =>
                 !empty($record->asesor_id) &&
-                auth()->user()?->hasPermissionTo('quitar_asesor_cliente')
+                auth()->user()?->hasPermissionTo('QuitarAsesor:Cliente')
                 )
                 ->requiresConfirmation()
                 ->modalHeading('¿Seguro que quieres quitar el asesor?')
@@ -676,7 +676,7 @@ public static function infolist(Schema $schema): Schema
                 ->color('warning')
                 ->visible(fn ($record) =>
                 empty($record->asesor_id) &&
-                auth()->user()?->hasPermissionTo('asignar_asesor_cliente')
+                auth()->user()?->hasPermissionTo('AsignarAsesor:Cliente')
                 )
                 ->schema([
                     Select::make('asesor_id')
@@ -795,7 +795,7 @@ public static function infolist(Schema $schema): Schema
                             ->send();
                     }),
             ]) ->label('🧑‍💼 Gestión de Asesores')
-            ->visible(fn () => auth()->user()?->hasPermissionTo('asignacion_masiva_asesor_cliente')), // 👈 Aplica a todo el grupo
+            ->visible(fn () => auth()->user()?->hasPermissionTo('AsignacionMasivaAsesor:Cliente')), // 👈 Aplica a todo el grupo
 
 
            

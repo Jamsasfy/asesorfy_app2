@@ -32,7 +32,9 @@ class EnsureConversionLinkIsValid
             return $next($request);
         }
 
-        // --- Caducidad / revocación por tiempo o meta ---
+        // ---------------------------------------------------------
+        // ✅ REGLA: si pasan >7 días (expires_at pasado) -> BLOQUEAR SIEMPRE
+        // ---------------------------------------------------------
         $meta = $link->meta ?? [];
 
         // Si lo revocaste explícitamente en meta, consideramos expirado
@@ -40,22 +42,21 @@ class EnsureConversionLinkIsValid
             return $this->linkError('expired', $link);
         }
 
-        // Si expiró por tiempo
+        // Si expiró por tiempo -> SIEMPRE expirado (aunque esté used)
         if ($link->expires_at && $link->expires_at->isPast()) {
             return $this->linkError('expired', $link);
         }
 
-        // --- Link usado: permitir SOLO rutas de pago / post-firma ---
+        // ---------------------------------------------------------
+        // ✅ Si está usado, permitir SOLO rutas de pago/post-firma
+        // (mientras NO esté expirado)
+        // ---------------------------------------------------------
         if ($link->isUsed()) {
-
             $allowedWhenUsed = [
-                // pasos post-firma dentro del flujo
                 'conversion.pago-inicial',
                 'conversion.pago-inicial.store',
                 'conversion.pago-recurrente',
                 'conversion.pago-recurrente.store',
-
-                // (finished ya está contemplada arriba, pero no molesta dejarlo)
                 'conversion.finished',
             ];
 

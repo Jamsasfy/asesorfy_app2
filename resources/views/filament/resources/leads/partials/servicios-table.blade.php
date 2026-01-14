@@ -3,7 +3,7 @@
 @php
     use App\Models\Servicio;
 
-    // ⚠️ Mantenemos tu forma de cargar servicios (si luego quieres optimizar, lo hacemos en el Page)
+    // ⚠️ Mantenemos tu forma de cargar servicios
     $servicios = Servicio::query()->orderBy('nombre')->get();
 
     // Servicios ya seleccionados (para evitar duplicados)
@@ -57,6 +57,12 @@
                 $esEditable = (bool) ($svc?->es_editable ?? ($item['es_editable'] ?? false));
                 $requiereProyectoServicio = (bool) ($svc?->requiere_proyecto_activacion ?? false);
                 $esTarifaPrincipal = (bool) ($svc?->es_tarifa_principal ?? false);
+
+                // ✅ bloquea recurrente (desde servicio o item)
+                $bloqueaRecurrente = (bool) (
+                    ($item['bloquea_recurrente'] ?? false)
+                    || ($svc?->bloquea_recurrente ?? false)
+                );
 
                 $cantidad = (float) ($item['cantidad'] ?? 1);
 
@@ -124,13 +130,22 @@
                                 @endforeach
                             </select>
 
-                            {{-- Chip tipo --}}
+                          {{-- Chip tipo --}}
                             @if($svc)
                                 @php
                                     $chip = ($tipo === 'recurrente')
                                         ? 'bg-sky-600/15 text-sky-700 ring-1 ring-sky-600/25 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-500/25'
                                         : 'bg-emerald-600/15 text-emerald-700 ring-1 ring-emerald-600/25 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/25';
+
+                                    // ✅ AQUÍ ESTÁ EL CAMBIO
+                                    // Si el comercial marca el checkbox => badge ON aunque en el Servicio esté false
+                                    // Si el Servicio viene con bloquea_recurrente=true => badge ON aunque el checkbox esté sin marcar
+                                    $bloqueaRecurrente = (bool) (
+                                        ($item['bloquea_recurrente'] ?? false)
+                                        || ($svc?->bloquea_recurrente ?? false)
+                                    );
                                 @endphp
+
                                 <div class="mt-2 inline-flex items-center gap-2">
                                     <span class="rounded-full px-2 py-0.5 text-[10px] font-bold {{ $chip }}">
                                         {{ $tipo === 'recurrente' ? 'Recurrente' : 'Único' }}
@@ -138,26 +153,34 @@
 
                                     @if($esEditable)
                                         <span class="rounded-full bg-purple-600/15 px-2 py-0.5 text-[10px] font-bold text-purple-700 ring-1 ring-purple-600/25
-                                                     dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/25">
+                                                    dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/25">
                                             Editable
                                         </span>
                                     @endif
 
                                     @if($requiereProyectoServicio || ($item['requiere_proyecto'] ?? false))
                                         <span class="rounded-full bg-indigo-600/15 px-2 py-0.5 text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-600/25
-                                                     dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
+                                                    dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
                                             Proyecto
+                                        </span>
+                                    @endif
+
+                                   @if($bloqueaRecurrente)
+                                        <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                                    dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                                            Bloquea Rec.
                                         </span>
                                     @endif
 
                                     @if($esTarifaPrincipal)
                                         <span class="rounded-full bg-amber-600/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-600/25
-                                                     dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25">
+                                                    dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25">
                                             Base
                                         </span>
                                     @endif
                                 </div>
                             @endif
+
                         </div>
                     </div>
 
@@ -187,7 +210,7 @@
                         @endif
                     </div>
 
-                    {{-- 3) PRECIO FINAL (AZUL, sin cursiva) --}}
+                    {{-- 3) PRECIO FINAL --}}
                     <div class="col-span-2 text-right">
                         <span class="text-sm font-extrabold text-sky-600 dark:text-sky-400">
                             {{ $fmt($precioFinalUnit) }} €
@@ -213,7 +236,7 @@
                         </span>
                     </div>
 
-                    {{-- 6) SUBT FINAL (VERDE, sin cursiva) + BORRAR --}}
+                    {{-- 6) SUBT FINAL + BORRAR --}}
                     <div class="col-span-2 flex items-center justify-end gap-3">
                         <span class="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
                             {{ $fmt($subtFinal) }} €
@@ -232,95 +255,151 @@
                     </div>
                 </div>
 
-                {{-- FILA EXTRA: EDITABLE + DESCUENTO --}}
+                {{-- FILA EXTRA: EDITABLE + OPCIONES RECURRENTES + DESCUENTO --}}
                 <div class="mt-3 grid grid-cols-16 gap-4">
-                    {{-- BLOQUE IZQ (proyecto + nombre editable) --}}
+                    {{-- BLOQUE IZQ --}}
                     <div class="col-span-7">
                         @if($esEditable)
-                            <div class="flex flex-wrap items-center gap-3">
-                                <label
-                                    class="inline-flex items-center gap-2 rounded-lg border border-sky-400/40 bg-sky-50/60 px-3 py-2
-                                           dark:border-sky-500/25 dark:bg-gray-950/30"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        wire:model.live="items.{{ $i }}.requiere_proyecto"
-                                        class="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500/30"
-                                    />
-                                    <span class="text-xs font-bold text-sky-700 dark:text-sky-200">Proyecto</span>
-                                </label>
+                        @php
+                            // ✅ Si el servicio ya trae bloquea_recurrente o el comercial lo marca
+                            $bloqueaRecurrente = (bool) ($item['bloquea_recurrente'] ?? false) || (bool) ($svc?->bloquea_recurrente ?? false);
+                        @endphp
 
-                                <div class="flex-1 min-w-[260px]">
-                                    <div class="mb-1 text-[10px] font-bold uppercase tracking-wider text-sky-700/70 dark:text-sky-300/70">
-                                        Nombre del servicio (editable)
-                                    </div>
-
-                                    <input
-                                        type="text"
-                                        wire:model.live.debounce.500ms="items.{{ $i }}.nombre_personalizado"
-                                        class="w-full rounded-lg border border-sky-400/40 bg-white px-3 py-2
-                                               text-sm font-semibold text-gray-900 placeholder:text-gray-400
-                                               focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
-                                               dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100 dark:placeholder:text-gray-500"
-                                        placeholder="{{ $svc?->nombre ?? 'Nombre...' }}"
-                                    />
-                                </div>
-                            </div>
-                        @endif
-                    </div>
-
-                    {{-- BLOQUE DERECHA (descuento) --}}
-                    <div class="col-span-9">
-                        <div class="flex flex-wrap items-center justify-end gap-3">
+                        <div class="flex flex-wrap items-center gap-3">
+                            {{-- ✅ CHECK: BLOQUEA RECURRENTE (lo que marca el comercial) --}}
                             <label
-                                class="inline-flex items-center gap-2 rounded-lg border border-sky-400/35 bg-sky-50/60 px-3 py-2
-                                       dark:border-sky-500/20 dark:bg-gray-950/20"
+                                class="inline-flex items-center gap-2 rounded-lg border border-rose-400/30 bg-rose-50/60 px-3 py-2
+                                    dark:border-rose-500/25 dark:bg-gray-950/30"
+                                title="Si está activo, NO se cobra prorrata hoy (0€) y el recurrente se activará tras onboarding."
                             >
                                 <input
                                     type="checkbox"
-                                    wire:model.live="items.{{ $i }}.aplicar_descuento"
-                                    class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500/30"
+                                    wire:model.live="items.{{ $i }}.bloquea_recurrente"
+                                    class="h-4 w-4 rounded border-gray-300 text-rose-600 focus:ring-rose-500/30"
                                 />
-                                <span class="text-xs font-bold text-sky-700 dark:text-sky-200">Descuento</span>
+                                <span class="text-xs font-bold text-rose-700 dark:text-rose-200">
+                                    Bloquea recurrente
+                                </span>
+                                <span class="text-[10px] font-bold text-rose-700/60 dark:text-rose-200/60">
+                                    (prorrata 0)
+                                </span>
                             </label>
 
-                            @if($aplicarDescuento)
-                                <select
-                                    wire:model.live="items.{{ $i }}.descuento_tipo"
-                                    class="min-w-[220px] rounded-lg border border-sky-400/40 bg-white px-3 py-2
-                                           text-sm font-semibold text-gray-900
-                                           focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
-                                           dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
-                                >
-                                    <option value="">Sin dto</option>
-                                    <option value="porcentaje">Porcentaje (%)</option>
-                                    <option value="fijo">Cantidad fija (€)</option>
-                                    <option value="precio_final">Precio final (€)</option>
-                                </select>
+                            <div class="flex-1 min-w-[260px]">
+                                <div class="mb-1 text-[10px] font-bold uppercase tracking-wider text-sky-700/70 dark:text-sky-300/70">
+                                    Nombre del servicio (editable)
+                                </div>
 
                                 <input
                                     type="text"
-                                    inputmode="decimal"
-                                    autocomplete="off"
-                                    wire:model.live.debounce.500ms="items.{{ $i }}.descuento_valor"
-                                    class="w-[140px] rounded-lg border border-sky-400/40 bg-white px-3 py-2 text-sm font-bold text-gray-900
-                                           focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
-                                           dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
-                                    placeholder="{{ ($descuentoTipo === 'porcentaje') ? 'Ej: 25' : 'Ej: 10,00' }}"
+                                    wire:model.live.debounce.500ms="items.{{ $i }}.nombre_personalizado"
+                                    class="w-full rounded-lg border border-sky-400/40 bg-white px-3 py-2
+                                        text-sm font-semibold text-gray-900 placeholder:text-gray-400
+                                        focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                        dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100 dark:placeholder:text-gray-500"
+                                    placeholder="{{ $svc?->nombre ?? 'Nombre...' }}"
                                 />
+                            </div>
+                        </div>
 
-                                @if($tipo === 'recurrente')
+                        {{-- ✅ AVISO debajo (mismo look & feel que el badge de bloquea recurrente) --}}
+                        @if($bloqueaRecurrente)
+                            <div class="mt-2 rounded-lg border border-rose-400/30 bg-rose-50/60 px-3 py-2
+                                        dark:border-rose-500/25 dark:bg-gray-950/30">
+                                <div class="text-xs font-bold text-rose-700 dark:text-rose-200">
+                                    Se bloqueará los servicios recurrentes de esta venta hasta que el proyecto de este servicio este finalizado.
+                                </div>
+                            </div>
+                        @endif
+                    @endif
+
+                    </div>
+
+                    {{-- BLOQUE DERECHA --}}
+                    <div class="col-span-9">
+                        <div class="flex flex-wrap items-end justify-end gap-3">
+
+                            {{-- ✅ 1) SELECTOR COBRO PRIMER MES (Solo Recurrente) --}}
+                            @if($tipo === 'recurrente' && $svc)
+                                <div class="flex items-center gap-2">
+                                    <div class="relative">
+                                        <select
+                                            wire:model.live="items.{{ $i }}.cobro_primer_mes"
+                                            class="appearance-none cursor-pointer rounded-lg border border-slate-300 bg-white py-1.5 pl-3 pr-8 text-xs font-bold text-slate-700 shadow-sm
+                                                focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500
+                                                dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                            title="Cómo facturar el primer mes"
+                                        >
+                                            <option value="prorrata">📅 Prorrata</option>
+                                            <option value="completo">🌕 Mes completo</option>
+                                            <option value="gratis">🎁 Primer mes gratis (0€)</option>
+                                        </select>
+                                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                                            <svg class="h-3 w-3 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                            @endif
+
+                            {{-- 2) DESCUENTO --}}
+                            <div class="flex flex-col items-start h-[38px] justify-center">
+                                <label
+                                    class="inline-flex h-full items-center gap-2 rounded-lg border border-sky-400/35 bg-sky-50/60 px-3
+                                           dark:border-sky-500/20 dark:bg-gray-950/20"
+                                >
                                     <input
-                                        type="number"
-                                        min="1"
-                                        wire:model.live="items.{{ $i }}.descuento_duracion_meses"
-                                        class="w-[120px] rounded-lg border border-sky-400/40 bg-white px-3 py-2 text-sm font-bold text-gray-900
+                                        type="checkbox"
+                                        wire:model.live="items.{{ $i }}.aplicar_descuento"
+                                        class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500/30"
+                                    />
+                                    <span class="text-xs font-bold text-sky-700 dark:text-sky-200">Descuento</span>
+                                </label>
+                            </div>
+
+                            @if($aplicarDescuento)
+                                <div class="flex items-center gap-2">
+                                    <select
+                                        wire:model.live="items.{{ $i }}.descuento_tipo"
+                                        class="h-[38px] min-w-[140px] rounded-lg border border-sky-400/40 bg-white px-3 py-1
+                                               text-sm font-semibold text-gray-900
                                                focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
                                                dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
-                                        placeholder="Meses"
-                                        title="Duración (meses)"
+                                    >
+                                        <option value="">Sin dto</option>
+
+                                        @if($tipo === 'recurrente')
+                                            <option value="porcentaje">Porcentaje (%)</option>
+                                        @else
+                                            <option value="porcentaje">Porcentaje (%)</option>
+                                            <option value="fijo">Cantidad fija (€)</option>
+                                            <option value="precio_final">Precio final (€)</option>
+                                        @endif
+                                    </select>
+
+                                    <input
+                                        type="text"
+                                        inputmode="decimal"
+                                        autocomplete="off"
+                                        wire:model.live.debounce.500ms="items.{{ $i }}.descuento_valor"
+                                        class="h-[38px] w-[100px] rounded-lg border border-sky-400/40 bg-white px-3 py-1 text-sm font-bold text-gray-900
+                                               focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                               dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
+                                        placeholder="{{ ($descuentoTipo === 'porcentaje') ? 'Ej: 25' : 'Ej: 10,00' }}"
                                     />
-                                @endif
+
+                                    @if($tipo === 'recurrente')
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            wire:model.live="items.{{ $i }}.descuento_duracion_meses"
+                                            class="h-[38px] w-[80px] rounded-lg border border-sky-400/40 bg-white px-3 py-1 text-sm font-bold text-gray-900
+                                                   focus:border-sky-500/60 focus:outline-none focus:ring-2 focus:ring-sky-500/15
+                                                   dark:border-sky-500/25 dark:bg-gray-950/30 dark:text-gray-100"
+                                            placeholder="Meses"
+                                            title="Duración (periodos de facturación)"
+                                        />
+                                    @endif
+                                </div>
                             @endif
                         </div>
                     </div>

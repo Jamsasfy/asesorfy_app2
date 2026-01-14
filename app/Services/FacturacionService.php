@@ -58,7 +58,9 @@ public static function generarFacturaInicial(
     Venta $venta,
     Carbon $fechaPago,
     ?string $metodoPago = 'manual',
-    ?\App\Enums\FacturaEstadoEnum $estado = null
+    ?\App\Enums\FacturaEstadoEnum $estado = null,
+    ?string $stripeInvoiceId = null,
+    ?string $stripePaymentIntentId = null
 ): ?Factura {
     $estado = $estado ?? \App\Enums\FacturaEstadoEnum::PAGADA;
 
@@ -74,16 +76,45 @@ public static function generarFacturaInicial(
         return null;
     }
 
+    // ✅ Idempotencia: si ya existe factura inicial con ese estado, la devolvemos.
+    // (No tocamos el criterio para no romperte lógica previa)
     $facturaExistente = $venta->facturas()
         ->where('estado', $estado)
-        ->exists();
+        ->first();
 
     if ($facturaExistente) {
-        return $venta->facturas()->where('estado', $estado)->first();
+        // ✅ Si ahora tenemos trazabilidad Stripe y antes no, la “rellenamos” (sin cambiar nada más)
+        $updates = [];
+
+        if ($stripeInvoiceId && empty($facturaExistente->stripe_invoice_id)) {
+            $updates['stripe_invoice_id'] = $stripeInvoiceId;
+        }
+
+        if ($stripePaymentIntentId && empty($facturaExistente->stripe_payment_intent_id)) {
+            $updates['stripe_payment_intent_id'] = $stripePaymentIntentId;
+        }
+
+        if (! empty($updates)) {
+            $facturaExistente->update($updates);
+        }
+
+        return $facturaExistente;
     }
 
-    return self::crearFacturaConItems($venta, $ventaItems, $estado, $fechaPago, $metodoPago);
+    // ✅ Creamos factura con items como antes
+    $factura = self::crearFacturaConItems($venta, $ventaItems, $estado, $fechaPago, $metodoPago);
+
+    // ✅ Guardar trazabilidad Stripe si aplica
+    if ($factura && ($stripeInvoiceId || $stripePaymentIntentId)) {
+        $factura->update([
+            'stripe_invoice_id'        => $stripeInvoiceId,
+            'stripe_payment_intent_id' => $stripePaymentIntentId,
+        ]);
+    }
+
+    return $factura;
 }
+
 
 
 
@@ -204,22 +235,23 @@ private static function tieneImporteUnicoReal($items): bool
             $baseImponibleTotal += $subtotalLinea;
             $totalIva           += $ivaLinea;
 
-            $factura->items()->create([
-                'venta_item_id'            => $item->id,
+          $factura->items()->create([
                 'servicio_id'              => $item->servicio_id,
                 'descripcion'              => $item->nombre_personalizado ?: ($item->servicio->nombre ?? 'Servicio'),
                 'cantidad'                 => $cantidad,
+
                 'precio_unitario'          => round($precioOriginal, 2),
                 'precio_unitario_aplicado' => round($precioAplicado, 2),
                 'importe_descuento'        => round($importeDescuento * $cantidad, 2),
+
                 'porcentaje_iva'           => $porcentajeIva,
-                'cuota_iva'                => $ivaLinea,
                 'subtotal'                 => $subtotalLinea,
-                'total'                    => $subtotalLinea + $ivaLinea,
+
                 'cliente_suscripcion_id'   => $item->cliente_suscripcion_id,
                 'descuento_tipo'           => $item->descuento_tipo,
                 'descuento_valor'          => $item->descuento_valor,
             ]);
+
         }
 
         $factura->update([
@@ -234,67 +266,72 @@ private static function tieneImporteUnicoReal($items): bool
     /**
      * Genera una factura para un cobro recurrente de Stripe (Webhook).
      */
-    public static function crearFacturaRecurrente(
-        Cliente $cliente,
-        ClienteSuscripcion $suscripcion,
-        int $amountCents,
-        Carbon $fechaPago,
-        string $stripeInvoiceNumber
-    ): Factura {
-        
-        return DB::transaction(function () use ($cliente, $suscripcion, $amountCents, $fechaPago, $stripeInvoiceNumber) {
-            
-            // 1. Datos de serie y número
-            $datosFactura = self::generarSiguienteNumeroFactura();
-            
-            // 2. Cerebro Fiscal: Detectar impuestos
-            $porcentajeIva = Cliente::getPorcentajeImpuesto(
-                $cliente->codigo_postal, 
-                $cliente->provincia
-            );
-            $factor = 1 + ($porcentajeIva / 100);
-            
-            // 3. Desglosar totales (Stripe manda bruto en céntimos)
-            $totalPagado    = $amountCents / 100; // a Euros
-            $baseImponible  = round($totalPagado / $factor, 2);
-            $iva            = round($totalPagado - $baseImponible, 2);
+public static function crearFacturaRecurrente(
+    Cliente $cliente,
+    ClienteSuscripcion $suscripcion,
+    int $amountCents,
+    Carbon $fechaPago,
+    ?string $stripeInvoiceId = null,
+    ?string $stripeInvoiceNumber = null,
+    ?string $stripePaymentIntentId = null
+): Factura {
 
-            $fechaEmision = $fechaPago->copy()->startOfDay();
+    return DB::transaction(function () use (
+        $cliente,
+        $suscripcion,
+        $amountCents,
+        $fechaPago,
+        $stripeInvoiceId,
+        $stripeInvoiceNumber,
+        $stripePaymentIntentId
+    ) {
+        $datosFactura = self::generarSiguienteNumeroFactura();
 
+        $porcentajeIva = Cliente::getPorcentajeImpuesto($cliente->codigo_postal, $cliente->provincia);
+        $factor = 1 + ($porcentajeIva / 100);
 
-            // 4. Crear Cabecera
-            $factura = Factura::create([
-                'cliente_id'        => $cliente->id,
-                // En renovaciones puras no hay "venta_id" nueva, usamos la original de la suscripción
-                'venta_id'          => $suscripcion->venta_origen_id, 
-                'serie'             => $datosFactura['serie'],
-                'numero_factura'    => $datosFactura['numero_factura'],
-                'estado'            => FacturaEstadoEnum::PAGADA,
-                'metodo_pago'       => 'stripe',
-                'fecha_emision'     => $fechaPago,
-                'fecha_vencimiento' => $fechaPago,
-                'base_imponible'    => $baseImponible,
-                'total_iva'         => $iva,
-                'total_factura'     => $totalPagado,
-                'observaciones_publicas'     => "Renovación automática Stripe: " . $stripeInvoiceNumber,
-            ]);
+        $totalPagado   = $amountCents / 100;
+        $baseImponible = round($totalPagado / $factor, 2);
+        $iva           = round($totalPagado - $baseImponible, 2);
 
-            // 5. Crear Línea
-            $factura->items()->create([
-                'descripcion'            => $suscripcion->nombre_personalizado ?? ($suscripcion->servicio->nombre ?? 'Suscripción'),
-                'cantidad'               => 1,
-                'precio_unitario'        => $baseImponible,
-                'porcentaje_iva'         => $porcentajeIva,
-                'cuota_iva'              => $iva,
-                'subtotal'               => $baseImponible,
-                'total'                  => $totalPagado,
-                'cliente_suscripcion_id' => $suscripcion->id,
-                'servicio_id'            => $suscripcion->servicio_id,
-            ]);
+        $numeroRef = $stripeInvoiceNumber ?: $stripeInvoiceId;
 
-            return $factura;
-        });
-    }
+        $factura = Factura::create([
+            'cliente_id'              => $cliente->id,
+            'venta_id'                => $suscripcion->venta_origen_id,
+            'serie'                   => $datosFactura['serie'],
+            'numero_factura'          => $datosFactura['numero_factura'],
+            'estado'                  => FacturaEstadoEnum::PAGADA,
+            'metodo_pago'             => 'stripe',
+            'fecha_emision'           => $fechaPago,
+            'fecha_vencimiento'       => $fechaPago,
+
+            // ✅ STRIPE
+            'stripe_invoice_id'        => $stripeInvoiceId,
+            'stripe_payment_intent_id' => $stripePaymentIntentId,
+
+            'base_imponible'          => $baseImponible,
+            'total_iva'               => $iva,
+            'total_factura'           => $totalPagado,
+            'observaciones_publicas'  => $numeroRef ? "Renovación automática Stripe: {$numeroRef}" : 'Renovación automática Stripe',
+        ]);
+
+        $factura->items()->create([
+            'descripcion'            => $suscripcion->nombre_personalizado ?? ($suscripcion->servicio->nombre ?? 'Suscripción'),
+            'cantidad'               => 1,
+            'precio_unitario'        => $baseImponible,
+            'porcentaje_iva'         => $porcentajeIva,
+            'cuota_iva'              => $iva,
+            'subtotal'               => $baseImponible,
+            'total'                  => $totalPagado,
+            'cliente_suscripcion_id' => $suscripcion->id,
+            'servicio_id'            => $suscripcion->servicio_id,
+        ]);
+
+        return $factura;
+    });
+}
+
 
 
 

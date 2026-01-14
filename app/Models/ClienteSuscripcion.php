@@ -46,6 +46,7 @@ class ClienteSuscripcion extends Model
     'datos_adicionales',
     'nombre_personalizado',
     'descuento_duracion_meses',
+    'no_cobrar_primer_periodo',
 ];
 
 
@@ -66,6 +67,8 @@ class ClienteSuscripcion extends Model
         'datos_adicionales' => 'array',
         'estado' => ClienteSuscripcionEstadoEnum::class, // <-- Usamos el Enum para el estado
         'ciclo_facturacion' => CicloFacturacionEnum::class, // Este es el que falta
+        'no_cobrar_primer_periodo' => 'boolean',
+       
 
     ];
 

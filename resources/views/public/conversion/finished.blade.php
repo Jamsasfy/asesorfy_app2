@@ -3,719 +3,367 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Firma completada</title>
+  <title>¡Todo listo!</title>
   <link rel="icon" type="image/png" href="{{ asset('images/favicon.png') }}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
-
   <style>
-    :root {
-      --bg:#0b1220;
-      --card:#0f172a;
-      --muted:#94a3b8;
-      --border:#1f2a44;
-      --ok:#22c55e;
-      --ok-strong:#16a34a;
-      --btn:#16a34a;
-      --btn-h:#15803d;
-      --link:#93c5fd;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      font-family: "Varela Round", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-      background: var(--bg);
-      color:#e5e7eb;
+    :root { --bg:#0f172a; --card:#1e293b; --text:#f1f5f9; --muted:#94a3b8; --ok:#22c55e; }
+    body{ margin:0; font-family:"Varela Round", sans-serif; background:var(--bg); color:var(--text); }
+    .wrap{ max-width:800px; margin:40px auto; padding:20px; }
+    .card{ background:var(--card); border-radius:24px; padding:40px; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); border:1px solid #334155; }
+
+    .logo img { height: 45px; display:block; margin: 0 auto 25px; }
+    .icon-ok { width:70px; height:70px; background:rgba(34,197,94,0.1); border:2px solid var(--ok); color:var(--ok); border-radius:50%; display:grid; place-items:center; font-size:32px; margin:0 auto 20px; }
+    .header { text-align:center; margin-bottom:40px; }
+    h1 { margin:0 0 10px; font-size:30px; }
+
+    .data-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; background:#0f172a; padding:20px; border-radius:16px; margin-bottom:30px; border:1px solid #334155; }
+    .lbl { font-size:12px; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px; }
+    .val { font-size:15px; font-weight:600; color:#fff; word-break: break-word; }
+
+    /* ESTADOS */
+    .status-box { background:#0f172a; border-radius:16px; padding:24px; margin-bottom:20px; border-left:5px solid transparent; }
+    .status-box.success { border-left-color: #22c55e; background: linear-gradient(90deg, rgba(34,197,94,0.05) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.active { border-left-color: #3b82f6; background: linear-gradient(90deg, rgba(59,130,246,0.05) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.deferred { border-left-color: #f59e0b; background: linear-gradient(90deg, rgba(245,158,11,0.05) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.warn { border-left-color: #ef4444; background: linear-gradient(90deg, rgba(239,68,68,0.05) 0%, rgba(15,23,42,1) 100%); }
+
+    .box-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+    .box-title { font-size:18px; font-weight:800; display:flex; align-items:center; gap:10px; }
+    .box-amount { font-size:24px; font-weight:900; color:#fff; }
+    .box-body { font-size:14px; color:var(--muted); line-height:1.6; }
+
+    .text-green { color:#4ade80; font-weight:700; }
+    .text-orange { color:#fbbf24; font-weight:700; }
+    .text-blue { color:#60a5fa; font-weight:700; }
+    .text-white { color:#fff; font-weight:700; }
+
+    /* TABLA SERVICIOS */
+    .services-table { margin-top: 35px; border-top: 1px solid #334155; padding-top: 25px; }
+    .st-head { font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 800; margin-bottom: 15px; letter-spacing: 0.05em; }
+    .st-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px dashed #334155; }
+    .st-row:last-child { border-bottom: 0; }
+    .st-name { font-weight: 600; font-size: 15px; color: #fff; }
+    .st-meta { font-size: 12px; color: var(--muted); display: block; margin-top: 4px; }
+    .st-price { font-weight: 700; color: #fff; text-align: right; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; margin-left: 8px; }
+    .tag.blue { background: rgba(59,130,246,0.2); color: #60a5fa; }
+
+    .btn-download { display:block; width:100%; background:#6366f1; color:#fff; text-align:center; padding:16px; border-radius:12px; font-weight:700; text-decoration:none; margin-top:30px; transition:0.2s; }
+    .btn-download:hover { background:#4f46e5; }
+    .footer { text-align:center; margin-top:30px; font-size:13px; }
+    .footer a { color:var(--muted); }
+    .iva-inc{
+      font-size:11px;
+      font-weight:700;
+      color:var(--muted);
+      margin-left:6px;
+      white-space:nowrap;
     }
 
-    .wrap{max-width:1080px;margin:32px auto;padding:16px}
-    .card{
-      background: var(--card);
-      border:1px solid var(--border);
-      border-radius:18px;
-      padding:28px;
-      box-shadow: 0 20px 40px rgba(0,0,0,.35);
-    }
-
-    .logo{ display:flex; align-items:center; gap:12px; margin-bottom:18px; }
-    .logo img{ height:40px; width:auto; display:block; }
-
-    .header{ display:flex; align-items:center; gap:14px; margin-bottom:14px; }
-    .badge-ok{
-      width:38px;height:38px;display:grid;place-items:center;
-      background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.35);
-      color:var(--ok); border-radius:999px; flex:0 0 auto; font-weight:800;
-    }
-    .title{font-size:26px;font-weight:800;letter-spacing:.2px;line-height:1.15}
-    .muted{color:var(--muted)}
-
-    .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:10px 24px; margin-top:16px; }
-    .label{font-size:13px;color:var(--muted);margin-bottom:3px}
-    .value{font-size:16px;font-weight:600}
-
-    .panel{
-      margin-top:22px; padding:18px 20px; border-radius:14px;
-      background:#111827; border:1px solid #1f2937;
-    }
-    .actions{margin-top:12px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
-    .btn{
-      appearance:none; border:0; cursor:pointer;
-      background: var(--btn); color:#fff; font-weight:700;
-      padding:10px 16px; border-radius:12px; font-size:15px;
-      text-decoration:none; display:inline-flex; align-items:center; gap:10px;
-      justify-content: center;
-    }
-    .btn:hover{background:var(--btn-h)}
-
-    .btn-pay {
-        background: #635bff !important;
-        width: 100%;
-        font-size: 1.1rem;
-        padding: 14px;
-        transition: transform 0.1s;
-    }
-    .btn-pay:hover {
-        background: #5346e0 !important;
-        transform: translateY(-2px);
-    }
-    .btn-secondary {
-        background: transparent; border: 1px solid #475569; color: #cbd5e1; font-size: 0.9rem; padding: 8px 12px;
-    }
-    .btn-secondary:hover { background: #1e293b; border-color: #94a3b8; }
-
-    .link{color:var(--link); text-decoration:underline}
-    .legal{margin-top:10px; font-size:13px; color:var(--muted)}
-    .footer-actions{margin-top:20px}
-
-    @media (max-width: 720px){
-      .wrap{padding:12px;margin:20px auto}
-      .card{padding:20px;border-radius:16px}
-      .logo{justify-content:center}
-      .title{font-size:22px;text-align:center}
-      .header{flex-direction:column;align-items:center;text-align:center;gap:10px}
-      .grid{grid-template-columns:1fr; gap:10px}
-      .footer-actions{display:flex; justify-content:center}
-    }
+    @media(max-width:600px){ .data-grid{ grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
-  @php
-    $form = $form ?? [];
-    $importePagoInicial = $importePagoInicial ?? 0;
 
-    $tieneRecurrente = $tieneRecurrente ?? false;
-    $pagoRecurrenteCompletado = $pagoRecurrenteCompletado ?? false;
-    $tienePagoInicialPendiente = $tienePagoInicialPendiente ?? false;
-    $metodoPagoInicial = $metodoPagoInicial ?? 'stripe';
+@php
+  // -------------------------
+  // Helpers (sin tocar diseño)
+  // -------------------------
+  $fmtMoney = fn ($n) => number_format((float) $n, 2, ',', '.');
 
-    // Variables visuales aseguradas
-    $cardInfo = $cardInfo ?? null;
-    $totalRecurrenteMensual = $totalRecurrenteMensual ?? 0;
-    $importeSinIvaRecurrente = $importeSinIvaRecurrente ?? 0;
-    $nombreServicioRecurrente = $nombreServicioRecurrente ?? 'Suscripción';
-    $esperaProyecto = $esperaProyecto ?? false;
-    $prorrateo = $prorrateo ?? null;
-    $infoDescuento = $infoDescuento ?? null;
-    $porcentajeIva = $porcentajeIva ?? 21; // Default por seguridad
+  $promoRangoRelativo = function (int $inicioMes, int $meses): ?string {
+      if ($meses <= 0) return null;
+      $fin = $inicioMes + $meses - 1;
+      return $inicioMes === $fin ? "Mes {$inicioMes}" : "Meses {$inicioMes}-{$fin}";
+  };
 
-    // ✅ Pago inicial realizado (para mostrar bloque confirmación)
-    $mostrarPagoInicialRealizado = ((float) $importePagoInicial > 0) && !$tienePagoInicialPendiente;
+  $getRecPrincipalFromResumen = function ($resumenServicios) {
+      $col = $resumenServicios instanceof \Illuminate\Support\Collection ? $resumenServicios : collect($resumenServicios);
+      return $col->first(fn ($s) => ($s['tipo'] ?? null) === 'recurrente' && !empty($s['es_tarifa_principal']))
+          ?? $col->first(fn ($s) => ($s['tipo'] ?? null) === 'recurrente');
+  };
 
-    $pagoInicialFecha = null;
-    if (isset($venta) && $venta) {
-        $pagoInicialFecha = $venta->pago_inicial_fecha ?? $venta->confirmada_at ?? null;
-    }
+  $recResumenPrincipal = $getRecPrincipalFromResumen($resumenServicios ?? []);
+@endphp
 
-    $pagoInicialRef = null;
-    if (isset($venta) && $venta) {
-        $pagoInicialRef = $venta->pago_inicial_referencia ?? null;
-    }
+<div class="wrap">
+  <div class="card">
 
-    $metodoInicialLabel = 'Tarjeta (Stripe)';
-    $metodoInicialIcon = '💳';
-    if (($metodoPagoInicial ?? '') === 'transferencia') {
-        $metodoInicialLabel = 'Transferencia bancaria';
-        $metodoInicialIcon = '🏦';
-    }
-  @endphp
-
-
-  <div class="wrap">
-    <div class="card">
-
+    <div class="header">
       <div class="logo">
-        <img src="{{ asset('images/logo_dark.png') }}" alt="AsesorFy"
-             onerror="this.replaceWith(document.createTextNode('AsesorFy')); ">
+         <img src="{{ asset('images/logo_dark.png') }}" alt="AsesorFy">
       </div>
+      <div class="icon-ok">✓</div>
+      <h1>¡Todo listo!</h1>
+      <p style="color:#94a3b8;">Hemos procesado tu firma y la configuración de tu cuenta.</p>
+    </div>
 
-      <div class="header">
-        <div class="badge-ok">✔</div>
-        <div>
-          <div class="title">¡Firma completada!</div>
-          <div class="muted">Hemos recibido tu aceptación y registro con sello de tiempo.</div>
-        </div>
-      </div>
+    {{-- DATOS CLIENTE --}}
+    @php
+       $form = $form ?? [];
+       $nombre = trim(($form['nombre'] ?? '') . ' ' . ($form['apellidos'] ?? ''));
+       $razon = $form['razon_social'] ?? $nombre;
+       if (!$razon) $razon = '—';
+    @endphp
 
-      <div class="grid">
-        <div>
-          <div class="label">Nombre / Razón Social</div>
-          <div class="value">
-            {{ $form['razon_social'] ?? ($form['nombre'] ?? $lead->nombre ?? '—') }}
-          </div>
-        </div>
-        <div>
-          <div class="label">DNI / CIF</div>
-          <div class="value">
-            {{ $form['cif'] ?? $form['dni'] ?? $form['dni_nie'] ?? $lead->dni ?? $lead->cif ?? '—' }}
-          </div>
-        </div>
-        <div>
-          <div class="label">Email</div>
-          <div class="value">
-            {{ $form['email'] ?? $lead->email ?? '—' }}
-          </div>
-        </div>
-        <div>
-          <div class="label">Fecha de firma</div>
-          <div class="value">
-            {{ optional($lead->contract_signed_at)->format('d/m/Y H:i') ?? now()->format('d/m/Y H:i') }}
-          </div>
-        </div>
-      </div>
+    <div class="data-grid">
+      <div><div class="lbl">Titular</div><div class="val">{{ $razon }}</div></div>
+      <div><div class="lbl">DNI / CIF</div><div class="val">{{ $form['cif'] ?? $form['dni'] ?? '—' }}</div></div>
+      <div><div class="lbl">Email</div><div class="val">{{ $form['email'] ?? '—' }}</div></div>
+    </div>
 
-      {{-- BLOQUE 1: Descarga de Contrato --}}
-      <div class="panel">
-        <div class="label" style="margin-bottom:6px;">Tu contrato en PDF:</div>
-        <div class="actions">
-          @if(!empty($pdfUrl))
-            <a class="btn" href="{{ $pdfUrl }}" target="_blank" rel="noopener noreferrer">
-              Descargar contrato (PDF)
-            </a>
-          @else
-            <span class="muted">El PDF aún no está disponible.</span>
-          @endif
-        </div>
-      </div>
-
-      {{-- MENSAJE DE ERROR GENÉRICO --}}
-      @if (session('error'))
-        <div style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; font-size: 0.9rem;">
-            {{ session('error') }}
-        </div>
-      @endif
-
-      {{-- ========================================================
-          BLOQUE 2: PAGO INICIAL (PRIORIDAD ABSOLUTA)
-          ======================================================== --}}
-      @if($tienePagoInicialPendiente)
-
-        @if($metodoPagoInicial === 'transferencia')
-          {{-- 🔸 MODO TRANSFERENCIA --}}
-          <div class="panel" style="background:#0b1120; border-color:#38bdf8; margin-top:24px;">
-            <div style="text-align:center;">
-              <h2 style="color:#e0f2fe; margin-top:0; font-size:1.3rem;">💶 Realizar Transferencia</h2>
-              <p style="color:#bae6fd; font-size:0.95rem; margin-bottom:12px;">
-                Para activar el servicio, realiza una transferencia por el siguiente importe:
-              </p>
-              <div style="font-size:2rem; font-weight:800; color:#f9fafb; margin:15px 0;">
-                {{ number_format($importePagoInicial, 2, ',', '.') }} €
-                <span style="font-size: 0.5em; font-weight: normal; color: #94a3b8; vertical-align: middle;">
-                    @if((float)$porcentajeIva === 0.0)
-                        (Exento de IVA - Art. 69 LIVA)
-                    @else
-                        (IVA incluido)
-                    @endif
-                </span>
-              </div>
-              <div style="margin:0 auto; max-width:520px; padding:14px; border-radius:12px; background:#020617; border:1px solid #1e293b; font-size:0.9rem;">
-                <p style="margin:0 0 6px;"><strong>Beneficiario:</strong> {{ config('app.name') }}</p>
-                <p style="margin:0 0 6px;"><strong>IBAN:</strong> {{ $ibanEmpresa ?: 'Consultar' }}</p>
-                <p style="margin:0 0 2px;"><strong>Concepto:</strong> {{ $conceptoTransferencia }}</p>
-              </div>
+    {{-- 1. PAGO ÚNICO --}}
+    @if(($pagoInicial['existe'] ?? false))
+       @if(($pagoInicial['pagado'] ?? false))
+          <div class="status-box success">
+            <div class="box-header">
+              <div class="box-title" style="color:#4ade80;">✅ Pago Inicial Recibido</div>
+              <div class="box-amount" style="color:#4ade80;">{{ $pagoInicial['importe'] }} € <small class="iva-inc">IVA inc.</small></div>
+            </div>
+            <div class="box-body">
+               Hemos recibido correctamente tu pago único mediante <strong>{{ $pagoInicial['metodo'] }}</strong>.
+               <br>Tus servicios de inicio (Alta/Constitución) se ponen en marcha.
             </div>
           </div>
+       @else
+          <div class="status-box warn">
+            <div class="box-header">
+               <div class="box-title" style="color:#f87171;">⚠️ Pago Inicial Pendiente</div>
+               <div class="box-amount" style="color:#f87171;">{{ $pagoInicial['importe'] }} € <small class="iva-inc">IVA inc.</small></div>
+            </div>
+           <div class="box-body">
+                @if(($pagoInicial['es_transferencia'] ?? false) && !empty($transferencia) && !empty($transferencia['iban']))
+                    El pago inicial está pendiente de recibir por <strong>transferencia</strong>.
+                    <br>Realiza la transferencia con los siguientes datos:
 
-        @else
-          {{-- 🔹 MODO TARJETA (STRIPE) --}}
-          <div class="panel" style="background: #fff7ed; border-color: #fdba74; margin-top: 24px;">
-              <div style="text-align: center;">
-                  <h2 style="color: #9a3412; margin-top: 0; font-size: 1.3rem;">⚠️ Pago Inicial Requerido</h2>
-                  <p style="color: #7c2d12; font-size: 0.95rem; margin-bottom: 15px;">
-                      Para activar el servicio es necesario abonar el importe inicial.
-                  </p>
+                    <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #334155;">
+                        <div><span class="text-white">IBAN:</span> <strong>{{ $transferencia['iban'] }}</strong></div>
 
-                  <div style="font-size: 2rem; font-weight: 800; color: #0f172a; margin: 15px 0;">
-                      {{ number_format($importePagoInicial, 2, ',', '.') }} €
-                      <span style="font-size: 0.5em; font-weight: normal; color: #7c2d12; vertical-align: middle;">
-                          @if((float)$porcentajeIva === 0.0)
-                              (Exento de IVA - Art. 69 LIVA)
-                          @else
-                              (IVA incluido)
-                          @endif
+                        @php $benef = $transferencia['beneficiario'] ?? $transferencia['titular'] ?? null; @endphp
+                        @if(!empty($benef))
+                          <div style="margin-top:6px;"><span class="text-white">Beneficiario:</span> <strong>{{ $benef }}</strong></div>
+                        @endif
+
+                        @if(!empty($transferencia['banco']))
+                          <div style="margin-top:6px;"><span class="text-white">Banco:</span> <strong>{{ $transferencia['banco'] }}</strong></div>
+                        @endif
+
+                        @if(!empty($transferencia['swift']))
+                          <div style="margin-top:6px;"><span class="text-white">SWIFT/BIC:</span> <strong>{{ $transferencia['swift'] }}</strong></div>
+                        @endif
+
+                        @if(!empty($transferencia['concepto']))
+                          <div style="margin-top:6px;"><span class="text-white">Concepto:</span> <strong>{{ $transferencia['concepto'] }}</strong></div>
+                        @endif
+                    </div>
+                @else
+                    El pago inicial no se ha completado. Contacta con nosotros para finalizarlo.
+                @endif
+              </div>
+
+          </div>
+       @endif
+    @endif
+
+    {{-- 2. RECURRENTE --}}
+    @if(($recurrente['existe'] ?? false))
+       @php
+         $esDiferido = (bool) ($recurrente['es_diferido'] ?? false);
+         $prorrateo = $recurrente['prorrateo'] ?? null;
+         $promo = $recurrente['detalle_promo'] ?? null;
+
+         // Para diferido, detalle_promo suele venir null.
+         // En ese caso lo sacamos del resumen (que sí tiene promo_meses y precio_original).
+         $promoMeses = (int) data_get($recResumenPrincipal, 'promo_meses', 0);
+         $dtoTxt = data_get($recResumenPrincipal, 'texto_descuento');          // "-20%"
+         $precioNormal = data_get($recResumenPrincipal, 'precio_original');    // IVA inc
+         $cobroPrimerMes = data_get($recResumenPrincipal, 'cobro_primer_mes', 'prorrata');
+         $noCobrar = (bool) data_get($recResumenPrincipal, 'no_cobrar_primer_periodo', false);
+
+         $mesGratis = $noCobrar || $cobroPrimerMes === 'gratis';
+         $inicioPromo = $mesGratis ? 2 : 1;
+         $rangoPromo = $promoMeses > 0 ? $promoRangoRelativo($inicioPromo, $promoMeses) : null;
+         $mesNormalDesde = $promoMeses > 0 ? ($inicioPromo + $promoMeses) : null;
+       @endphp
+
+       @if($esDiferido)
+         <div class="status-box deferred">
+            <div class="box-header">
+               <div class="box-title" style="color:#fbbf24;">⏳ Suscripción Configurada (En Espera)</div>
+               <div class="box-amount" style="color:#fbbf24;">{{ $recurrente['total_mes'] }} €/mes <small class="iva-inc">IVA inc.</small></div>
+            </div>
+            <div class="box-body">
+               Tu método de pago está guardado. No se cobrará nada hoy.
+               <br>La cuota se activará automáticamente cuando finalicemos tu servicio inicial.
+
+               {{-- Promo en diferido (desde activación), si aplica --}}
+               @if($promoMeses > 0 && $dtoTxt && $precioNormal && $rangoPromo && $mesNormalDesde)
+                 <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #334155;">
+                   <span class="text-white">🏷️ Promoción {{ $dtoTxt }}</span>
+                   <br>
+                   <span style="color:#cbd5e1; font-size:13px;">
+                     Desde activación: <strong>{{ $rangoPromo }}</strong>.
+                   </span>
+                   <br>
+                   <span style="color:#94a3b8; font-size:13px;">
+                     Desde el mes {{ $mesNormalDesde }} (desde activación) pagarás la cuota normal de
+                     <strong>{{ $fmtMoney($precioNormal) }} €/mes</strong> (IVA inc.).
+                   </span>
+                 </div>
+               @endif
+            </div>
+         </div>
+       @else
+         <div class="status-box active">
+            <div class="box-header">
+               <div class="box-title" style="color:#60a5fa;">🚀 Suscripción Activa</div>
+               <div class="box-amount" style="color:#60a5fa;">{{ $recurrente['total_mes'] }} €/mes <small class="iva-inc">IVA inc.</small></div>
+            </div>
+            <div class="box-body">
+               Tu cuota mensual de <strong>{{ $recurrente['nombre'] }}</strong> está activa.
+               <br><br>
+
+               {{-- 1. PRIMER COBRO --}}
+               @php $tipo = is_array($prorrateo) ? ($prorrateo['tipo'] ?? null) : null; @endphp
+
+               @if(is_array($prorrateo) && !empty($prorrateo['es_gratis']))
+               <span class="text-green" style="font-size:16px;">🎁 PRIMER MES GRATIS ({{ $prorrateo['mes_actual'] ?? 'este mes' }}): 0,00 €</span>
+               <br>Tu primer cargo llegará el 1 de {{ $prorrateo['siguiente'] ?? 'el próximo mes' }}.
+               @elseif($tipo === 'completo')
+               <span class="text-blue">🌕 Primer cobro (mes completo): {{ $prorrateo['importe'] ?? '—' }} €</span>
+               <br>Se ha procesado el mes completo. El siguiente será el día 1.
+               @elseif($tipo === 'mixto')
+               <span class="text-orange">📅 Primer cobro (mixto): {{ $prorrateo['importe'] ?? '—' }} €</span>
+               <br>Incluye líneas en prorrata y/o mes completo. El siguiente será el día 1.
+               @else
+               @if(is_array($prorrateo))
+                 <span class="text-orange">📅 Primer cobro ({{ $prorrateo['mes_actual'] ?? 'este mes' }}): {{ $prorrateo['importe'] ?? '—' }} €</span>
+                 <br>Se ha procesado el cobro correspondiente a este mes. El siguiente será el día 1.
+               @endif
+               @endif
+
+               {{-- 2. DETALLE PROMOCIÓN (si viene de backend) --}}
+               @if($promo)
+                  <div style="margin-top:12px; padding-top:12px; border-top:1px dashed #334155;">
+                      <span class="text-white">
+                         🏷️ Descuento <strong>{{ $promo['texto'] }}</strong> aplicado
+                      </span>
+                      <br>
+                      <span style="color:#cbd5e1; font-size:13px;">
+                         Duración: <strong>{{ $promo['duracion_txt'] }}</strong> ({{ $promo['rango'] }}).
+                         <br>Precio actual: <strong>{{ $recurrente['total_mes'] }} €/mes</strong> <span style="text-decoration:line-through; color:#64748b; font-size:12px;">({{ $promo['precio_normal'] }} €)</span>
+                      </span>
+                      <br>
+                      <span style="color:#94a3b8; font-size:13px;">
+                         A partir de {{ $promo['fecha_normal'] }} pagarás la cuota normal de <strong>{{ $promo['precio_normal'] }} €/mes</strong>.
                       </span>
                   </div>
+               @endif
 
-                  <div class="actions" style="justify-content: center;">
-                      <a href="{{ route('payment.pay', ['venta' => $venta->id]) }}" class="btn btn-pay">
-                          💳 Pagar con Tarjeta (Seguro)
-                      </a>
-                  </div>
-
-                  @if($tieneRecurrente)
-                  <p style="margin-top: 15px; font-size: 0.85rem; color: #9a3412; max-width: 400px; margin-left: auto; margin-right: auto;">
-                    ℹ️ La tarjeta que utilices para este pago quedará configurada de forma segura para tus futuras cuotas mensuales.
-                  </p>
-                  @endif
-              </div>
-          </div>
-        @endif
-
-      @endif
-
-      {{-- ========================================================
-          ✅ BLOQUE 2.5: PAGO INICIAL REALIZADO (CONFIRMACIÓN)
-          ======================================================== --}}
-      @if($mostrarPagoInicialRealizado)
-        <div class="panel" style="margin-top:24px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.22);">
-          <div style="display:flex; gap:12px; align-items:flex-start;">
-            <div style="
-              width:34px; height:34px; border-radius:999px; flex:0 0 auto;
-              display:flex; align-items:center; justify-content:center;
-              background: rgba(34,197,94,.14);
-              border: 1px solid rgba(34,197,94,.28);
-              color:#86efac; font-weight:900;
-            ">✓</div>
-
-            <div style="flex:1;">
-              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-                <div>
-                  <div style="font-weight:800; color:#dcfce7; font-size:1rem;">Pago inicial recibido</div>
-                  <div class="muted" style="font-size:.9rem; margin-top:2px;">
-                    Tu pago inicial se ha procesado correctamente. Esto activa tus servicios de inicio.
-                  </div>
-                </div>
-
-                <div style="text-align:right; min-width: 180px;">
-                  <div style="font-size: 1.35rem; font-weight: 900; color:#4ade80; line-height:1;">
-                    {{ number_format($importePagoInicial, 2, ',', '.') }} €
-                  </div>
-                  <div class="muted" style="font-size:.78rem; margin-top:3px;">
-                    @if((float)$porcentajeIva === 0.0)
-                      Exento de IVA (Art. 69 LIVA)
-                    @else
-                      IVA incluido
-                    @endif
-                  </div>
-                </div>
-              </div>
-
-              <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
-                <div style="padding:8px 10px; border-radius:10px; background:#0b1120; border:1px solid #1e293b; font-size:.9rem; color:#cbd5e1;">
-                  <span style="opacity:.85;">{{ $metodoInicialIcon }}</span>
-                  <span style="margin-left:6px; font-weight:700;">{{ $metodoInicialLabel }}</span>
-                </div>
-
-                @if(!empty($pagoInicialFecha))
-                  <div style="padding:8px 10px; border-radius:10px; background:#0b1120; border:1px solid #1e293b; font-size:.9rem; color:#cbd5e1;">
-                    <span style="opacity:.85;">🗓️</span>
-                    <span style="margin-left:6px;">
-                      {{ \Illuminate\Support\Carbon::parse($pagoInicialFecha)->format('d/m/Y H:i') }}
-                    </span>
-                  </div>
-                @endif
-
-                @if(!empty($pagoInicialRef))
-                  <div style="padding:8px 10px; border-radius:10px; background:#0b1120; border:1px solid #1e293b; font-size:.9rem; color:#cbd5e1;">
-                    <span style="opacity:.85;">🔖</span>
-                    <span style="margin-left:6px;">
-                      Ref: <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">{{ $pagoInicialRef }}</span>
-                    </span>
-                  </div>
-                @endif
-              </div>
-
-              @if($tieneRecurrente)
-                <div class="muted" style="margin-top:10px; font-size:.82rem;">
-                  La parte mensual se gestiona aparte y se cobrará según el estado de tu servicio (activación inmediata o diferida).
-                </div>
-              @endif
             </div>
-          </div>
-        </div>
-      @endif
+         </div>
+       @endif
+    @endif
 
-      {{-- ========================================================
-          BLOQUE 3: CONFIGURACIÓN RECURRENTE
-          ======================================================== --}}
-      @if($tieneRecurrente)
+    {{-- 3. RESUMEN SERVICIOS CONTRATADOS --}}
+    <div class="services-table">
+        <div class="st-head">Resumen de servicios contratados</div>
 
-          @if(!$pagoRecurrenteCompletado)
+        @foreach($resumenServicios as $s)
+            @php
+              $tipoServicio = $s['tipo'] ?? null;
+              $cantidad = (int) ($s['cantidad'] ?? 1);
+              $textoDescuento = $s['texto_descuento'] ?? null;
 
-             {{-- CASO A: Faltan datos y NO hay un pago pendiente que lo solucione --}}
-             {{-- NOTA: Si es transferencia, entra aquí para configurar el recurrente aparte --}}
-             @if(!$tienePagoInicialPendiente || $metodoPagoInicial === 'transferencia')
-                 <div style="margin-top: 24px;">
-                    @include('public.conversion.recurrente-pendiente', [
-                        'venta'   => $venta,
-                        'cliente' => $venta->cliente,
-                        'token'   => $link->token,
-                    ])
-                 </div>
-             @endif
+              $precioMensual = (float) ($s['precio_mensual'] ?? 0);
+              $precioNormal = $s['precio_original'] ?? null; // IVA inc
+              $promoMeses = (int) ($s['promo_meses'] ?? 0);
+              $dtoTxt = $textoDescuento;
 
-          @else
-             {{-- CASO B: Stripe configurado (método de pago guardado) --}}
-             @php
-                $esDiferido = (bool) $esperaProyecto;
+              // Cobro primer mes real (usa tus keys)
+              $cobroPrimerMes = $s['cobro_primer_mes'] ?? null; // 'prorrata'|'completo'|'gratis'
+              $noCobrar = (bool) ($s['no_cobrar_primer_periodo'] ?? false);
+              $cobroTipo = $noCobrar ? 'gratis' : $cobroPrimerMes;
 
-                // ✅ SEPA: texto real según día de cierre (16+ agrupa al día 1)
-                $esSepa = isset($cardInfo) && (($cardInfo['type'] ?? null) === 'sepa');
+              // Si hay diferido global, en finished no mostramos "primer mes" (porque no hay cobro aún)
+              $esDiferidoGlobal = (bool) data_get($recurrente ?? [], 'es_diferido', false);
 
-                $fechaCierre = $venta?->signed_at
-                    ?? $lead?->contract_signed_at
-                    ?? now();
+              // Rango promo relativo (para no meter meses calendario)
+              $mesGratis = $cobroTipo === 'gratis';
+              $inicioPromo = $mesGratis ? 2 : 1;
+              $rangoPromo = $promoMeses > 0 ? $promoRangoRelativo($inicioPromo, $promoMeses) : null;
+              $mesNormalDesde = $promoMeses > 0 ? ($inicioPromo + $promoMeses) : null;
+            @endphp
 
-                $diaCierre = \Illuminate\Support\Carbon::parse($fechaCierre)->day;
+            <div class="st-row">
+                <div>
+                    <div class="st-name">
+                        {{ $s['nombre'] ?? '—' }}
+                        @if($cantidad > 1)
+                          <span style="font-weight:400; color:#94a3b8;">(x{{ $cantidad }})</span>
+                        @endif
 
-                // Regla negocio: del 16 al fin de mes => se agrupa al día 1
-                $sepaAgrupadoDia1 = $esSepa && $diaCierre >= 16;
-
-                $statusColor = $esDiferido ? '#f59e0b' : '#22c55e'; // amber-500 / green-500
-                $statusBg    = $esDiferido ? 'rgba(245, 158, 11, 0.12)' : 'rgba(34, 197, 94, 0.12)';
-                $statusBd    = $esDiferido ? 'rgba(245, 158, 11, 0.28)' : 'rgba(34, 197, 94, 0.28)';
-                $statusText  = $esDiferido ? 'Configurado (activación diferida)' : 'Activo';
-                $statusTitle = $esDiferido ? 'Pago mensual configurado' : 'Método de pago recurrente activo';
-
-                // ✅ Helper robusto para convertir importes "ES" (1.234,56) a float
-                $toFloatEuro = function ($v) {
-                  $s = (string) $v;
-
-                  // Quita símbolos/espacios (€, etc.)
-                  $s = preg_replace('/[^\d\.,\-]/', '', $s);
-
-                  // Si hay coma, asumimos formato ES: 1.234,56
-                  if (str_contains($s, ',')) {
-                    $s = str_replace('.', '', $s);   // quita miles
-                    $s = str_replace(',', '.', $s);  // coma -> punto decimal
-                  }
-
-                  return (float) $s;
-                };
-             @endphp
-
-             <div style="
-                margin-top: 24px;
-                padding: 24px;
-                border-radius: 16px;
-                background: linear-gradient(145deg, #0f172a 0%, #1e293b 100%);
-                border: 1px solid #334155;
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
-                position: relative;
-                overflow: hidden;
-             ">
-                {{-- Decoración --}}
-                <div style="position: absolute; top: 0; right: 0; width: 120px; height: 120px; background: radial-gradient(circle, rgba(14, 165, 233, 0.1) 0%, rgba(0,0,0,0) 70%); pointer-events: none;"></div>
-
-                {{-- CABECERA --}}
-                <div style="display:flex; align-items:flex-start; gap:16px; position:relative; z-index:2;">
-                    <div style="
-                      background: {{ $statusBg }};
-                      border: 1px solid {{ $statusBd }};
-                      color: {{ $statusColor }};
-                      border-radius: 50%;
-                      width: 34px;
-                      height: 34px;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      flex-shrink: 0;
-                    ">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </div>
-
-                    <div style="flex: 1;">
-                        <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-                          <div>
-                            <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; color: #f8fafc; font-weight: 800;">
-                                {{ $statusTitle }}
-                            </h3>
-
-                            <div style="
-                              display:inline-flex; align-items:center; gap:8px;
-                              padding: 4px 10px;
-                              border-radius: 999px;
-                              background: {{ $statusBg }};
-                              border: 1px solid {{ $statusBd }};
-                              color: {{ $statusColor }};
-                              font-size: 0.82rem;
-                              font-weight: 800;
-                            ">
-                              {{ $statusText }}
-                            </div>
-
-                            @if($esDiferido)
-                              <div style="margin-top:10px; font-size:0.9rem; color:#cbd5e1; line-height:1.5;">
-                                <strong style="color:#fbbf24;">Hoy no se cobrará nada</strong> de la cuota mensual.
-                                Empezará a cobrarse <strong>cuando finalice tu servicio inicial</strong>.
-                              </div>
-                            @else
-                              <div style="margin-top:10px; font-size:0.9rem; color:#cbd5e1; line-height:1.5;">
-                                Tu suscripción está activa. Se aplicará el cobro según el ciclo indicado.
-                              </div>
-                            @endif
-                          </div>
-
-                          {{-- Precio mensual --}}
-                          @if(isset($totalRecurrenteMensual) && $totalRecurrenteMensual > 0)
-                           <div style="text-align:right; min-width:220px; margin-left:auto; flex:0 0 auto;">
-                              <div style="font-size: 1.45rem; font-weight: 900; color: #4ade80; line-height:1;">
-                                {{ number_format($totalRecurrenteMensual, 2, ',', '.') }} € / mes
-                              </div>
-                              <div style="margin-top:4px; font-size: 0.85rem; color: #94a3b8; font-weight: 600;">
-                                ({{ number_format($importeSinIvaRecurrente, 2, ',', '.') }} € + IVA)
-                              </div>
-                            </div>
-                          @endif
-                        </div>
-
-                        {{-- Servicio --}}
-                        <div style="margin-top: 10px; font-size: 0.95rem; color: #cbd5e1; font-weight: 700; text-align:right;">
-                          {{ $nombreServicioRecurrente }}
-                        </div>
-
-                        {{-- Badge descuento si existe --}}
-                        @if(!empty($infoDescuento))
-                          <div style="margin-top:8px; display:inline-flex; align-items:center; gap:8px;
-                            background: rgba(234, 179, 8, 0.18); color: #facc15; font-size: 0.78rem;
-                            padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(234, 179, 8, 0.35);
-                            font-weight: 800;">
-                            🏷️ {{ $infoDescuento }}
-                          </div>
+                        @if($textoDescuento)
+                             <span class="tag blue">{{ $textoDescuento }}</span>
                         @endif
                     </div>
-                </div>
 
-                {{-- CÓMO SE COBRARÁ (tarjeta / sepa) --}}
-                @if(isset($cardInfo) && $cardInfo['type'] === 'card')
-                    <div style="margin-top: 18px; margin-left: 50px; background: #1e293b; border: 1px solid #475569; border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; max-width: 360px;">
-                        <div style="background: #fff; width: 42px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center;">
-                            @if(isset($cardInfo['brand']) && strtolower($cardInfo['brand']) == 'visa')
-                               <span style="color: #1a1f71; font-weight: 800; font-size: 14px; font-style: italic; font-family: sans-serif;">VISA</span>
-                            @elseif(isset($cardInfo['brand']) && strtolower($cardInfo['brand']) == 'mastercard')
-                               <span style="display:flex; gap:0;"><span style="width:14px; height:14px; background:#eb001b; border-radius:50%; opacity:0.9;"></span><span style="width:14px; height:14px; background:#f79e1b; border-radius:50%; margin-left:-6px; opacity:0.9;"></span></span>
-                            @else
-                               <span style="color: #334155; font-size: 18px;">💳</span>
-                            @endif
-                        </div>
-                        <div>
-                          <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Se cobrará con tarjeta</div>
-                          <div style="font-family: 'Courier New', monospace; font-size: 15px; letter-spacing: 2px; color: #e2e8f0; font-weight: 700;">
-                            <span style="color: #64748b; font-size: 14px;">••••</span> {{ $cardInfo['last4'] ?? '0000' }}
-                          </div>
-                        </div>
+                    {{-- Línea base --}}
+                    <div class="st-meta">
+                        @if($tipoServicio === 'recurrente')
+                             Mensual
+                             @if($esDiferidoGlobal)
+                               <span style="color:#fbbf24;">• Inicio diferido</span>
+                             @else
+                               @if($cobroTipo === 'gratis') <span style="color:#4ade80;">• Primer mes gratis</span> @endif
+                               @if($cobroTipo === 'prorrata') <span style="color:#fbbf24;">• Prorrata inicial</span> @endif
+                               @if($cobroTipo === 'completo') <span style="color:#60a5fa;">• Primer mes completo</span> @endif
+                             @endif
+                        @else
+                             Pago único
+                        @endif
                     </div>
 
-                @elseif(isset($cardInfo) && $cardInfo['type'] === 'sepa')
-                    <div style="margin-top: 18px; margin-left: 50px; background: #1e293b; border: 1px solid #475569; border-radius: 10px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; max-width: 420px;">
-                        <div style="background: #e2e8f0; width: 42px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 16px;">🏦</div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Se cobrará por domiciliación (SEPA)</div>
-                            <div style="font-family: 'Courier New', monospace; font-size: 15px; letter-spacing: 1px; color: #e2e8f0; font-weight: 700;">
-                                <span style="color: #64748b;">IBAN ••••</span> {{ $cardInfo['last4'] ?? '0000' }}
-                            </div>
-                        </div>
-                    </div>
-                @endif
-
-                {{-- CUÁNDO EMPIEZA / NOTAS --}}
-                <div style="margin-top: 18px; margin-left: 50px; background: rgba(15, 23, 42, 0.4); border-radius: 10px; padding: 14px; border-left: 3px solid {{ $esDiferido ? '#f59e0b' : '#38bdf8' }};">
-                    @if($esDiferido)
-                      <p style="margin: 0; font-size: 0.9rem; color: #cbd5e1; line-height: 1.55;">
-                        <strong style="color: #fbbf24;">📌 Cuándo empezará a cobrarse:</strong><br>
-                        Cuando terminemos tu servicio inicial (ej: alta completada, sociedad constituida…), activaremos la cuota mensual automáticamente.
-                        <br><span style="color: #94a3b8; font-size: 0.85rem;">Hasta ese momento, no habrá cargos mensuales.</span>
-                      </p>
-                    @else
-                      <p style="margin: 0; font-size: 0.9rem; color: #cbd5e1; line-height: 1.55;">
-                        <strong style="color: #4ade80;">📌 Inicio de la suscripción:</strong><br>
-
-                        @if(isset($prorrateo))
-
-                          @if(isset($cardInfo) && ($cardInfo['type'] ?? null) === 'sepa' && $sepaAgrupadoDia1)
-                            Se cobrará <strong>todo junto el día 1 del próximo mes</strong>:
-                            la parte proporcional de {{ ucfirst($prorrateo['mes_actual']) }} + la cuota mensual.
-                            <br>
-
-                            @if($prorrateo['es_gratis'])
-                              <strong style="color:#facc15;">0,00 €</strong> por la promoción activa aplicable a los {{ $prorrateo['dias_restantes'] }} días restantes.
-                              <br>
-                            @else
-                              <strong>{{ $prorrateo['importe'] }} €</strong>
-                              <span style="font-size: 0.9em; color: #94a3b8; font-weight: 600;">({{ $prorrateo['importe_sin_iva'] }} € sin IVA)</span>
-                              por los {{ $prorrateo['dias_restantes'] }} días restantes.
-                              <br>
-                            @endif
-
-                            {{-- Y el mismo día 1 se aplicará la cuota mensual estándar. --}}
-
-                            @php
-                              $mensualConIva = (float) ($totalRecurrenteMensual ?? 0);
-                              $mensualSinIva = (float) ($importeSinIvaRecurrente ?? 0);
-
-                              $prorrataConIva = 0.0;
-                              $prorrataSinIva = 0.0;
-
-                              if (isset($prorrateo)) {
-                                $prorrataConIva = $toFloatEuro($prorrateo['importe'] ?? 0);
-                                $prorrataSinIva = $toFloatEuro($prorrateo['importe_sin_iva'] ?? 0);
-
-                                if (!empty($prorrateo['es_gratis'])) {
-                                  $prorrataConIva = 0.0;
-                                  $prorrataSinIva = 0.0;
-                                }
-                              }
-
-                              $totalPrimerCobroConIva = round($mensualConIva + $prorrataConIva, 2);
-                              $totalPrimerCobroSinIva = round($mensualSinIva + $prorrataSinIva, 2);
-
-                              // ✅ Mostrar resumen si hay mensual o prorrata (no redundante)
-                              $mostrarResumenCobro = ($mensualConIva > 0) || ($prorrataConIva > 0);
-
-                              // Fecha real de cobro del "día 1"
-                              $fechaDia1Cobro = null;
-
-                              // Opción 1 (ideal): viene de suscripción local (si la pasas al blade)
-                              if (isset($suscripcion) && !empty($suscripcion->proxima_fecha_facturacion)) {
-                                  $fechaDia1Cobro = \Illuminate\Support\Carbon::parse($suscripcion->proxima_fecha_facturacion);
-                              }
-
-                              // Opción 2: si la pasas ya calculada desde el controller
-                              if (! $fechaDia1Cobro && isset($proximaFechaFacturacion) && $proximaFechaFacturacion) {
-                                  $fechaDia1Cobro = \Illuminate\Support\Carbon::parse($proximaFechaFacturacion);
-                              }
-
-                              // Fallback: mes siguiente día 1
-                              if (! $fechaDia1Cobro) {
-                                  $fechaDia1Cobro = now()->addMonth()->startOfMonth();
-                              }
-
-                              $mesCuotaLabel = ucfirst($fechaDia1Cobro->locale('es')->translatedFormat('F Y')); // "Enero 2026"
-                              $fechaDia1Label = $fechaDia1Cobro->format('d/m/Y'); // "01/01/2026"
-                            @endphp
-
-                            @if($mostrarResumenCobro)
-                              <div style="margin-top:12px; padding:12px 14px; border-radius:12px; background:#0b1120; border:1px solid #1e293b;">
-                                <div style="font-weight:800; color:#e2e8f0; margin-bottom:6px;">
-                                  🧾 Resumen del primer cobro
-                                  (todo junto el día 1 {{ $mesCuotaLabel }})
-                                </div>
-
-                                <div style="display:grid; grid-template-columns: 1fr auto; gap:6px 12px; font-size:.92rem; color:#cbd5e1;">
-                                  @if(isset($prorrateo))
-                                    <div>Prorrata {{ ucfirst($prorrateo['mes_actual'] ?? '') }}</div>
-                                    <div style="font-weight:800;">
-                                      {{ number_format($prorrataConIva, 2, ',', '.') }} €
-                                      <span style="color:#94a3b8; font-weight:600; font-size:.88em;">
-                                        ({{ number_format($prorrataSinIva, 2, ',', '.') }} € sin IVA)
-                                      </span>
-                                    </div>
-                                  @endif
-
-                                  <div>Cuota mensual ({{ $mesCuotaLabel }})</div>
-                                  <div style="font-weight:800;">
-                                    {{ number_format($mensualConIva, 2, ',', '.') }} €
-                                    <span style="color:#94a3b8; font-weight:600; font-size:.88em;">
-                                      ({{ number_format($mensualSinIva, 2, ',', '.') }} € sin IVA)
-                                    </span>
-                                  </div>
-
-                                  <div style="border-top:1px dashed #334155; padding-top:8px; margin-top:4px; font-weight:900; color:#f8fafc;">
-                                    Total a emitir el día 1 ({{ $fechaDia1Label }} — {{ $mesCuotaLabel }})
-                                  </div>
-                                  <div style="border-top:1px dashed #334155; padding-top:8px; margin-top:4px; font-weight:900; color:#f8fafc;">
-                                    {{ number_format($totalPrimerCobroConIva, 2, ',', '.') }} €
-                                    <span style="color:#94a3b8; font-weight:700; font-size:.88em;">
-                                      ({{ number_format($totalPrimerCobroSinIva, 2, ',', '.') }} € sin IVA)
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div style="margin-top:8px; font-size:.85rem; color:#94a3b8;">
-                                  * El adeudo SEPA puede reflejarse en cuenta entre el día 1 y el 15.
-                                </div>
-                              </div>
-                            @endif
-
+                    {{-- Línea extra: promo por meses + vuelta a normal --}}
+                    @if($tipoServicio === 'recurrente' && $promoMeses > 0 && $dtoTxt && $precioNormal && $rangoPromo && $mesNormalDesde)
+                      <div class="st-meta">
+                        <span style="color:#cbd5e1; font-weight:700;">
+                          Promoción {{ $dtoTxt }}:
+                          @if($esDiferidoGlobal)
+                            desde activación <strong>{{ $rangoPromo }}</strong>.
                           @else
-                            {{-- Tarjeta o SEPA 1-15: iniciamos hoy (sin mentir con “instantáneo”) --}}
-                            @if(isset($cardInfo) && ($cardInfo['type'] ?? null) === 'sepa')
-                              Se iniciará <strong>hoy</strong> el cobro de la parte proporcional de {{ ucfirst($prorrateo['mes_actual']) }}.
-                            @else
-                              Se cobrará ahora la parte proporcional de {{ ucfirst($prorrateo['mes_actual']) }}.
-                            @endif
-                            <br>
-
-                            @if($prorrateo['es_gratis'])
-                              <strong style="color: #facc15;">0,00 €</strong> por la promoción activa aplicable a los {{ $prorrateo['dias_restantes'] }} días restantes.
-                            @else
-                              <strong>{{ $prorrateo['importe'] }} €</strong>
-                              <span style="font-size: 0.9em; color: #94a3b8; font-weight: 600;">({{ $prorrateo['importe_sin_iva'] }} € sin IVA)</span>
-                              por los {{ $prorrateo['dias_restantes'] }} días restantes.
-                            @endif
-                            <br>
-
-                            A partir del día 1 del próximo mes se aplicarán las condiciones estándar.
+                            <strong>{{ $rangoPromo }}</strong>.
                           @endif
-
-                        @else
-                          Tu plan ya está activo. El primer cobro se realizará en el próximo ciclo.
-                        @endif
-                      </p>
-                    @endif
-
-                    @if(isset($cardInfo) && $cardInfo['type'] === 'sepa')
-                      <p style="margin: 12px 0 0 0; font-size: 0.88rem; color: #94a3b8; line-height: 1.5; border-top: 1px dashed #334155; padding-top: 10px;">
-                        <strong style="color: #cbd5e1;">ℹ️ Nota sobre domiciliación:</strong><br>
-
-                        @if($sepaAgrupadoDia1)
-                          El primer cargo se emitire el <strong>día 1 del próximo mes a la activación del servicio</strong> (incluyendo prorrata + cuota mensual).
-                          Al ser un adeudo SEPA, puede reflejarse en tu cuenta entre el día 1 y el 15.
-                        @else
-                          Al ser un adeudo SEPA, el cargo puede tardar unos días en reflejarse en tu cuenta.
-                          Las cuotas mensuales suelen reflejarse entre el día 1 y el 15.
-                        @endif
-                      </p>
+                        </span>
+                        <span style="color:#94a3b8; font-weight:700;">
+                          · Desde mes {{ $mesNormalDesde }}{{ $esDiferidoGlobal ? ' (desde activación)' : '' }}:
+                          {{ $fmtMoney($precioNormal) }} €/mes (IVA inc.)
+                        </span>
+                      </div>
                     @endif
                 </div>
 
-                {{-- Cierre (coherente con diferido) --}}
-                <div style="margin-top: 18px; margin-left: 50px;">
-                  <div style="background: {{ $esDiferido ? 'rgba(245,158,11,0.10)' : 'rgba(34,197,94,0.10)' }};
-                              border: 1px solid {{ $esDiferido ? 'rgba(245,158,11,0.22)' : 'rgba(34,197,94,0.20)' }};
-                              border-radius: 10px; padding: 12px 16px;">
-                    <p style="margin: 0; font-size: 0.92rem; color: {{ $esDiferido ? '#fcd34d' : '#86efac' }}; font-weight: 800;">
-                      {{ $esDiferido ? '🟠 Método de pago guardado' : '✅ Método de pago confirmado' }}
-                    </p>
-                    <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #94a3b8;">
-                      {{ $esDiferido
-                          ? 'Lo usaremos automáticamente cuando tu servicio inicial finalice. Hasta entonces no se realizará ningún cobro mensual.'
-                          : 'Tu suscripción ya está configurada. Si necesitas cambiar la forma de pago en el futuro, podrás hacerlo desde tu Área Privada.' }}
-                    </p>
-                  </div>
+                <div class="st-price">
+                    {{ $fmtMoney($precioMensual) }} € <small class="iva-inc">IVA inc.</small>
+                    @if($tipoServicio === 'recurrente')
+                      <span style="font-size:11px; font-weight:400; color:#94a3b8;">/mes</span>
+                    @endif
                 </div>
-
-             </div>
-
-          @endif
-      @endif
-
-      <div class="footer-actions">
-        <a class="link" href="https://asesorfy.net" target="_blank" rel="noopener noreferrer">Volver a AsesorFy</a>
-      </div>
-
+            </div>
+        @endforeach
     </div>
+
+    @if($pdfUrl)
+      <a href="{{ $pdfUrl }}" target="_blank" class="btn-download">📄 Descargar Contrato Firmado</a>
+    @endif
+
+    <div class="footer">
+       <a href="https://asesorfy.net">Volver a la web principal</a>
+    </div>
+
   </div>
+</div>
+
 </body>
 </html>

@@ -51,15 +51,27 @@ class GestionarConversion extends Page
      * - servicio_id
      * - tipo ('unico'|'recurrente')
      * - es_editable (bool)
-     * - requiere_proyecto (bool) (solo editables)
-     * - servicio_requiere_proyecto (bool) (solo no editables)
+     *
+     * ✅ REGLA NUEVA:
+     * - Proyecto SIEMPRE viene del Servicio (requiere_proyecto_activacion)
+     * - Ya no se decide manualmente en UI
+     *
+     * - servicio_requiere_proyecto (bool) ✅ fuente de verdad (siempre)
+     * - requiere_proyecto (bool) ⚠️ legacy/compat (NO se usa, siempre false)
+     *
+     * - bloquea_recurrente (bool) ✅ (para prorrata/cobro diferido)
      * - nombre_personalizado
      * - precio_base (unitario sin IVA)
      * - cantidad
+     *
+     * ✅ CAMBIO: Sustituimos bool 'no_cobrar_primer_periodo' por 'cobro_primer_mes'
+     * - cobro_primer_mes (string): 'prorrata' | 'completo' | 'gratis'
+     *
      * - aplicar_descuento (bool)
      * - descuento_tipo ('porcentaje'|'fijo'|'precio_final'|null)
      * - descuento_valor (string|null)
-     * - descuento_duracion_meses (int|null)
+     * - descuento_duracion_meses (int|null)   ✅ SOLO recurrente
+     *
      * - subtotal_base
      * - precio_final_unit
      * - subtotal_final
@@ -67,58 +79,55 @@ class GestionarConversion extends Page
     public array $items = [];
 
     public ?array $conversionInfo = null; // token, url, last_sent_at, last_sent_to, etc.
-public function mount($record): void
-{
-    $this->lead = Lead::findOrFail($record);
 
-    $this->tiposCliente = TipoCliente::query()
-        ->orderBy('nombre')
-        ->get();
+    public function mount($record): void
+    {
+        $this->lead = Lead::findOrFail($record);
 
-    $this->servicios = Servicio::query()
-        ->orderBy('nombre')
-        ->get();
+        $this->tiposCliente = TipoCliente::query()
+            ->orderBy('nombre')
+            ->get();
 
-    $this->tipoClienteId = $this->lead->cliente?->tipo_cliente_id
-        ?? $this->tiposCliente->first()?->id;
+        $this->servicios = Servicio::query()
+            ->orderBy('nombre')
+            ->get();
 
-    // ✅ Email destino (ajusta si tu Lead usa otro campo)
-    $this->emailDestino =
-        $this->lead->email
-        ?? $this->lead->email_contacto
-        ?? $this->lead->cliente?->email_contacto
-        ?? null;
+        $this->tipoClienteId = $this->lead->cliente?->tipo_cliente_id
+            ?? $this->tiposCliente->first()?->id;
 
-    // ✅ Cargamos info del link (incluye blueprint)
-    $this->loadConversionInfo();
+        // ✅ Email destino (ajusta si tu Lead usa otro campo)
+        $this->emailDestino =
+            $this->lead->email
+            ?? $this->lead->email_contacto
+            ?? $this->lead->cliente?->email_contacto
+            ?? null;
 
-    // 🔥 Si ya está enviada / finalizada: reconstruimos items desde blueprint
-    $estado = $this->lead->estado?->value ?? null;
+        // ✅ Cargamos info del link (incluye blueprint)
+        $this->loadConversionInfo();
 
-    if (in_array($estado, [
-        LeadEstadoEnum::CONVERTIDO->value,
-        LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS->value,
-        LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA->value,
-        LeadEstadoEnum::CONVERTIDO_FIRMADO->value,
-        LeadEstadoEnum::CONVERTIDO_CORRECCION->value,
-    ], true)) {
-        $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
+        // 🔥 Si ya está enviada / finalizada: reconstruimos items desde blueprint
+        $estado = $this->lead->estado?->value ?? null;
 
-        if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
-            $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
+        if (in_array($estado, [
+            LeadEstadoEnum::CONVERTIDO->value,
+            LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS->value,
+            LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA->value,
+            LeadEstadoEnum::CONVERTIDO_FIRMADO->value,
+            LeadEstadoEnum::CONVERTIDO_CORRECCION->value,
+        ], true)) {
+            $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
+
+            if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
+                $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
+                return;
+            }
+
             return;
         }
 
-        // Si estamos en estados “post-envío” pero NO hay blueprint,
-        // dejamos la tabla vacía (no forzamos addItem) para no liar al comercial.
-        // Aun así, si quisieras permitir “rehacer desde cero”, podríamos meter un botón.
-        return;
+        // Si no hay propuesta enviada → flujo normal
+        $this->addItem();
     }
-
-    // Si no hay propuesta enviada → flujo normal
-    $this->addItem();
-}
-
 
     /**
      * 🔒 Conversión bloqueada: no se debe reenviar / reiniciar / cancelar
@@ -126,14 +135,13 @@ public function mount($record): void
     private function conversionBloqueada(): bool
     {
         return ($this->lead->estado?->value ?? null) === LeadEstadoEnum::CONVERTIDO_FIRMADO->value;
-    }   
+    }
 
     private function mapBlueprintServiciosToItems(array $serviciosBlueprint): array
     {
         return collect($serviciosBlueprint)
             ->filter(fn ($s) => is_array($s))
             ->map(function (array $s) {
-
                 $servicioId = (int) ($s['servicio_id'] ?? $s['id'] ?? 0);
                 $servicioId = $servicioId > 0 ? $servicioId : null;
 
@@ -154,9 +162,7 @@ public function mount($record): void
                         ?? $svc?->nombre;
                 }
 
-                // 🔥 IMPORTANTE:
-                // - En el blueprint guardamos precio_base como "precio efectivo" (precio_final_unit).
-                // - Rehidratamos también el bloque descuento para que NO se pierda al refrescar.
+                // Base vs final
                 $precioBaseOriginal = (float) ($s['precio_base_original'] ?? $s['precio_base'] ?? 0);
                 $precioFinalUnit    = (float) ($s['precio_final_unit'] ?? $s['precio_base'] ?? $precioBaseOriginal);
 
@@ -168,35 +174,57 @@ public function mount($record): void
                 $dtoValor   = data_get($s, 'descuento.valor');
                 $dtoMeses   = data_get($s, 'descuento.meses');
 
-                $servicioRequiereProyecto = $esEditable
-                    ? false
-                    : (bool) ($s['servicio_requiere_proyecto'] ?? ($svc?->requiere_proyecto_activacion ?? false));
+                // ✅ Proyecto: prioriza blueprint si existe (histórico), si no, servicio actual
+                $servicioRequiereProyecto =
+                    array_key_exists('servicio_requiere_proyecto', $s)
+                        ? (bool) $s['servicio_requiere_proyecto']
+                        : (bool) ($svc?->requiere_proyecto_activacion ?? false);
 
-                $requiereProyecto = $esEditable
-                    ? (bool) ($s['requiere_proyecto'] ?? false)
-                    : false;
+                // ⚠️ Legacy: ya no se usa manualmente
+                $requiereProyecto = false;
+
+                // ✅ bloquea recurrente (blueprint manda; si no, Servicio)
+                $bloqueaRecurrente = (bool) ($s['bloquea_recurrente'] ?? ($svc?->bloquea_recurrente ?? false));
+
+                // ✅ Selector cobro
+                $cobroPrimerMes = $s['cobro_primer_mes'] ?? 'prorrata';
+                $legacyNoCobrar = (bool) ($s['no_cobrar_primer_periodo'] ?? false);
+                if ($legacyNoCobrar) {
+                    $cobroPrimerMes = 'gratis';
+                }
+
+                if ($tipo !== 'recurrente') {
+                    $cobroPrimerMes = 'prorrata';
+                }
 
                 return [
                     'servicio_id' => $servicioId,
                     'tipo' => $tipo,
 
                     'es_editable' => $esEditable,
-                    'requiere_proyecto' => $requiereProyecto,
+
+                    // ✅ Fuente de verdad
                     'servicio_requiere_proyecto' => $servicioRequiereProyecto,
+                    // ⚠️ legacy
+                    'requiere_proyecto' => $requiereProyecto,
+
+                    'bloquea_recurrente' => $bloqueaRecurrente,
 
                     'nombre_personalizado' => $nombrePersonalizado,
 
-                    // Base vs final coherentes:
                     'precio_base' => $precioBaseOriginal,
                     'cantidad' => $cantidad,
 
-                    // ✅ Descuentos rehidratados
+                    'cobro_primer_mes' => $cobroPrimerMes,
+                    'no_cobrar_primer_periodo' => ($cobroPrimerMes === 'gratis'),
+
                     'aplicar_descuento' => $dtoAplicar,
                     'descuento_tipo' => $dtoAplicar ? $dtoTipo : null,
                     'descuento_valor' => $dtoAplicar ? (is_null($dtoValor) ? null : (string) $dtoValor) : null,
-                    'descuento_duracion_meses' => ($tipo === 'recurrente' && $dtoAplicar) ? (is_null($dtoMeses) ? null : (int) $dtoMeses) : null,
+                    'descuento_duracion_meses' => ($tipo === 'recurrente' && $dtoAplicar)
+                        ? (is_null($dtoMeses) ? null : (int) $dtoMeses)
+                        : null,
 
-                    // Totales tal cual fueron enviados:
                     'subtotal_base' => round($subtotalBase, 2),
                     'precio_final_unit' => round($precioFinalUnit, 2),
                     'subtotal_final' => round($subtotalFinal, 2),
@@ -206,71 +234,62 @@ public function mount($record): void
             ->toArray();
     }
 
-private function loadConversionInfo(): void
-{
-    $estado = $this->lead->estado?->value ?? null;
+    private function loadConversionInfo(): void
+    {
+        $estado = $this->lead->estado?->value ?? null;
 
-    $q = LeadConversionLink::query()
-        ->where('lead_id', $this->lead->id)
-        ->latest('id');
+        $q = LeadConversionLink::query()
+            ->where('lead_id', $this->lead->id)
+            ->latest('id');
 
-    // ✅ Si NO está firmado, usamos el activo (no usado + no caducado + no revocado)
-    if ($estado !== LeadEstadoEnum::CONVERTIDO_FIRMADO->value) {
-        $q->active();
+        if ($estado !== LeadEstadoEnum::CONVERTIDO_FIRMADO->value) {
+            $q->active();
+        }
+
+        $link = $q->first();
+
+        if (! $link) {
+            $this->conversionInfo = null;
+            return;
+        }
+
+        $meta = $link->meta ?? [];
+        $expiresAt = $link->expires_at ? Carbon::parse($link->expires_at) : null;
+
+        $isUsed    = ! empty($link->used_at);
+        $isRevoked = ! empty(data_get($meta, 'revoked_at'));
+        $isExpiredByTime = $expiresAt ? $expiresAt->isPast() : false;
+
+        $isExpired = $isUsed || $isRevoked || $isExpiredByTime || ($estado === LeadEstadoEnum::CONVERTIDO_FIRMADO->value);
+
+        $canOpenPublic = ! $isExpired;
+
+        $this->conversionInfo = [
+            'token'        => $link->token,
+            'url'          => $canOpenPublic ? route('conversion.show', ['token' => $link->token]) : null,
+
+            'created_at'   => optional($link->created_at)->toDateTimeString(),
+            'expires_at'   => optional($expiresAt)->toDateTimeString(),
+
+            'is_used'      => $isUsed,
+            'is_revoked'   => $isRevoked,
+            'is_expired'   => $isExpired,
+
+            'last_sent_to' => $meta['last_sent_to'] ?? null,
+            'last_sent_at' => $meta['last_sent_at'] ?? null,
+
+            'blueprint'    => $meta['sale_blueprint'] ?? null,
+            'pdf'          => $meta['pdf'] ?? null,
+
+            'revoked_at'   => $meta['revoked_at'] ?? null,
+            'revoked_reason' => $meta['revoked_reason'] ?? null,
+        ];
     }
-
-    $link = $q->first();
-
-    if (! $link) {
-        $this->conversionInfo = null;
-        return;
-    }
-
-    $meta = $link->meta ?? [];
-    $expiresAt = $link->expires_at ? Carbon::parse($link->expires_at) : null;
-
-    $isUsed    = ! empty($link->used_at);
-    $isRevoked = ! empty(data_get($meta, 'revoked_at'));
-    $isExpiredByTime = $expiresAt ? $expiresAt->isPast() : false;
-
-    // ✅ “inservible” si: usado OR revocado OR caducado por tiempo
-    // (y si está firmado, también lo tratamos como inservible aunque el expires_at sea futuro)
-    $isExpired = $isUsed || $isRevoked || $isExpiredByTime || ($estado === LeadEstadoEnum::CONVERTIDO_FIRMADO->value);
-
-    // ✅ Solo generamos URL pública si realmente debe poder abrirse
-    $canOpenPublic = ! $isExpired;
-
-    $this->conversionInfo = [
-        'token'        => $link->token,
-
-        // Si no debe abrirse, no lo pintes como enlace clicable
-        'url'          => $canOpenPublic ? route('conversion.show', ['token' => $link->token]) : null,
-
-        'created_at'   => optional($link->created_at)->toDateTimeString(),
-        'expires_at'   => optional($expiresAt)->toDateTimeString(),
-
-        'is_used'      => $isUsed,
-        'is_revoked'   => $isRevoked,
-        'is_expired'   => $isExpired,
-
-        'last_sent_to' => $meta['last_sent_to'] ?? null,
-        'last_sent_at' => $meta['last_sent_at'] ?? null,
-
-        'blueprint'    => $meta['sale_blueprint'] ?? null,
-        'pdf'          => $meta['pdf'] ?? null,
-
-        // extra (por si lo quieres para UI/botones)
-        'revoked_at'   => $meta['revoked_at'] ?? null,
-        'revoked_reason' => $meta['revoked_reason'] ?? null,
-    ];
-}
-
-
 
     private function buildItemsServiciosBlueprint(): array
     {
         return collect($this->items)
-            ->filter(fn ($it) => !empty($it['servicio_id']))
+            ->filter(fn ($it) => ! empty($it['servicio_id']))
             ->map(function ($it) {
 
                 /** @var Servicio|null $svc */
@@ -301,40 +320,52 @@ private function loadConversionInfo(): void
                 $cantidad = (int) ($it['cantidad'] ?? 1);
                 $cantidad = $cantidad <= 0 ? 1 : $cantidad;
 
-                // ✅ Precio base original vs final
                 $precioBaseOriginal = (float) ($it['precio_base'] ?? $svc->precio_base ?? 0);
 
-                // ✅ Clave: precio "efectivo" para contrato/venta = precio_final_unit si existe
                 $precioFinalUnit = (float) ($it['precio_final_unit'] ?? $precioBaseOriginal);
                 $precioParaContrato = $precioFinalUnit;
 
                 $subtotalFinal = (float) ($it['subtotal_final'] ?? ($precioParaContrato * $cantidad));
 
-                // Detectores sobre nombre "real + mostrado"
                 $nombreDetector = strtolower($nombreServicio . ' ' . $nombreMostrado);
 
-                // Flags proyecto (guardamos ambos para no perder semántica)
-                $requiereProyectoEditable = $esEditable ? (bool) ($it['requiere_proyecto'] ?? false) : false;
-                $servicioRequiereProyecto = $esEditable ? false : (bool) ($it['servicio_requiere_proyecto'] ?? ($svc->requiere_proyecto_activacion ?? false));
+                // ✅ Proyecto: SIEMPRE por servicio
+                $servicioRequiereProyecto = (bool) ($svc->requiere_proyecto_activacion ?? false);
+
+                // ⚠️ legacy manual no se usa
+                $requiereProyectoEditable = false;
+
+                $bloqueaRecurrente = (bool) ($it['bloquea_recurrente'] ?? ($svc->bloquea_recurrente ?? false));
+
+                $cobroPrimerMes = $it['cobro_primer_mes'] ?? 'prorrata';
+                if ($tipo !== 'recurrente') {
+                    $cobroPrimerMes = 'prorrata';
+                }
+                $noCobrarPrimerPeriodo = ($cobroPrimerMes === 'gratis');
 
                 return [
                     'servicio_id' => $svc->id,
                     'nombre'      => $nombreMostrado,
                     'tipo'        => $tipo,
 
-                    // ✅ Persistimos flags para rehidratar UI y lógica
-                    'es_editable'                => $esEditable,
-                    'requiere_proyecto'          => $requiereProyectoEditable,   // SOLO para editables
-                    'servicio_requiere_proyecto' => $servicioRequiereProyecto,   // SOLO para no editables
+                    'es_editable'      => $esEditable,
 
-                    // Compat con controller público (usa precio_base * unidades):
+                    // ✅ fuente de verdad
+                    'servicio_requiere_proyecto' => $servicioRequiereProyecto,
+                    // ⚠️ legacy
+                    'requiere_proyecto' => $requiereProyectoEditable,
+
+                    'bloquea_recurrente' => $bloqueaRecurrente,
+
+                    'cobro_primer_mes' => $cobroPrimerMes,
+                    'no_cobrar_primer_periodo' => $noCobrarPrimerPeriodo,
+
                     'precio_base' => round($precioParaContrato, 2),
                     'unidades'    => $cantidad,
                     'total_linea' => round($subtotalFinal, 2),
 
                     'es_tarifa_principal' => $tipo === 'recurrente',
 
-                    // Detectores robustos
                     'es_alta_autonomo' => (
                         str_contains($nombreDetector, 'alta') &&
                         (str_contains($nombreDetector, 'autonom') || str_contains($nombreDetector, 'autónom'))
@@ -345,13 +376,11 @@ private function loadConversionInfo(): void
                         str_contains($nombreDetector, 'constitución'),
                     'es_capitalizacion' => str_contains($nombreDetector, 'capitaliz'),
 
-                    // 🔸 Extra útil
                     'precio_base_original' => round($precioBaseOriginal, 2),
                     'precio_final_unit'    => round($precioFinalUnit, 2),
                     'subtotal_base'        => round((float) ($it['subtotal_base'] ?? ($precioBaseOriginal * $cantidad)), 2),
                     'subtotal_final'       => round($subtotalFinal, 2),
 
-                    // 🔸 descuento (para rehidratar)
                     'descuento' => [
                         'aplicar'  => (bool) ($it['aplicar_descuento'] ?? false),
                         'tipo'     => $it['descuento_tipo'] ?? null,
@@ -372,13 +401,20 @@ private function loadConversionInfo(): void
             'tipo' => 'unico',
 
             'es_editable' => false,
-            'requiere_proyecto' => false,
+
+            // ✅ fuente de verdad
             'servicio_requiere_proyecto' => false,
+            // ⚠️ legacy
+            'requiere_proyecto' => false,
+
+            'bloquea_recurrente' => false,
 
             'nombre_personalizado' => null,
 
             'precio_base' => 0,
             'cantidad' => 1,
+
+            'cobro_primer_mes' => 'prorrata',
 
             'aplicar_descuento' => false,
             'descuento_tipo' => null,
@@ -420,6 +456,7 @@ private function loadConversionInfo(): void
 
             if (str_ends_with($name, '.descuento_tipo')) {
                 $this->items[$index]['descuento_valor'] = null;
+
                 if (($this->items[$index]['tipo'] ?? 'unico') !== 'recurrente') {
                     $this->items[$index]['descuento_duracion_meses'] = null;
                 }
@@ -427,6 +464,7 @@ private function loadConversionInfo(): void
 
             if (str_ends_with($name, '.descuento_valor')) {
                 $raw = $this->items[$index]['descuento_valor'] ?? null;
+
                 if ($raw === '' || $raw === null) {
                     $this->items[$index]['descuento_valor'] = null;
                 } else {
@@ -434,6 +472,7 @@ private function loadConversionInfo(): void
                 }
             }
 
+            $this->enforceDiscountRules($index);
             $this->recalculateItem($index);
         }
     }
@@ -445,9 +484,14 @@ private function loadConversionInfo(): void
             $this->items[$index]['precio_base'] = 0;
             $this->items[$index]['tipo'] = 'unico';
             $this->items[$index]['es_editable'] = false;
+
             $this->items[$index]['servicio_requiere_proyecto'] = false;
             $this->items[$index]['requiere_proyecto'] = false;
+
             $this->items[$index]['nombre_personalizado'] = null;
+            $this->items[$index]['bloquea_recurrente'] = false;
+
+            $this->items[$index]['cobro_primer_mes'] = 'prorrata';
 
             $this->items[$index]['aplicar_descuento'] = false;
             $this->items[$index]['descuento_tipo'] = null;
@@ -471,15 +515,18 @@ private function loadConversionInfo(): void
             : ($s->tipo instanceof \UnitEnum ? $s->tipo->name : (string) $s->tipo);
 
         $esEditable = (bool) ($s->es_editable ?? false);
+
+        // ✅ PROYECTO: SIEMPRE viene del Servicio
         $requiereProyectoAuto = (bool) ($s->requiere_proyecto_activacion ?? false);
 
         $this->items[$index]['servicio_id'] = $s->id;
-        $this->items[$index]['tipo'] = $tipo;
+        $this->items[$index]['tipo'] = (string) $tipo;
         $this->items[$index]['es_editable'] = $esEditable;
 
-        $this->items[$index]['servicio_requiere_proyecto'] = $esEditable ? false : $requiereProyectoAuto;
+        $this->items[$index]['servicio_requiere_proyecto'] = $requiereProyectoAuto;
+        $this->items[$index]['requiere_proyecto'] = false; // legacy OFF
 
-        $this->items[$index]['requiere_proyecto'] = $esEditable ? (bool) ($this->items[$index]['requiere_proyecto'] ?? false) : false;
+        $this->items[$index]['bloquea_recurrente'] = (bool) ($s->bloquea_recurrente ?? false);
 
         $this->items[$index]['precio_base'] = (float) ($s->precio_base ?? 0);
 
@@ -492,12 +539,42 @@ private function loadConversionInfo(): void
             $this->items[$index]['nombre_personalizado'] = null;
         }
 
+        if (($this->items[$index]['tipo'] ?? 'unico') !== 'recurrente') {
+            $this->items[$index]['cobro_primer_mes'] = 'prorrata';
+        }
+
+        $this->enforceDiscountRules($index);
         $this->recalculateItem($index);
+    }
+
+    private function enforceDiscountRules(int $index): void
+    {
+        $tipo = (string) ($this->items[$index]['tipo'] ?? 'unico');
+
+        if ($tipo !== 'recurrente') {
+            $this->items[$index]['descuento_duracion_meses'] = null;
+            $this->items[$index]['cobro_primer_mes'] = 'prorrata';
+            return;
+        }
+
+        $aplicar = (bool) ($this->items[$index]['aplicar_descuento'] ?? false);
+
+        if ($aplicar) {
+            $this->items[$index]['descuento_tipo'] = 'porcentaje';
+
+            $meses = (int) ($this->items[$index]['descuento_duracion_meses'] ?? 0);
+            if ($meses < 1) {
+                $this->items[$index]['descuento_duracion_meses'] = 1;
+            }
+        } else {
+            $this->items[$index]['descuento_duracion_meses'] = null;
+        }
     }
 
     private function parseNumber(?string $value): float
     {
         if ($value === null) return 0.0;
+
         $v = trim($value);
         if ($v === '') return 0.0;
 
@@ -549,84 +626,130 @@ private function loadConversionInfo(): void
     public function getTieneProyectoProperty(): bool
     {
         foreach ($this->items as $it) {
-            $esEditable = (bool) ($it['es_editable'] ?? false);
-
-            if ($esEditable) {
-                if (!empty($it['requiere_proyecto'])) return true;
-            } else {
-                if (!empty($it['servicio_requiere_proyecto'])) return true;
+            if (! empty($it['servicio_requiere_proyecto'])) {
+                return true;
             }
         }
         return false;
     }
 
-    public function getTotalesProperty(): array
+    public function getTieneBloqueoRecurrenteProperty(): bool
     {
-        $unico = 0.0;
-        $recurrente = 0.0;
-
-        $unicosNombres = [];
-        $recurrentesNombres = [];
-
         foreach ($this->items as $it) {
-            $subtotalFinal = (float) ($it['subtotal_final'] ?? 0);
-            $tipo = (string) ($it['tipo'] ?? 'unico');
-
-            $servicioNombre = null;
-            if (!empty($it['servicio_id'])) {
-                $svc = $this->servicios->firstWhere('id', (int) $it['servicio_id']);
-                $servicioNombre = $svc?->nombre;
-            }
-
-            $nombreMostrado = $servicioNombre;
-            if (!empty($it['es_editable'])) {
-                $nombreMostrado = $it['nombre_personalizado'] ?: $servicioNombre;
-            }
-
-            if ($tipo === 'recurrente') {
-                $recurrente += $subtotalFinal;
-                if ($nombreMostrado) $recurrentesNombres[] = $nombreMostrado;
-            } else {
-                $unico += $subtotalFinal;
-                if ($nombreMostrado) $unicosNombres[] = $nombreMostrado;
+            if (! empty($it['bloquea_recurrente'])) {
+                return true;
             }
         }
 
-        $prorrata = 0.0;
-        $diasRestantes = 0;
-
-        if (! $this->tieneProyecto) {
-            $diasMes = now()->daysInMonth ?: 30;
-            $diasRestantes = $diasMes - now()->day + 1;
-            $prorrata = $recurrente > 0 ? round(($recurrente / $diasMes) * $diasRestantes, 2) : 0.0;
-        }
-
-        $totalHoySinIva = round($unico + $prorrata, 2);
-
-        $factorIva = 1.21;
-
-        return [
-            'unico' => round($unico, 2),
-            'recurrente' => round($recurrente, 2),
-            'prorrata' => round($prorrata, 2),
-            'dias_restantes' => $diasRestantes,
-            'total_hoy_sin_iva' => $totalHoySinIva,
-
-            'unico_con_iva' => round($unico * $factorIva, 2),
-            'recurrente_con_iva' => round($recurrente * $factorIva, 2),
-            'prorrata_con_iva' => round($prorrata * $factorIva, 2),
-            'total_hoy_con_iva' => round($totalHoySinIva * $factorIva, 2),
-
-            'lista_unicos' => $unicosNombres,
-            'lista_recurrentes' => $recurrentesNombres,
-
-            'tiene_proyecto' => $this->tieneProyecto,
-        ];
+        return false;
     }
 
-    /**
-     * ✅ Paso intermedio: desde el modal de resumen abrimos el modal 2 (confirmación email)
-     */
+public function getTotalesProperty(): array
+{
+    $unico = 0.0;
+    $recurrente = 0.0;
+    $prorrata = 0.0;
+
+    $unicosNombres = [];
+    $recurrentesNombres = [];
+
+    $diasMes = now()->daysInMonth ?: 30;
+    $diasRestantes = $diasMes - now()->day + 1;
+
+    // ✅ 1) Flags de proyecto
+    // - hay_proyecto: cualquier proyecto (editable o no) -> para UI/modal
+    // - tiene_proyecto: SOLO proyectos que deben BLOQUEAR prorrata (no editables con servicio_requiere_proyecto)
+    $hayProyecto = (bool) $this->tieneProyecto;
+
+    $tieneProyectoBloqueante = false;
+    foreach ($this->items as $it) {
+        $esEditable = (bool) ($it['es_editable'] ?? false);
+
+        // Solo NO editables (proyecto "real" de onboarding) bloquean prorrata
+        if (! $esEditable && ! empty($it['servicio_requiere_proyecto'])) {
+            $tieneProyectoBloqueante = true;
+            break;
+        }
+    }
+
+    // ✅ 2) Bloqueo recurrente (checkbox o servicio)
+    $bloqueaRec = (bool) $this->tieneBloqueoRecurrente;
+
+    // ✅ 3) La prorrata se difiere SOLO si:
+    // - hay bloqueo recurrente, o
+    // - hay proyecto bloqueante (NO editable)
+    $diferirProrrata = $bloqueaRec || $tieneProyectoBloqueante;
+
+    foreach ($this->items as $it) {
+        $subtotalFinal = (float) ($it['subtotal_final'] ?? 0);
+        $tipo = (string) ($it['tipo'] ?? 'unico');
+
+        $servicioNombre = null;
+        if (! empty($it['servicio_id'])) {
+            $svc = $this->servicios->firstWhere('id', (int) $it['servicio_id']);
+            $servicioNombre = $svc?->nombre;
+        }
+
+        $nombreMostrado = $servicioNombre;
+        if (! empty($it['es_editable'])) {
+            $nombreMostrado = $it['nombre_personalizado'] ?: $servicioNombre;
+        }
+
+        if ($tipo === 'recurrente') {
+            $recurrente += $subtotalFinal;
+            if ($nombreMostrado) $recurrentesNombres[] = $nombreMostrado;
+
+            // ✅ PRORRATA: solo si NO hay diferimiento
+            if (! $diferirProrrata) {
+                $cobro = $it['cobro_primer_mes'] ?? 'prorrata';
+
+                if ($cobro === 'completo') {
+                    $prorrata += $subtotalFinal;
+                } elseif ($cobro === 'gratis') {
+                    $prorrata += 0;
+                } else {
+                    $parcial = ($subtotalFinal / $diasMes) * $diasRestantes;
+                    $prorrata += $parcial;
+                }
+            }
+        } else {
+            $unico += $subtotalFinal;
+            if ($nombreMostrado) $unicosNombres[] = $nombreMostrado;
+        }
+    }
+
+    $totalHoySinIva = round($unico + $prorrata, 2);
+    $factorIva = 1.21;
+
+    return [
+        'unico' => round($unico, 2),
+        'recurrente' => round($recurrente, 2),
+
+        'prorrata' => round($prorrata, 2),
+        'dias_restantes' => $diasRestantes,
+        'total_hoy_sin_iva' => $totalHoySinIva,
+
+        'unico_con_iva' => round($unico * $factorIva, 2),
+        'recurrente_con_iva' => round($recurrente * $factorIva, 2),
+        'prorrata_con_iva' => round($prorrata * $factorIva, 2),
+        'total_hoy_con_iva' => round($totalHoySinIva * $factorIva, 2),
+
+        'lista_unicos' => $unicosNombres,
+        'lista_recurrentes' => $recurrentesNombres,
+
+        // ✅ Mantén compatibilidad con tu KPI actual:
+        // KPI mira "tiene_proyecto" para desactivar prorrata -> ahora será SOLO bloqueante
+        'tiene_proyecto' => $tieneProyectoBloqueante,
+
+        // ✅ Nuevo: para UIs/modal (tu “hay proyecto -> prorrata activa”)
+        'hay_proyecto' => $hayProyecto,
+
+        'tiene_bloqueo_recurrente' => $bloqueaRec,
+    ];
+}
+
+
+
     public function confirmarDesdeResumen(): void
     {
         if ($this->conversionBloqueada()) {
@@ -644,9 +767,6 @@ private function loadConversionInfo(): void
         $this->dispatch('open-modal', id: 'confirmar-email');
     }
 
-    /**
-     * ✅ Envío final tras confirmar email
-     */
     public function enviarPropuestaConfirmada(): void
     {
         if ($this->conversionBloqueada()) {
@@ -679,7 +799,6 @@ private function loadConversionInfo(): void
 
         $record = $this->lead->fresh();
 
-        // 1) itemsServicios desde la tabla nueva
         $itemsServicios = $this->buildItemsServiciosBlueprint();
 
         if (empty($itemsServicios)) {
@@ -691,7 +810,6 @@ private function loadConversionInfo(): void
             return;
         }
 
-        // 2) Link activo
         $link = LeadConversionLink::active()
             ->where('lead_id', $record->id)
             ->first();
@@ -700,7 +818,6 @@ private function loadConversionInfo(): void
             $link = LeadConversionLink::createForLead($record, 'automatic_multi');
         }
 
-        // 3) Meta + blueprint
         $meta = $link->meta ?? [];
         $meta['form_type'] = 'automatic_multi';
         $meta['sale_blueprint'] = [
@@ -708,7 +825,6 @@ private function loadConversionInfo(): void
             'servicios' => $itemsServicios,
         ];
 
-        // prefill mínimo
         $meta['form_data'] = array_merge(($meta['form_data'] ?? []), [
             'email'           => $emailDestino,
             'tipo_cliente_id' => $this->tipoClienteId,
@@ -717,12 +833,10 @@ private function loadConversionInfo(): void
         $link->meta = $meta;
         $link->save();
 
-        // 4) Estado
         $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
         $record->fecha_cierre = null;
         $record->save();
 
-        // 5) Email + logs + comentario
         try {
             Mail::to($emailDestino)->send(new LeadConversionLinkMail($record, $link));
 
@@ -757,12 +871,11 @@ private function loadConversionInfo(): void
             $link->meta = $meta;
             $link->save();
 
-            // refrescar estado y UI
             $this->lead = $record->fresh();
             $this->loadConversionInfo();
 
             $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
-            if (is_array($serviciosBlueprint) && !empty($serviciosBlueprint)) {
+            if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
                 $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
             }
 
@@ -805,9 +918,6 @@ private function loadConversionInfo(): void
         $this->dispatch('open-modal', id: 'confirmar-propuesta');
     }
 
-    // -------------------------
-    // ✅ MODALES (acciones)
-    // -------------------------
     public function abrirConfirmarReenviar(): void
     {
         if ($this->conversionBloqueada()) {
@@ -851,9 +961,6 @@ private function loadConversionInfo(): void
         $this->dispatch('open-modal', id: 'confirmar-cancelar-conversion');
     }
 
-    // -------------------------
-    // ✅ REENVIAR EMAIL
-    // -------------------------
     public function reenviarPropuestaVisual(): void
     {
         if ($this->conversionBloqueada()) {
@@ -884,9 +991,8 @@ private function loadConversionInfo(): void
             ->latest('id')
             ->first();
 
-        // Si no hay link activo (o ha caducado), reenviar = “reiniciar token y enviar nuevo”
         if (! $link || $link->isExpired()) {
-            $this->reiniciarTokenVisual(); // envía nuevo automáticamente
+            $this->reiniciarTokenVisual();
             return;
         }
 
@@ -937,9 +1043,6 @@ private function loadConversionInfo(): void
         }
     }
 
-    // -------------------------
-    // ✅ REINICIAR TOKEN (nuevo link + enviar)
-    // -------------------------
     public function reiniciarTokenVisual(): void
     {
         if ($this->conversionBloqueada()) {
@@ -970,7 +1073,6 @@ private function loadConversionInfo(): void
             ->latest('id')
             ->first();
 
-        // Blueprint: prioridad al que ya está guardado. Si no, lo construimos desde items actuales.
         $blueprint = $old?->meta['sale_blueprint'] ?? data_get($this->conversionInfo, 'blueprint') ?? null;
 
         if (empty($blueprint) || empty($blueprint['servicios']) || ! is_array($blueprint['servicios'])) {
@@ -990,7 +1092,6 @@ private function loadConversionInfo(): void
             ];
         }
 
-        // 1) Invalidar anterior (caducarlo)
         if ($old) {
             $metaOld = $old->meta ?? [];
             $metaOld['revoked_at'] = now()->toDateTimeString();
@@ -1001,14 +1102,12 @@ private function loadConversionInfo(): void
             $old->save();
         }
 
-        // 2) Crear nuevo link
         $new = LeadConversionLink::createForLead($record, 'automatic_multi');
 
         $meta = $old?->meta ?? [];
         $meta['form_type'] = 'automatic_multi';
         $meta['sale_blueprint'] = $blueprint;
 
-        // prefill mínimo
         $meta['form_data'] = array_merge(($meta['form_data'] ?? []), [
             'email'           => $emailDestino,
             'tipo_cliente_id' => $this->tipoClienteId,
@@ -1017,12 +1116,10 @@ private function loadConversionInfo(): void
         $new->meta = $meta;
         $new->save();
 
-        // 3) Forzamos estado correcto
         $record->estado = LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA;
         $record->fecha_cierre = null;
         $record->save();
 
-        // 4) Enviar email con el nuevo token
         try {
             Mail::to($emailDestino)->send(new LeadConversionLinkMail($record, $new));
 
@@ -1060,7 +1157,6 @@ private function loadConversionInfo(): void
             $this->lead = $record->fresh();
             $this->loadConversionInfo();
 
-            // rehidratar items desde el blueprint nuevo
             $serviciosBlueprint = data_get($this->conversionInfo, 'blueprint.servicios', []);
             if (is_array($serviciosBlueprint) && ! empty($serviciosBlueprint)) {
                 $this->items = $this->mapBlueprintServiciosToItems($serviciosBlueprint);
@@ -1077,9 +1173,6 @@ private function loadConversionInfo(): void
         }
     }
 
-    // -------------------------
-    // ✅ CANCELAR CONVERSIÓN (revocar link + volver a edición)
-    // -------------------------
     public function cancelarConversionConfirmada(): void
     {
         if ($this->conversionBloqueada()) {
@@ -1113,7 +1206,6 @@ private function loadConversionInfo(): void
             $active->save();
         }
 
-        // ⚠️ Ajusta este estado a tu “modo edición” real si se llama distinto en tu enum
         $record->estado = LeadEstadoEnum::CONVERTIDO_CORRECCION;
         $record->fecha_cierre = null;
         $record->save();
@@ -1129,8 +1221,7 @@ private function loadConversionInfo(): void
             ->success()
             ->send();
 
-        // UI: volvemos a mostrar los servicios que estaban en el blueprint (si existe)
-        if (is_array($blueprint) && !empty($blueprint['servicios']) && is_array($blueprint['servicios'])) {
+        if (is_array($blueprint) && ! empty($blueprint['servicios']) && is_array($blueprint['servicios'])) {
             $this->items = $this->mapBlueprintServiciosToItems($blueprint['servicios']);
         } else {
             if (empty($this->items)) {

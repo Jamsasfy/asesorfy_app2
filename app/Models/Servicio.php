@@ -27,7 +27,8 @@ class Servicio extends Model
         'activo',
         'es_editable',
         'es_tarifa_principal', 
-        'requiere_proyecto_activacion', 
+        'requiere_proyecto_activacion', //indica si crea el proyecto cuando se vende un unico, no tiene nada que ver con la activacion del recurrente.
+        'bloquea_recurrente', // ✅ nuevo, este si indica si bloquea el recurrente
         'ciclo_facturacion',
         'departamento_id',
         'stripe_product_id',
@@ -49,6 +50,7 @@ class Servicio extends Model
         // Castear 'precio_base' a decimal con 2 decimales (opcional pero bueno para consistencia)
         'precio_base' => 'decimal:2',
        'requiere_proyecto_activacion' => 'boolean', // <<< AÑADIDO
+       'bloquea_recurrente' => 'boolean',
         'ciclo_facturacion' => CicloFacturacionEnum::class,
 
     ];

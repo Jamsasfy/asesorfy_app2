@@ -14,6 +14,8 @@ use App\Http\Controllers\Public\PaymentLinkController;
 use App\Http\Controllers\Public\StripeSetupController;
 
 use App\Http\Controllers\Webhooks\StripeWebhookController;
+use App\Http\Controllers\ChatMensajeFileController;
+
 
 
 
@@ -79,7 +81,7 @@ Route::prefix('conversion')->name('conversion.')->group(function () {
             ->name('pago-recurrente');
 
         Route::post('{token}/pago-recurrente', [LeadConversionController::class, 'guardarPagoRecurrente'])
-            ->name('pago-recurrente.store');
+            ->name('guardar-pago-recurrente');
 
 
         // 5) Vista final
@@ -120,5 +122,10 @@ Route::middleware(['auth'])->group(function () {
 
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle'])->name('stripe.webhook');
 
+
+Route::middleware(['web', 'auth'])->group(function () {
+    Route::get('/admin/chat-mensajes/{chatMensaje}/file', ChatMensajeFileController::class)
+        ->name('chat-mensajes.file');
+});
 
 require __DIR__.'/auth.php';

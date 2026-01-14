@@ -18,12 +18,14 @@ class ContractSignedMail extends Mailable
     public Lead $lead;
     public string $pdfPath;
     public ?Venta $venta;
+    public string $resumeUrl;
 
-    public function __construct(Lead $lead, string $pdfPath, ?Venta $venta = null)
+    public function __construct(Lead $lead, string $pdfPath, string $resumeUrl, ?Venta $venta = null)
     {
-        $this->lead    = $lead;
-        $this->pdfPath = $pdfPath;
-        $this->venta   = $venta;
+        $this->lead      = $lead;
+        $this->pdfPath   = $pdfPath;
+        $this->resumeUrl = $resumeUrl;
+        $this->venta     = $venta;
     }
 
     public function envelope(): Envelope
@@ -38,8 +40,9 @@ class ContractSignedMail extends Mailable
         return new Content(
             view: 'emails.contract-signed',
             with: [
-                'lead'  => $this->lead,
-                'venta' => $this->venta,
+                'lead'      => $this->lead,
+                'venta'     => $this->venta,
+                'resumeUrl' => $this->resumeUrl,
             ],
         );
     }

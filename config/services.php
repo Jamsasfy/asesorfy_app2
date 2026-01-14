@@ -37,6 +37,12 @@ return [
     'stripe' => [
     'secret' => env('STRIPE_SECRET'),
     'key'    => env('STRIPE_KEY'),
-],
+    ],
+
+    'telegram' => [
+    'bot_token'      => env('TELEGRAM_BOT_TOKEN'),
+    'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
+     'verify_ssl' => env('TELEGRAM_VERIFY_SSL'),
+    ],
 
 ];

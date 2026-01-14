@@ -31,6 +31,7 @@ class VentaItem extends Model
         'observaciones_descuento',  // Campo para la descripción del descuento
         'subtotal_aplicado_con_iva', // <<< NUEVO CAMPO AÑADIDO
         'requiere_proyecto',
+        'bloquea_recurrente',
         'nombre_personalizado',
         'cliente_suscripcion_id',
 
@@ -49,8 +50,8 @@ class VentaItem extends Model
         'descuento_duracion_meses' => 'integer',
         'descuento_valido_hasta'   => 'date',
         'subtotal_aplicado_con_iva' => 'decimal:2',
-            'requiere_proyecto' => 'boolean',
-
+        'requiere_proyecto' => 'boolean',
+        'bloquea_recurrente' => 'boolean',
         
     ];
 

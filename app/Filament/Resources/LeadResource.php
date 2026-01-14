@@ -65,6 +65,8 @@ use App\Mail\RecordatorioPagoMail;
 use App\Models\Venta;
 use Filament\Tables\Filters\Filter;
 use Filament\Forms\Components\Checkbox;
+use App\Models\Factura as FacturaModel; // ✅ IMPORTANTE (modelo real)
+
 
 
 
@@ -1310,268 +1312,324 @@ class LeadResource extends Resource implements HasShieldPermissions
                     //->columnSpanFull(),
 
               Section::make('Documentación Legal')
-                        ->icon('heroicon-o-document-check')
-                        ->description('Acceso al contrato firmado y opciones de envío.')
-                        ->collapsible()
-                        ->collapsed()
-                        ->visible(fn (Lead $record) =>
-                            $record->conversionLinks()
-                                ->whereNotNull('used_at')
-                                ->whereNotNull('meta->pdf')
-                                ->exists()
-                        )
-                        ->schema(function (Lead $record) {
+            ->icon('heroicon-o-document-check')
+            ->description('Acceso al contrato firmado y opciones de envío.')
+            ->collapsible()
+            ->collapsed()
+            ->visible(fn (Lead $record) =>
+                $record->conversionLinks()
+                    ->whereNotNull('meta->pdf')
+                    ->exists()
+            )
+            ->schema(function (Lead $record) {
 
-                            $link = $record->conversionLinks()
-                                ->whereNotNull('used_at')
-                                ->whereNotNull('meta->pdf')
-                                ->latest('used_at')
-                                ->first();
+                // 🔥 Ya NO dependemos de used_at (porque no lo estás seteando)
+                // Elegimos el último link que tenga pdf
+                $link = $record->conversionLinks()
+                    ->whereNotNull('meta->pdf')
+                    ->latest('id')
+                    ->first();
 
-                            if (! $link) {
-                                return [
-                                    TextEntry::make('no_pdf')
-                                        ->label(false)
-                                        ->default('Sin contrato firmado.'),
-                                ];
-                            }
+                if (! $link) {
+                    return [
+                        TextEntry::make('no_pdf')
+                            ->label(false)
+                            ->default('Sin contrato firmado.'),
+                    ];
+                }
 
-                            $pdfPath = $link->meta['pdf'];
-                            $pdfUrl  = \Illuminate\Support\Facades\Storage::disk('public')->url($pdfPath);
+                $pdfPath = data_get($link->meta, 'pdf');
+                if (! $pdfPath) {
+                    return [
+                        TextEntry::make('no_pdf')
+                            ->label(false)
+                            ->default('Sin contrato firmado.'),
+                    ];
+                }
 
-                            return [
+                $pdfUrl  = \Illuminate\Support\Facades\Storage::disk('public')->url($pdfPath);
 
-                                Grid::make(4)
-                                    ->schema([
+                // ✅ Fecha de firma robusta:
+                // - si existe signed_at en la venta asociada, úsala
+                // - si no, fallback a created_at del link
+                $fechaFirma = null;
 
-                                        // BOTÓN VER CONTRATO
-                                        Action::make('ver_contrato_pdf')
-                                            ->label('Ver contrato')
-                                            ->icon('heroicon-m-eye')
-                                            ->color('gray')
-                                            ->size('sm')
-                                            ->url($pdfUrl)
-                                            ->openUrlInNewTab(),
+                try {
+                    $ventaId = data_get($link->meta, 'existing_venta_id');
+                    $venta = $ventaId ? \App\Models\Venta::find($ventaId) : null;
+                    $fechaFirma = $venta?->signed_at ?? $link->created_at;
+                } catch (\Throwable $e) {
+                    $fechaFirma = $link->created_at;
+                }
 
-                                        // BOTÓN ENVIAR COPIA
-                                        Action::make('reenviar_email_contrato')
-                                            ->label('Enviar copia')
-                                            ->icon('heroicon-m-paper-airplane')
-                                            ->color('primary')
-                                            ->size('sm')
-                                            ->requiresConfirmation()
-                                            ->modalHeading('Enviar copia del contrato')
-                                            ->modalDescription("Se enviará una copia del contrato firmado a {$record->email}.")
-                                            ->action(function () use ($record, $pdfPath) {
+                return [
 
-                                                $ruta = \Illuminate\Support\Facades\Storage::disk('public')->path($pdfPath);
-
-                                                \Illuminate\Support\Facades\Mail::to($record->email)
-                                                    ->send(new ContractCopyMail($record, $ruta));
-
-                                                $record->comentarios()->create([
-                                                    'user_id'   => auth()->id(),
-                                                    'contenido' => '📧📄 Copia del contrato enviada manualmente.',
-                                                ]);
-
-                                                Notification::make()
-                                                    ->title('Copia enviada')
-                                                    ->success()
-                                                    ->send();
-                                            }),
-
-                                        // FECHA DE FIRMA
-                                        TextEntry::make('fecha_firma')
-                                            ->hiddenLabel()
-                                            ->html()
-                                            ->columnSpan(2)
-                                            ->state(fn () => "
-                                                <div style='
-                                                    display:flex;
-                                                    align-items:center;
-                                                    gap:8px;
-                                                    padding:6px 12px;
-                                                    border-radius:6px;
-                                                    background-color:rgba(16,185,129,0.10);
-                                                    color:rgb(16,185,129);
-                                                    font-weight:600;
-                                                    white-space:nowrap;
-                                                '>
-                                                    <span>📅 Fecha de firma:</span>
-                                                    <span>{$link->used_at->format('d/m/Y \a \l\a\s H:i')}</span>
-                                                </div>
-                                            "),
-                                    ])
-                                    ->columnSpanFull(),
-                            ];
-                        }),
-
-                    // ->columnSpanFull(),
-                    Section::make('Gestión de Cobro y Ventas')
-                        ->icon('heroicon-o-currency-dollar')
-                        ->description('Estado de los pagos de las ventas asociadas a este lead.')
-                        ->visible(fn(Lead $record) => $record->ventas()->exists())
+                    Grid::make(4)
                         ->schema([
 
-                            RepeatableEntry::make('ventas')
+                            // BOTÓN VER CONTRATO
+                            Action::make('ver_contrato_pdf')
+                                ->label('Ver contrato')
+                                ->icon('heroicon-m-eye')
+                                ->color('gray')
+                                ->size('sm')
+                                ->url($pdfUrl)
+                                ->openUrlInNewTab(),
+
+                            // BOTÓN ENVIAR COPIA
+                            Action::make('reenviar_email_contrato')
+                                ->label('Enviar copia')
+                                ->icon('heroicon-m-paper-airplane')
+                                ->color('primary')
+                                ->size('sm')
+                                ->requiresConfirmation()
+                                ->modalHeading('Enviar copia del contrato')
+                                ->modalDescription("Se enviará una copia del contrato firmado a {$record->email}.")
+                                ->action(function () use ($record, $pdfPath) {
+
+                                    $ruta = \Illuminate\Support\Facades\Storage::disk('public')->path($pdfPath);
+
+                                    \Illuminate\Support\Facades\Mail::to($record->email)
+                                        ->send(new ContractCopyMail($record, $ruta));
+
+                                    $record->comentarios()->create([
+                                        'user_id'   => auth()->id(),
+                                        'contenido' => '📧📄 Copia del contrato enviada manualmente.',
+                                    ]);
+
+                                    Notification::make()
+                                        ->title('Copia enviada')
+                                        ->success()
+                                        ->send();
+                                }),
+
+                            // FECHA DE FIRMA (robusta)
+                            TextEntry::make('fecha_firma')
                                 ->hiddenLabel()
-                                ->contained(false)
-                                ->schema([
-
-                                    Grid::make(4)->schema([
-
-                                        // 1️⃣ IDENTIFICACIÓN DE LA VENTA
-                                        TextEntry::make('concepto_venta')
-                                            ->label('Venta / Servicios')
-                                            ->icon('heroicon-m-shopping-bag')
-                                            ->formatStateUsing(fn(Venta $record) => "Venta #{$record->id}")
-                                            ->helperText(
-                                                fn($record) =>
-                                                $record->items
-                                                    ->filter(fn($item) => $item->servicio)
-                                                    ->map(
-                                                        fn($item) =>
-                                                        $item->servicio->nombre .
-                                                            ' (' . ucfirst($item->servicio->tipo->value) . ')'
-                                                    )
-                                                    ->implode(', ')
-                                            )
-                                            ->url(
-                                                fn(Venta $record) =>
-                                                VentaResource::getUrl('edit', ['record' => $record->id])
-                                            )
-                                            ->color('primary'),
-
-                                        // 2️⃣ IMPORTE Y MÉTODO
-                                        TextEntry::make('importe_total')
-                                            ->label('Importe / Método')
-                                            ->weight('bold')
-                                            ->formatStateUsing(function ($record) {
-
-                                                // Si no hay facturas aún
-                                                if (! $record->facturas()->exists()) {
-                                                    return 'Pendiente de facturar';
-                                                }
-
-                                                // Importe REAL facturado (suma de facturas)
-                                                $total = $record->facturas()->sum('total_factura');
-
-                                                return number_format($total, 2, ',', '.') . ' €';
-                                            })
-                                            ->helperText(
-                                                fn($record) =>
-                                                ucfirst($record->pago_inicial_metodo ?? 'No definido')
-                                            ),
-                                        // 3️⃣ ESTADO DEL PAGO
-                                        TextEntry::make('estado_pago')
-                                            ->label('Estado Pago')
-                                            ->badge()
-                                            ->state(
-                                                fn(Venta $record) =>
-                                                $record->tienePagoInicialCompletado() ? 'PAGADO' : 'PENDIENTE'
-                                            )
-                                            ->color(
-                                                fn(string $state) =>
-                                                $state === 'PAGADO' ? 'success' : 'danger'
-                                            )
-                                            ->icon(
-                                                fn(string $state) =>
-                                                $state === 'PAGADO'
-                                                    ? 'heroicon-m-check-circle'
-                                                    : 'heroicon-m-clock'
-                                            ),
-
-                                        // 4️⃣ ACCIÓN: RECORDATORIO DE PAGO
-                                        Action::make('enviar_recordatorio')
-                                            ->label('Recordar pago')
-                                            ->icon('heroicon-m-paper-airplane')
-                                            ->color('warning')
-                                            ->size('xs')
-                                            ->tooltip('Enviar email con instrucciones de pago')
-                                            ->visible(
-                                                fn(Venta $record) =>
-                                                ! $record->tienePagoInicialCompletado()
-                                                    && $record->estado !== VentaEstadoEnum::CANCELADA
-                                            )
-                                            ->requiresConfirmation()
-                                            ->modalHeading('Enviar recordatorio de pago')
-                                            ->modalDescription(
-                                                'Se enviará un email al cliente con las instrucciones de pago.'
-                                            )
-                                            ->action(function (Venta $record) {
-
-                                                if (! $record->cliente || ! $record->cliente->email_contacto) {
-                                                    Notification::make()
-                                                        ->title('Error')
-                                                        ->body('El cliente no tiene email.')
-                                                        ->danger()
-                                                        ->send();
-                                                    return;
-                                                }
-
-                                                try {
-                                                    Mail::to($record->cliente->email_contacto)
-                                                        ->send(new RecordatorioPagoMail($record));
-
-                                                    if ($record->lead_id && $record->lead) {
-
-                                                        LeadAutoEmailLog::create([
-                                                            'lead_id'              => $record->lead_id,
-                                                            'estado'               => $record->lead->estado->value ?? 'unknown',
-                                                            'intento'              => 1,
-                                                            'template_identifier'  => 'manual_payment_reminder',
-                                                            'subject'              => 'Recordatorio de Pago',
-                                                            'body_preview'         => 'Recordatorio manual enviado desde ficha Lead.',
-                                                            'scheduled_at'         => now(),
-                                                            'sent_at'              => now(),
-                                                            'status'               => 'sent',
-                                                            'triggered_by_user_id' => auth()->id(),
-                                                            'trigger_source'       => 'lead_infolist_action',
-                                                        ]);
-
-                                                        $record->lead->comentarios()->create([
-                                                            'user_id'   => auth()->id(),
-                                                            'contenido' => '📤 Recordatorio de pago enviado manualmente.',
-                                                        ]);
-                                                    }
-
-                                                    Notification::make()
-                                                        ->title('Recordatorio enviado')
-                                                        ->success()
-                                                        ->send();
-                                                } catch (\Throwable $e) {
-                                                    Notification::make()
-                                                        ->title('Error al enviar')
-                                                        ->body($e->getMessage())
-                                                        ->danger()
-                                                        ->send();
-                                                }
-                                            }),
-
-                                        // 5️⃣ ACCIÓN: VER FACTURA
-                                        Action::make('ver_factura')
-                                            ->label('Factura')
-                                            ->icon('heroicon-m-document-text')
-                                            ->color('gray')
-                                            ->size('xs')
-                                            ->url(
-                                                fn(Venta $record) =>
-                                                optional($record->facturas()->latest()->first())
-                                                    ? route('facturas.generar-pdf', $record->facturas()->latest()->first())
-                                                    : null
-                                            )
-                                            ->openUrlInNewTab()
-                                            ->visible(
-                                                fn(Venta $record) =>
-                                                $record->tienePagoInicialCompletado()
-                                                    && $record->facturas()->exists()
-                                            ),
-                                    ])
-                                    //->verticalAlignment(VerticalAlignment::Center),
-                                ]),
+                                ->html()
+                                ->columnSpan(2)
+                                ->state(fn () => "
+                                    <div style='
+                                        display:flex;
+                                        align-items:center;
+                                        gap:8px;
+                                        padding:6px 12px;
+                                        border-radius:6px;
+                                        background-color:rgba(16,185,129,0.10);
+                                        color:rgb(16,185,129);
+                                        font-weight:600;
+                                        white-space:nowrap;
+                                    '>
+                                        <span>📅 Fecha de firma:</span>
+                                        <span>" . ($fechaFirma?->format('d/m/Y \\a \\l\\a\\s H:i') ?? '—') . "</span>
+                                    </div>
+                                "),
                         ])
-                        ->collapsible()
-                        ->collapsed()
+                        ->columnSpanFull(),
+                ];
+            }),
+
+
+                    // ->columnSpanFull(),
+                Section::make('Gestión de Cobro y Ventas')
+    ->icon('heroicon-o-currency-dollar')
+    ->description('Estado de los pagos de las ventas asociadas a este lead.')
+    ->visible(fn (Lead $record) => $record->ventas()->exists())
+    ->schema([
+
+        RepeatableEntry::make('ventas')
+            ->hiddenLabel()
+            ->contained(false)
+            ->schema([
+
+                // ==========================
+                // CABECERA VENTA (lo tuyo, más legible en helperText)
+                // ==========================
+                Grid::make(4)->schema([
+
+                    // 1️⃣ IDENTIFICACIÓN DE LA VENTA
+                    TextEntry::make('concepto_venta')
+                        ->label('Venta / Servicios')
+                        ->icon('heroicon-m-shopping-bag')
+                        ->formatStateUsing(fn (Venta $record) => "Venta #{$record->id}")
+                        ->helperText(function (Venta $record) {
+                            $txt = $record->items
+                                ->filter(fn ($item) => $item->servicio)
+                                ->map(fn ($item) => '• ' . $item->servicio->nombre . ' (' . ucfirst($item->servicio->tipo->value) . ')')
+                                ->implode('<br>');
+
+                            return new HtmlString($txt ?: '—');
+                        })
+                        ->url(fn (Venta $record) => VentaResource::getUrl('edit', ['record' => $record->id]))
+                        ->color('primary'),
+
+                    // 2️⃣ IMPORTE Y MÉTODO
+                    TextEntry::make('importe_total')
+                        ->label('Importe / Método')
+                        ->weight('bold')
+                        ->formatStateUsing(function (Venta $record) {
+
+                            if (! $record->facturas()->exists()) {
+                                return 'Pendiente de facturar';
+                            }
+
+                            $total = (float) $record->facturas()->sum('total_factura');
+
+                            return number_format($total, 2, ',', '.') . ' €';
+                        })
+                        ->helperText(function (Venta $record) {
+                            $metodo = ucfirst($record->pago_inicial_metodo ?? 'No definido');
+                            $n = (int) $record->facturas()->count();
+                            $txt = $n === 1 ? '1 factura' : "{$n} facturas";
+                            return "{$metodo} · {$txt}";
+                        }),
+
+                    // 3️⃣ ESTADO DEL PAGO
+                    TextEntry::make('estado_pago')
+                        ->label('Estado Pago')
+                        ->badge()
+                        ->state(fn (Venta $record) => $record->tienePagoInicialCompletado() ? 'PAGADO' : 'PENDIENTE')
+                        ->color(fn (string $state) => $state === 'PAGADO' ? 'success' : 'danger')
+                        ->icon(fn (string $state) => $state === 'PAGADO' ? 'heroicon-m-check-circle' : 'heroicon-m-clock'),
+
+                    // 4️⃣ ACCIÓN: RECORDATORIO DE PAGO
+                    Action::make('enviar_recordatorio')
+                        ->label('Recordar pago')
+                        ->icon('heroicon-m-paper-airplane')
+                        ->color('warning')
+                        ->size('xs')
+                        ->tooltip('Enviar email con instrucciones de pago')
+                        ->visible(fn (Venta $record) => ! $record->tienePagoInicialCompletado() && $record->estado !== VentaEstadoEnum::CANCELADA)
+                        ->requiresConfirmation()
+                        ->modalHeading('Enviar recordatorio de pago')
+                        ->modalDescription('Se enviará un email al cliente con las instrucciones de pago.')
+                        ->action(function (Venta $record) {
+
+                            if (! $record->cliente || ! $record->cliente->email_contacto) {
+                                Notification::make()
+                                    ->title('Error')
+                                    ->body('El cliente no tiene email.')
+                                    ->danger()
+                                    ->send();
+                                return;
+                            }
+
+                            try {
+                                Mail::to($record->cliente->email_contacto)
+                                    ->send(new RecordatorioPagoMail($record));
+
+                                if ($record->lead_id && $record->lead) {
+
+                                    LeadAutoEmailLog::create([
+                                        'lead_id'              => $record->lead_id,
+                                        'estado'               => $record->lead->estado->value ?? 'unknown',
+                                        'intento'              => 1,
+                                        'template_identifier'  => 'manual_payment_reminder',
+                                        'subject'              => 'Recordatorio de Pago',
+                                        'body_preview'         => 'Recordatorio manual enviado desde ficha Lead.',
+                                        'scheduled_at'         => now(),
+                                        'sent_at'              => now(),
+                                        'status'               => 'sent',
+                                        'triggered_by_user_id' => auth()->id(),
+                                        'trigger_source'       => 'lead_infolist_action',
+                                    ]);
+
+                                    $record->lead->comentarios()->create([
+                                        'user_id'   => auth()->id(),
+                                        'contenido' => '📤 Recordatorio de pago enviado manualmente.',
+                                    ]);
+                                }
+
+                                Notification::make()
+                                    ->title('Recordatorio enviado')
+                                    ->success()
+                                    ->send();
+                            } catch (\Throwable $e) {
+                                Notification::make()
+                                    ->title('Error al enviar')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+
+                    // 5️⃣ ACCIÓN: VER ÚLTIMA FACTURA (se mantiene)
+                   /*  Action::make('ver_factura')
+                        ->label('Factura')
+                        ->icon('heroicon-m-document-text')
+                        ->color('gray')
+                        ->size('xs')
+                        ->url(fn (Venta $record) => optional($record->facturas()->latest()->first())
+                            ? route('facturas.generar-pdf', $record->facturas()->latest()->first())
+                            : null
+                        )
+                        ->openUrlInNewTab()
+                        ->visible(fn (Venta $record) => $record->tienePagoInicialCompletado() && $record->facturas()->exists()), */
+
+                ]),
+
+                // ==========================
+                // NUEVO: DETALLE DE FACTURAS (todas)
+                // ==========================
+                RepeatableEntry::make('facturas_detalle')
+                    ->label('Facturas')
+                    ->contained(false)
+                    ->visible(fn (Venta $record) => $record->facturas()->exists())
+                    ->state(function (Venta $record) {
+                        return $record->facturas()
+                            ->latest('fecha_emision')
+                            ->get()
+                            ->map(function (FacturaModel $f) {
+                                return [
+                                    'numero'  => $f->numero_factura ?? $f->numero ?? ('Factura #' . $f->id),
+                                    'fecha'   => optional($f->fecha_emision)->format('d/m/Y') ?? '—',
+                                    'total'   => number_format((float) $f->total_factura, 2, ',', '.') . ' €',
+                                    'estado'  => is_object($f->estado) ? ($f->estado->value ?? '—') : ($f->estado ?? '—'),
+                                    'pdf_url' => route('facturas.generar-pdf', $f),
+                                ];
+                            })
+                            ->all();
+                    })
+                    ->schema([
+                        Grid::make(5)->schema([
+
+                            TextEntry::make('numero')
+                                ->label('Factura'),
+
+                            TextEntry::make('fecha')
+                                ->label('Fecha'),
+
+                            TextEntry::make('total')
+                                ->label('Total'),
+                                //->alignEnd(),
+
+                            TextEntry::make('estado')
+                                ->label('Estado')
+                                ->badge()
+                                ->color(fn (string $state) => in_array(strtoupper($state), ['PAGADA', 'PAGADO'], true) ? 'success' : 'warning'),
+
+                            // ✅ “Botón” por factura (badge clicable)
+                            TextEntry::make('pdf_url')
+                                ->label('') // si lo dejas vacío no molesta; si quieres pon 'PDF'
+                                ->badge()
+                                ->icon('heroicon-m-document-text')
+                                ->color('gray')
+                                ->formatStateUsing(fn () => 'Factura')   // 👈 lo que se ve
+                                ->url(fn (?string $state) => $state)    // 👈 el link real
+                                ->openUrlInNewTab()
+                                ->visible(fn (?string $state) => filled($state)),
+
+
+                        ]),
+                    ])
+                    ->columnSpanFull(),
+
+
+
+            ]),
+    ])
+    ->collapsible()
+    ->collapsed()
 
 
                 ]),

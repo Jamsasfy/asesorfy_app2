@@ -19,8 +19,6 @@
     $listaUnicos = (array) ($totales['lista_unicos'] ?? []);
     $listaRec = (array) ($totales['lista_recurrentes'] ?? []);
 
-    $tieneProyecto = (bool) ($totales['tiene_proyecto'] ?? false);
-
     // ✅ Blindaje: si no nos pasan $servicios, no rompe el modal
     $servicios = $servicios ?? collect();
     if (! ($servicios instanceof Collection)) {
@@ -57,6 +55,106 @@
 
         return $base;
     };
+
+    /*
+    |--------------------------------------------------------------------------
+    | ✅ LÓGICA REAL: proyecto vs prorrata (3 estados)
+    |--------------------------------------------------------------------------
+    | - Hay proyecto: cualquier línea con proyecto (editable o no)
+    | - Bloquea prorrata: SOLO si
+    |     a) el servicio NO editable requiere proyecto_activacion
+    |     b) o el comercial marca bloquea_recurrente (checkbox)
+    */
+    $hayProyecto = false;
+    $hayBloqueoProrrata = false;
+
+    $serviciosProyecto = [];      // para info
+    $serviciosBloqueantes = [];   // los que causan bloqueo real (checkbox o no editable con proyecto_activacion)
+
+    // ✅ Buscar el recurrente BASE (tarifa principal) para “Afecta a:”
+    $recurrenteBaseNombre = null;
+    $recurrenteBaseId = null;
+
+    $primerRecurrenteNombre = null;
+    $primerRecurrenteId = null;
+
+    foreach ($items as $it) {
+        $svc = null;
+        if (!empty($it['servicio_id'])) {
+            $svc = $servicios->firstWhere('id', (int) $it['servicio_id']);
+        }
+
+        $tipo = (string) ($it['tipo'] ?? ($svc?->tipo?->value ?? 'unico'));
+
+        $nombre = $svc?->nombre;
+        if (!empty($it['es_editable'])) {
+            $nombre = $it['nombre_personalizado'] ?: $nombre;
+        }
+        $nombre = $nombre ?: '—';
+
+        $editable = (bool) ($it['es_editable'] ?? false);
+
+        // Proyecto (solo para saber si “hay proyecto”)
+        $tieneProyectoLinea = $editable
+            ? (bool) ($it['requiere_proyecto'] ?? false)
+            : (bool) ($it['servicio_requiere_proyecto'] ?? ($svc?->requiere_proyecto_activacion ?? false));
+
+        if ($tieneProyectoLinea) {
+            $hayProyecto = true;
+            $serviciosProyecto[] = $nombre;
+        }
+
+        // Bloqueo por checkbox
+        $bloqueaRec = (bool) ($it['bloquea_recurrente'] ?? ($svc?->bloquea_recurrente ?? false));
+        if ($bloqueaRec) {
+            $hayBloqueoProrrata = true;
+            $serviciosBloqueantes[] = $nombre;
+        }
+
+        // Bloqueo por proyecto_activacion SOLO cuando NO es editable
+        $proyectoBloqueanteNoEditable = (! $editable) && (bool) (
+            $it['servicio_requiere_proyecto']
+            ?? ($svc?->requiere_proyecto_activacion ?? false)
+        );
+
+        if ($proyectoBloqueanteNoEditable) {
+            $hayBloqueoProrrata = true;
+            $serviciosBloqueantes[] = $nombre;
+        }
+
+        // Detectar base recurrente (tarifa principal)
+        if ($tipo === 'recurrente') {
+            if ($primerRecurrenteId === null && $svc) {
+                $primerRecurrenteId = (int) $svc->id;
+                $primerRecurrenteNombre = $svc->nombre;
+            }
+
+            $esBase = (bool) ($svc?->es_tarifa_principal ?? false);
+            if ($esBase && $svc) {
+                $recurrenteBaseId = (int) $svc->id;
+                $recurrenteBaseNombre = $svc->nombre;
+            }
+        }
+    }
+
+    // fallback si no hay “base” marcada
+    if ($recurrenteBaseNombre === null) {
+        $recurrenteBaseNombre = $primerRecurrenteNombre;
+        $recurrenteBaseId = $primerRecurrenteId;
+    }
+
+    $serviciosProyecto = array_values(array_unique(array_filter($serviciosProyecto)));
+    $serviciosBloqueantes = array_values(array_unique(array_filter($serviciosBloqueantes)));
+
+    // Estado superior (3 opciones)
+    $estadoProrrata = 'prorrata_activa';
+    if ($hayProyecto && $hayBloqueoProrrata) {
+        $estadoProrrata = 'proyecto_sin_prorrata';
+    } elseif ($hayProyecto && ! $hayBloqueoProrrata) {
+        $estadoProrrata = 'proyecto_prorrata_activa';
+    } elseif (! $hayProyecto && $hayBloqueoProrrata) {
+        $estadoProrrata = 'sin_prorrata';
+    }
 @endphp
 
 <div class="space-y-5">
@@ -78,11 +176,23 @@
                         {{ $lead?->nombre ?? '—' }}
                     </div>
 
-                    @if($tieneProyecto)
+                    @if($estadoProrrata === 'proyecto_sin_prorrata')
                         <span class="inline-flex items-center gap-2 rounded-full bg-indigo-600/10 px-2.5 py-1 text-[11px] font-bold text-indigo-700 ring-1 ring-indigo-600/20
                                      dark:bg-indigo-500/10 dark:text-indigo-200 dark:ring-indigo-500/20">
                             <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
                             Hay proyecto → sin prorrata
+                        </span>
+                    @elseif($estadoProrrata === 'proyecto_prorrata_activa')
+                        <span class="inline-flex items-center gap-2 rounded-full bg-indigo-600/10 px-2.5 py-1 text-[11px] font-bold text-indigo-700 ring-1 ring-indigo-600/20
+                                     dark:bg-indigo-500/10 dark:text-indigo-200 dark:ring-indigo-500/20">
+                            <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                            Hay proyecto → prorrata activa
+                        </span>
+                    @elseif($estadoProrrata === 'sin_prorrata')
+                        <span class="inline-flex items-center gap-2 rounded-full bg-rose-600/10 px-2.5 py-1 text-[11px] font-bold text-rose-700 ring-1 ring-rose-600/20
+                                     dark:bg-rose-500/10 dark:text-rose-200 dark:ring-rose-500/20">
+                            <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+                            Sin prorrata
                         </span>
                     @else
                         <span class="inline-flex items-center gap-2 rounded-full bg-emerald-600/10 px-2.5 py-1 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-600/20
@@ -220,9 +330,15 @@
                         $subtFinal = (float) ($it['subtotal_final'] ?? 0);
 
                         $editable = (bool) ($it['es_editable'] ?? false);
-                        $proyecto = $editable ? (bool) ($it['requiere_proyecto'] ?? false) : (bool) ($it['servicio_requiere_proyecto'] ?? false);
+                        $proyecto = $editable
+                            ? (bool) ($it['requiere_proyecto'] ?? false)
+                            : (bool) ($it['servicio_requiere_proyecto'] ?? ($svc?->requiere_proyecto_activacion ?? false));
 
                         $dtoTxt = $dtoLabel($it, $tipo);
+
+                        $esBase = (bool) ($svc?->es_tarifa_principal ?? false);
+
+                        $bloqueaRecurrente = (bool) ($it['bloquea_recurrente'] ?? ($svc?->bloquea_recurrente ?? false));
                     @endphp
 
                     <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3
@@ -260,6 +376,22 @@
                                             Proyecto
                                         </span>
                                     @endif
+
+                                    {{-- ✅ Base (tarifa principal) --}}
+                                    @if($tipo === 'recurrente' && $esBase)
+                                        <span class="rounded-full bg-amber-600/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-600/25
+                                                     dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25">
+                                            Base
+                                        </span>
+                                    @endif
+
+                                    {{-- ✅ Bloquea Rec. (si aplica) --}}
+                                    @if($bloqueaRecurrente)
+                                        <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                                     dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                                            Bloquea Rec.
+                                        </span>
+                                    @endif
                                 </div>
 
                                 <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
@@ -290,6 +422,52 @@
             </div>
         </div>
     </div>
+
+    {{-- ✅ NUEVA SECCIÓN: BLOQUEO POR PROYECTO/BLOQUEA REC (antes de la nota final) --}}
+    @if($hayBloqueoProrrata)
+        <div class="rounded-2xl border border-rose-200 bg-rose-50/70 px-4 py-3
+                    dark:border-rose-900/60 dark:bg-rose-950/25">
+            <div class="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                Bloqueo de servicios recurrentes
+            </div>
+
+            <div class="mt-1 text-sm text-rose-900/80 dark:text-rose-200/80">
+                Se bloquearán los servicios recurrentes hasta que el proyecto de este servicio esté finalizado.
+            </div>
+
+            @if($recurrenteBaseNombre)
+                <div class="mt-3 inline-flex flex-wrap items-center gap-2 rounded-lg border border-rose-400/30 bg-rose-50/60 px-3 py-2
+                            dark:border-rose-500/25 dark:bg-gray-950/30">
+                    <span class="text-xs font-bold text-rose-700 dark:text-rose-200">
+                        Afecta a:
+                    </span>
+
+                    <span class="rounded-full bg-amber-600/15 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-600/25
+                                 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25">
+                        Base
+                    </span>
+
+                    <span class="text-xs font-extrabold text-rose-700 dark:text-rose-200">
+                        {{ $recurrenteBaseNombre }}
+                    </span>
+                </div>
+            @endif
+
+            @if(!empty($serviciosBloqueantes))
+                <div class="mt-2 text-[11px] font-bold uppercase tracking-wider text-rose-700/70 dark:text-rose-300/70">
+                    Motivo
+                </div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    @foreach($serviciosBloqueantes as $n)
+                        <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                     dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                            {{ $n }}
+                        </span>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    @endif
 
     {{-- Nota final --}}
     <div class="rounded-2xl border border-gray-200 bg-white/70 px-4 py-3 text-xs text-gray-600

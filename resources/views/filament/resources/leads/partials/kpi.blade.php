@@ -85,8 +85,8 @@
     </div>
 
     <p class="relative z-10 mt-2 text-[10px] text-amber-800/70 dark:text-amber-300/70">
-        @if(!empty($totales['tiene_proyecto'] ?? false))
-            Prorrata desactivada por proyecto
+       @if(!empty($totales['tiene_bloqueo_recurrente'] ?? false))
+            Prorrata desactivada por bloqueo
         @else
             {{ $totales['dias_restantes'] ?? 0 }} días restantes
         @endif

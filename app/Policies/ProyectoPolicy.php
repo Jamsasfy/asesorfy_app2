@@ -43,13 +43,13 @@ class ProyectoPolicy
     }
 
     public function assignAssessor(AuthUser $authUser, Proyecto $proyecto): bool
-{
-    return $authUser->can('AssignAssessor:Proyecto');
-}
+    {
+        return $authUser->can('AssignAssessor:Proyecto');
+    }
 
-public function unassignAssessor(AuthUser $authUser, Proyecto $proyecto): bool
-{
-    return $authUser->can('UnassignAssessor:Proyecto');
-}
+    public function unassignAssessor(AuthUser $authUser, Proyecto $proyecto): bool
+    {
+        return $authUser->can('UnassignAssessor:Proyecto');
+    }
 
 }

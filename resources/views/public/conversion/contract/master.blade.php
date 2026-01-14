@@ -4,7 +4,6 @@
     <meta charset="utf-8">
     <title>Contrato de Servicios</title>
 
-    <!-- Ajustes generales -->
     <style>
         @page { margin: 22mm 18mm; }
 
@@ -26,7 +25,7 @@
         h2 {
             font-size: 15px;
             margin-top: 0;
-            color: #30D5C8; /* turquesa corporativo */
+            color: #30D5C8;
             text-align: left;
             font-weight: bold;
         }
@@ -53,17 +52,10 @@
             margin-bottom: 10px;
         }
 
-        .page-break {
-            page-break-after: always;
-        }
+        .page-break { page-break-after: always; }
 
-        /* Logo */
-        .logo {
-            height: 40px;
-            margin-bottom: 18px;
-        }
+        .logo { height: 40px; margin-bottom: 18px; }
 
-        /* Tabla servicios minimalista */
         .service-table {
             width: 100%;
             border-collapse: collapse;
@@ -85,13 +77,7 @@
             border-bottom: 1px dashed #e5e7eb;
         }
 
-        .service-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        .signature-box {
-            margin-top: 40px;
-        }
+        .service-table tr:last-child td { border-bottom: none; }
 
         .signature-block {
             margin-top: 16px;
@@ -112,23 +98,37 @@
 </head>
 
 <body>
+@php
+    $servicesSummary = $servicesSummary ?? (data_get($blueprint ?? [], 'servicios', []) ?? []);
 
-    <!-- LOGO ASESORFY -->
+    $toBool = static function ($v): bool {
+        if (is_bool($v)) return $v;
+        if ($v === null || $v === '') return false;
+        $parsed = filter_var($v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        return $parsed ?? (bool) $v;
+    };
+
+    // ✅ Bloqueo global (misma lógica que contract / procesarTextosLegales)
+    $bloqueoRecurrente = collect($servicesSummary)->contains(function ($s) use ($toBool) {
+        if (($s['tipo'] ?? '') !== 'unico') return false;
+
+        $esEditable = $toBool($s['es_editable'] ?? false);
+        return $esEditable
+            ? $toBool($s['requiere_proyecto'] ?? false)
+            : $toBool($s['servicio_requiere_proyecto'] ?? false);
+    });
+@endphp
+
     <img src="{{ public_path('images/logo.png') }}" class="logo" alt="AsesorFy">
-
-    <!-- BLOQUE 1: CABECERA -->
-    <!-- <h1>Contrato de Prestación de Servicios</h1> -->
 
     {!! $textos['contrato_cabecera'] ?? '' !!}
 
     <div class="page-break"></div>
 
-    <!-- BLOQUE 2: MARCO LEGAL -->
     {!! $textos['contrato_marco_legal'] ?? '' !!}
 
     <div class="page-break"></div>
 
-    <!-- BLOQUE 3: SERVICIOS (dinámicos) -->
     @if(!empty($textos['servicio_recurrentes']))
         <h2>Servicios Recurrentes</h2>
         {!! $textos['servicio_recurrentes'] !!}
@@ -141,19 +141,16 @@
 
     <div class="page-break"></div>
 
-    <!-- BLOQUE 4: CONDICIONES GENERALES -->
     {!! $textos['contrato_condiciones_grales'] ?? '' !!}
 
     <div class="page-break"></div>
 
-    <!-- BLOQUE 5: ANEXOS -->
     {!! $textos['anexo_economico'] ?? '' !!}
     <br>
     {!! $textos['anexo_rgpd_ia'] ?? '' !!}
 
     <div class="page-break"></div>
 
-    <!-- BLOQUE 6: FIRMAS -->
     <h2>Firma del Contrato</h2>
     <p>
         En conformidad con lo expuesto en el presente contrato, ambas partes firman digitalmente
@@ -162,7 +159,6 @@
 
     <table style="width:100%; margin-top: 35px;">
         <tr>
-            <!-- Firma AsesorFy -->
             <td style="width:50%; vertical-align:top; padding-right: 25px;">
                 <h3>AsesorFy</h3>
                 <div class="signature-block">
@@ -171,7 +167,6 @@
                 </div>
             </td>
 
-            <!-- Firma cliente -->
             <td style="width:50%; vertical-align:top; padding-left: 25px;">
                 <h3>El Cliente</h3>
                 {{ $form['nombre'] ?? '' }} {{ $form['apellidos'] ?? '' }}<br>

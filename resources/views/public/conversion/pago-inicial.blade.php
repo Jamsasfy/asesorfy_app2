@@ -1,271 +1,140 @@
 <!doctype html>
 <html lang="es">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Pago inicial | AsesorFy</title>
-    <link rel="icon" type="image/png" href="{{ asset('images/favicon.png') }}">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pago inicial | AsesorFy</title>
+  <link rel="icon" type="image/png" href="{{ asset('images/favicon.png') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Varela+Round&display=swap" rel="stylesheet">
 
-    <style>
-        :root{
-            --bg0:#070b14;
-            --bg1:#0b1220;
-            --card:rgba(15, 23, 42, .72);
-            --card2:rgba(2, 6, 23, .55);
-            --border:rgba(148, 163, 184, .18);
-            --border2:rgba(148, 163, 184, .28);
-            --text:#e5e7eb;
-            --muted:#9ca3af;
-            --muted2:#94a3b8;
+  <style>
+    :root { 
+      --bg:#0f172a; 
+      --card:#1e293b; 
+      --text:#f1f5f9; 
+      --muted:#94a3b8; 
+      --ok:#22c55e; 
+      --warn:#f59e0b;
+      --danger:#ef4444;
+      --blue:#60a5fa;
+      --border:#334155;
+      --btn:#16a34a;
+      --btn-h:#15803d;
+    }
 
-            --brand:#38bdf8;   /* cyan */
-            --brand2:#6366f1;  /* indigo */
-            --ok:#22c55e;
-            --warn:#f59e0b;
-            --danger:#ef4444;
+    *{box-sizing:border-box}
+    body{ margin:0; font-family:"Varela Round", sans-serif; background:var(--bg); color:var(--text); }
+    a{ color:inherit; }
 
-            --btn:#16a34a;
-            --btn-h:#15803d;
-            --btn2:transparent;
-            --shadow:0 20px 60px rgba(0,0,0,.45);
-        }
+    .wrap{ max-width:900px; margin:40px auto; padding:20px; }
+    .card{ 
+      background:var(--card); 
+      border-radius:24px; 
+      padding:40px; 
+      box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); 
+      border:1px solid var(--border); 
+    }
 
-        *{box-sizing:border-box}
-        html,body{height:100%}
-        body{
-            margin:0;
-            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
-            color:var(--text);
-            background:
-                radial-gradient(1200px 700px at 15% 10%, rgba(56,189,248,.20), transparent 55%),
-                radial-gradient(1000px 650px at 85% 20%, rgba(99,102,241,.16), transparent 55%),
-                radial-gradient(900px 600px at 50% 100%, rgba(34,197,94,.10), transparent 60%),
-                linear-gradient(180deg, var(--bg0), var(--bg1));
-        }
+    .logo img { height: 45px; display:block; margin: 0 auto 18px; }
+    .icon-ok { 
+      width:70px; height:70px; 
+      background:rgba(59,130,246,0.10); 
+      border:2px solid rgba(96,165,250,.9);
+      color:var(--blue); 
+      border-radius:50%; 
+      display:grid; place-items:center; 
+      font-size:30px; 
+      margin:0 auto 16px; 
+    }
 
-        a{color:inherit}
-        .wrap{max-width:1120px;margin:34px auto;padding:16px}
-        .shell{
-            border:1px solid var(--border);
-            background:linear-gradient(180deg, rgba(15,23,42,.78), rgba(2,6,23,.55));
-            border-radius:22px;
-            box-shadow:var(--shadow);
-            overflow:hidden;
-        }
+    .header { text-align:center; margin-bottom:30px; }
+    h1 { margin:0 0 10px; font-size:30px; }
+    .subhead{ color:var(--muted); margin:0; line-height:1.6; }
 
-        .topbar{
-            display:flex;align-items:center;justify-content:space-between;
-            padding:18px 22px;
-            border-bottom:1px solid var(--border);
-        }
-        .logo{display:flex;align-items:center;gap:12px}
-        .logo img{height:34px;width:auto;display:block}
-        .logo .fallback{font-weight:900;letter-spacing:.2px}
+    .data-grid { 
+      display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; 
+      background:#0f172a; padding:20px; border-radius:16px; 
+      margin: 18px 0 26px;
+      border:1px solid var(--border); 
+    }
+    .lbl { font-size:12px; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px; }
+    .val { font-size:15px; font-weight:600; color:#fff; word-break: break-word; }
 
-        .step{
-            display:flex;align-items:center;gap:10px;
-            color:var(--muted2);
-            font-size:13px;
-            white-space:nowrap;
-        }
-        .pill{
-            display:inline-flex;align-items:center;gap:8px;
-            padding:7px 10px;
-            border-radius:999px;
-            background:rgba(56,189,248,.10);
-            border:1px solid rgba(56,189,248,.25);
-            color:#bae6fd;
-            font-weight:800;
-            font-size:12px;
-        }
+    /* ESTADOS */
+    .status-box { background:#0f172a; border-radius:16px; padding:24px; margin-bottom:16px; border-left:5px solid transparent; border:1px solid var(--border); }
+    .status-box.info { border-left-color: #3b82f6; background: linear-gradient(90deg, rgba(59,130,246,0.06) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.success { border-left-color: #22c55e; background: linear-gradient(90deg, rgba(34,197,94,0.06) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.warn { border-left-color: #f59e0b; background: linear-gradient(90deg, rgba(245,158,11,0.06) 0%, rgba(15,23,42,1) 100%); }
+    .status-box.danger { border-left-color: #ef4444; background: linear-gradient(90deg, rgba(239,68,68,0.06) 0%, rgba(15,23,42,1) 100%); }
 
-        .content{padding:22px}
-        .grid{
-            display:grid;
-            grid-template-columns: 1.05fr .95fr;
-            gap:14px;
-        }
+    .box-header { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:10px; }
+    .box-title { font-size:18px; font-weight:800; display:flex; align-items:center; gap:10px; }
+    .box-amount { font-size:24px; font-weight:900; color:#fff; text-align:right; white-space:nowrap; }
+    .box-body { font-size:14px; color:var(--muted); line-height:1.7; }
 
-        .panel{
-            background:var(--card);
-            border:1px solid var(--border);
-            border-radius:18px;
-            padding:18px;
-            backdrop-filter: blur(10px);
-        }
+    .text-green { color:#4ade80; font-weight:800; }
+    .text-orange { color:#fbbf24; font-weight:800; }
+    .text-blue { color:#60a5fa; font-weight:800; }
+    .text-red { color:#f87171; font-weight:800; }
+    .text-white { color:#fff; font-weight:800; }
 
-        .titleRow{
-            display:flex;gap:12px;align-items:flex-start;justify-content:space-between;
-            margin-bottom:10px;
-        }
-        .h1{
-            font-size:22px;
-            font-weight:900;
-            letter-spacing:.2px;
-            margin:0;
-            line-height:1.2;
-        }
-        .sub{
-            margin:6px 0 0 0;
-            color:var(--muted2);
-            font-size:13px;
-            line-height:1.45;
-        }
+    /* TABLA SERVICIOS */
+    .services-table { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 18px; }
+    .st-head { font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 800; margin-bottom: 12px; letter-spacing: 0.05em; }
+    .st-row { display: flex; justify-content: space-between; align-items: flex-start; gap:16px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
+    .st-row:last-child { border-bottom: 0; }
+    .st-name { font-weight: 700; font-size: 15px; color: #fff; }
+    .st-meta { font-size: 12px; color: var(--muted); display: block; margin-top: 4px; line-height:1.45; }
+    .st-price { font-weight: 900; color: #fff; text-align: right; white-space:nowrap; }
+    .st-price small{ font-size:11px; font-weight:700; color:var(--muted); margin-left:6px; }
 
-        .badgeIcon{
-            width:38px;height:38px;border-radius:14px;
-            display:grid;place-items:center;
-            background:rgba(99,102,241,.12);
-            border:1px solid rgba(99,102,241,.26);
-            color:#c7d2fe;
-            flex:0 0 auto;
-        }
+    .old{ text-decoration: line-through; color: #94a3b8; font-weight:700; font-size:12px; margin-top:4px; }
+    .disc{ color:#fbbf24; font-weight:900; font-size:12px; margin-top:4px; }
 
-        .money{
-            margin-top:10px;
-            padding:14px 14px;
-            border-radius:16px;
-            background:linear-gradient(180deg, rgba(2,6,23,.45), rgba(2,6,23,.25));
-            border:1px solid var(--border);
-        }
-        .money .label{color:var(--muted2);font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
-        .money .amt{margin-top:6px;font-size:40px;font-weight:1000;letter-spacing:-.6px}
-        .money .meta{margin-top:6px;color:var(--muted2);font-size:13px}
+    /* MÉTODOS PAGO */
+    .pay-methods { margin-top: 18px; }
+    .pm-head { font-size: 12px; text-transform: uppercase; color: var(--muted); font-weight: 800; margin: 18px 0 12px; letter-spacing: 0.05em; }
+    .opt{ display:block; cursor:pointer; user-select:none; }
+    .optbox{
+      border:1px solid #334155; border-radius:16px; padding:16px 16px;
+      background:rgba(2,6,23,.35); transition:.15s;
+      display:flex; gap:12px; align-items:flex-start
+    }
+    .optbox:hover{ border-color:#475569; background:rgba(2,6,23,.55); transform: translateY(-1px); }
+    .opt.is-selected .optbox{ border-color:#38bdf8; box-shadow:0 0 0 2px rgba(56,189,248,.15) }
 
-        .list{
-            margin-top:12px;
-            border:1px solid var(--border);
-            border-radius:16px;
-            overflow:hidden;
-        }
-        .listHead{
-            padding:12px 14px;
-            background:rgba(2,6,23,.40);
-            border-bottom:1px solid var(--border);
-            display:flex;align-items:center;justify-content:space-between;
-            gap:10px;
-        }
-        .listHead .t{font-weight:900}
-        .listHead .s{color:var(--muted2);font-size:12px}
+    .opt-ico{ width:40px;height:40px;border-radius:14px;display:grid;place-items:center;flex:0 0 auto; background:rgba(148,163,184,.10); border:1px solid rgba(148,163,184,.20); }
+    .opt-title{ font-weight:900; }
+    .opt-desc{ font-size:13px; color:var(--muted); margin-top:2px; line-height:1.45; }
 
-        .row{
-            display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
-            padding:12px 14px;
-            background:rgba(15,23,42,.40);
-            border-bottom:1px solid rgba(148,163,184,.12);
-        }
-        .row:last-child{border-bottom:0}
-        .row .name{font-weight:850}
-        .row .desc{color:var(--muted2);font-size:12px;margin-top:2px;line-height:1.35}
-        .row .price{font-weight:950;white-space:nowrap}
+    .btnrow{ margin-top:16px; display:flex; gap:12px; flex-wrap:wrap }
+    .btn{
+      appearance:none; border:0; cursor:pointer; background:var(--btn); color:#fff; font-weight:900;
+      padding:12px 16px; border-radius:12px; font-size:15px; text-decoration:none; display:inline-flex; align-items:center; gap:10px; justify-content:center
+    }
+    .btn:hover{ background:var(--btn-h) }
+    .btn-secondary{ background:transparent; border:1px solid #475569; color:#cbd5e1 }
+    .btn-secondary:hover{ background:#1e293b; border-color:#94a3b8 }
 
-        .totals{
-            margin-top:12px;
-            border:1px solid var(--border);
-            border-radius:16px;
-            padding:12px 14px;
-            background:rgba(2,6,23,.28);
-        }
-        .totalsLine{
-            display:flex;align-items:center;justify-content:space-between;
-            padding:6px 0;
-            color:var(--muted2);
-            font-size:13px;
-        }
-        .totalsLine strong{color:var(--text)}
-        .totalsLine.total{
-            margin-top:6px;
-            padding-top:10px;
-            border-top:1px dashed rgba(148,163,184,.25);
-            color:var(--text);
-            font-size:14px;
-            font-weight:900;
-        }
+    .err{ margin-top:16px; padding:12px 16px; border-radius:12px; background:rgba(239,68,68,.12); color:#fecaca; border:1px solid rgba(239,68,68,.28); font-size:.9rem; line-height:1.4 }
+    .hidden-inputs{ position:absolute; left:-9999px; top:auto; width:1px; height:1px; overflow:hidden }
 
-        .note{
-            margin-top:12px;
-            padding:12px 14px;
-            border-radius:16px;
-            border:1px solid rgba(56,189,248,.22);
-            background:rgba(56,189,248,.08);
-            color:#bae6fd;
-            font-size:13px;
-            line-height:1.45;
-        }
+    .footer { text-align:center; margin-top:26px; font-size:13px; }
+    .footer a { color:var(--muted); text-decoration: underline; }
 
-        /* Opciones */
-        .optGrid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px}
-        .opt{
-            cursor:pointer;
-            user-select:none;
-        }
-        .optBox{
-            display:flex;gap:12px;align-items:flex-start;
-            padding:14px 14px;
-            border-radius:16px;
-            background:var(--card2);
-            border:1px solid rgba(148,163,184,.22);
-            transition:.15s;
-        }
-        .optBox:hover{transform:translateY(-1px);border-color:rgba(148,163,184,.35)}
-        .opt.is-selected .optBox{
-            border-color:rgba(56,189,248,.55);
-            box-shadow:0 0 0 3px rgba(56,189,248,.14);
-        }
-        .optIco{
-            width:40px;height:40px;border-radius:14px;display:grid;place-items:center;flex:0 0 auto;
-            background:rgba(148,163,184,.10);
-            border:1px solid rgba(148,163,184,.20);
-        }
-        .optTitle{font-weight:950}
-        .optDesc{margin-top:3px;color:var(--muted2);font-size:13px;line-height:1.35}
+    @media(max-width:700px){ 
+      .data-grid{ grid-template-columns:1fr; } 
+      .card{ padding:26px; }
+      .box-header{ flex-direction:column; align-items:flex-start; }
+      .box-amount{ text-align:left; }
+      .st-row{ flex-direction:column; align-items:flex-start; }
+      .st-price{ text-align:left; }
+    }
 
-        .hidden-inputs{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden}
+   
 
-        .actions{
-            margin-top:14px;
-            display:flex;gap:12px;flex-wrap:wrap;align-items:center;
-        }
-        .btn{
-            appearance:none;border:0;cursor:pointer;
-            padding:12px 16px;border-radius:14px;
-            font-weight:950;font-size:15px;
-            display:inline-flex;align-items:center;justify-content:center;gap:10px;
-            text-decoration:none;
-        }
-        .btnPrimary{background:var(--btn);color:#fff}
-        .btnPrimary:hover{background:var(--btn-h)}
-        .btnSecondary{
-            background:transparent;
-            border:1px solid rgba(148,163,184,.25);
-            color:var(--text);
-        }
-        .btnSecondary:hover{border-color:rgba(148,163,184,.40);background:rgba(15,23,42,.35)}
-        .security{
-            margin-top:10px;
-            color:var(--muted2);
-            font-size:12px;
-            display:flex;align-items:center;gap:8px;
-        }
 
-        .err{
-            margin-top:12px;
-            padding:12px 14px;
-            border-radius:14px;
-            background:rgba(239,68,68,.12);
-            border:1px solid rgba(239,68,68,.28);
-            color:#fecaca;
-            font-size:13px;
-            line-height:1.35;
-        }
-
-        .footerLink{margin:18px 2px 0;color:#93c5fd;text-decoration:underline;display:inline-block}
-
-        @media(max-width:920px){
-            .grid{grid-template-columns:1fr}
-            .money .amt{font-size:36px}
-        }
-    </style>
+  </style>
 </head>
 <body>
 @php
@@ -275,19 +144,41 @@
     $cliente = $venta->cliente ?? null;
     $form = $link->meta['form_data'] ?? [];
 
+    $razon = $form['razon_social'] ?? trim(($form['nombre'] ?? '').' '.($form['apellidos'] ?? ''));
+    if (!$razon) $razon = $cliente->nombre ?? '—';
+
     // Items
     $itemsUnicos = $venta->items->filter(fn($i) => $i->servicio && $i->servicio->tipo->value === 'unico');
     $itemsRecurrentes = $venta->items->filter(fn($i) => $i->servicio && $i->servicio->tipo->value === 'recurrente');
 
-    // IVA (mismo criterio que finished)
+    // IVA
     $cpCliente   = $form['cp'] ?? ($cliente->codigo_postal ?? '');
     $provCliente = $form['provincia'] ?? ($cliente->provincia ?? '');
-
     $porcentajeIva = \App\Models\Cliente::getPorcentajeImpuesto($cpCliente, $provCliente);
     $factorIva = 1 + ($porcentajeIva / 100);
 
-    $baseInicial = (float) $itemsUnicos->sum(fn($i) => (float) $i->subtotal_aplicado);
-    $ivaInicial  = round($baseInicial * ($porcentajeIva / 100), 2);
+    // Base aplicada (lo que cobras hoy)
+    $baseInicial = (float) $itemsUnicos->sum(fn($i) => (float) ($i->subtotal_aplicado ?? 0));
+
+    // Base "antes"
+    $baseInicialOriginal = (float) $itemsUnicos->sum(function ($i) {
+        $qty = (float) ($i->cantidad ?? 1);
+        if ($qty <= 0) $qty = 1;
+
+        $orig =
+            (float) ($i->subtotal_base ?? 0)
+            ?: ((float) ($i->precio_base_original ?? 0) * $qty)
+            ?: ((float) ($i->precio_base ?? 0) * $qty)
+            ?: ((float) ($i->servicio?->precio_base ?? 0) * $qty);
+
+        return max(0, (float) $orig);
+    });
+
+    $descuentoBase  = max(0, round($baseInicialOriginal - $baseInicial, 2));
+    $descuentoTotal = ($descuentoBase > 0.009) ? round($descuentoBase * $factorIva, 2) : 0.0;
+
+    $totalServiciosAntes = round($baseInicialOriginal * $factorIva, 2); // IVA incl.
+    $ivaInicial   = round($baseInicial * ($porcentajeIva / 100), 2);
     $totalInicial = round($baseInicial * $factorIva, 2);
 
     // Método preseleccionado
@@ -298,213 +189,212 @@
 @endphp
 
 <div class="wrap">
-    <div class="shell">
+  <div class="card">
 
-        <div class="topbar">
-            <div class="logo">
-                <img src="{{ asset('images/logo_dark.png') }}" alt="AsesorFy"
-                     onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'fallback',textContent:'AsesorFy'}));">
-            </div>
+    <div class="header">
+      <div class="logo">
+        <img src="{{ asset('images/logo_dark.png') }}" alt="AsesorFy"
+             onerror="this.replaceWith(document.createTextNode('AsesorFy'));">
+      </div>
 
-            <div class="step">
-                <span class="pill">Paso 1 · Pago inicial</span>
-                <span>Después: cuota mensual (si aplica)</span>
-            </div>
-        </div>
+      <h1 class="h1" style="color:#43beeb;">Pago inicial</h1>
 
-        <div class="content">
-            <div class="grid">
-
-                {{-- IZQ: resumen ultra claro --}}
-                <div class="panel">
-                    <div class="titleRow">
-                        <div>
-                            <h1 class="h1">Lo que pagas hoy</h1>
-                            <p class="sub">
-                                Este pago activa tus <strong>servicios de inicio</strong>.
-                                @if($itemsRecurrentes->isNotEmpty())
-                                    La cuota mensual se configura después (tarjeta o IBAN).
-                                @else
-                                    No hay cuota mensual asociada a esta contratación.
-                                @endif
-                            </p>
-                        </div>
-                        <div class="badgeIcon">€</div>
-                    </div>
-
-                    <div class="money">
-                        <div class="label">Importe total a abonar ahora</div>
-                        <div class="amt">{{ number_format($totalInicial, 2, ',', '.') }} €</div>
-                        <div class="meta">IVA incluido ({{ (int) $porcentajeIva }}%) · Base {{ number_format($baseInicial, 2, ',', '.') }} €</div>
-                    </div>
-
-                    <div class="list">
-                        <div class="listHead">
-                            <div class="t">Servicios incluidos en este pago</div>
-                            <div class="s">Pago único</div>
-                        </div>
-
-                        @foreach($itemsUnicos as $item)
-                            @php
-                                $nombre = $item->nombre_personalizado ?? $item->servicio->nombre ?? 'Servicio';
-                                $qty = (float) ($item->cantidad ?? 1);
-                                $lineBase = (float) ($item->subtotal_aplicado ?? 0);
-                                $lineTotal = round($lineBase * $factorIva, 2);
-                            @endphp
-                            <div class="row">
-                                <div>
-                                    <div class="name">
-                                        {{ $nombre }}
-                                        @if($qty > 1)
-                                            <span style="color:var(--muted2);font-weight:800"> (x{{ (int)$qty }})</span>
-                                        @endif
-                                    </div>
-                                    <div class="desc">
-                                        Activación / servicio de inicio. Este concepto se cobra una sola vez.
-                                    </div>
-                                </div>
-                                <div class="price">{{ number_format($lineTotal, 2, ',', '.') }} €</div>
-                            </div>
-                        @endforeach
-                    </div>
-
-                    <div class="totals">
-                        <div class="totalsLine">
-                            <span>Base imponible</span>
-                            <strong>{{ number_format($baseInicial, 2, ',', '.') }} €</strong>
-                        </div>
-                        <div class="totalsLine">
-                            <span>IVA ({{ (int)$porcentajeIva }}%)</span>
-                            <strong>{{ number_format($ivaInicial, 2, ',', '.') }} €</strong>
-                        </div>
-                        <div class="totalsLine total">
-                            <span>Total hoy</span>
-                            <span>{{ number_format($totalInicial, 2, ',', '.') }} €</span>
-                        </div>
-                    </div>
-
-                    @if($itemsRecurrentes->isNotEmpty())
-                        @php
-                            $baseMensual = (float) $itemsRecurrentes->sum(fn($i)=>(float)$i->subtotal_aplicado);
-                            $mensual = round($baseMensual * $factorIva, 2);
-                            $nombresR = $itemsRecurrentes->map(function($i){
-                                $n = $i->nombre_personalizado ?? $i->servicio->nombre ?? 'Servicio mensual';
-                                $q = (int) ($i->cantidad ?? 1);
-                                return $q > 1 ? "{$n} (x{$q})" : $n;
-                            })->values()->all();
-                        @endphp
-                        <div class="note">
-                            <strong>Cuota mensual (no se cobra ahora):</strong><br>
-                            {{ implode(' + ', $nombresR) }}<br>
-                            <span style="color:#e0f2fe">Importe estimado:</span>
-                            <strong>{{ number_format($mensual, 2, ',', '.') }} €/mes</strong> (IVA incl.)<br>
-                            La configurarás en el siguiente paso para que el cobro sea automático.
-                        </div>
-                    @endif
-                </div>
-
-                {{-- DER: selección método --}}
-                <div class="panel">
-                    <div class="titleRow">
-                        <div>
-                            <h2 class="h1" style="font-size:20px">Elige cómo pagar</h2>
-                            <p class="sub">
-                                Selecciona el método para completar el pago inicial.
-                                <strong>Recomendado:</strong> tarjeta para activación inmediata.
-                            </p>
-                        </div>
-                        <div class="badgeIcon">⚡</div>
-                    </div>
-
-                    @if(session('error'))
-                        <div class="err">{{ session('error') }}</div>
-                    @endif
-
-                    <form method="POST" action="{{ route('conversion.pago-inicial.store', ['token' => $link->token]) }}" style="margin-top:10px;">
-                        @csrf
-
-                        <div class="hidden-inputs">
-                            <input type="radio" name="pago_inicial_metodo" id="m_stripe" value="stripe" @checked($preselect === 'stripe')>
-                            <input type="radio" name="pago_inicial_metodo" id="m_transferencia" value="transferencia" @checked($preselect === 'transferencia')>
-                        </div>
-
-                        <div class="optGrid">
-
-                            <div class="opt js-opt" data-method="stripe">
-                                <div class="optBox">
-                                    <div class="optIco">💳</div>
-                                    <div>
-                                        <div class="optTitle">Tarjeta (Stripe)</div>
-                                        <div class="optDesc">
-                                            Confirmación inmediata. Si luego hay cuota mensual, podrás <strong>usar esta misma tarjeta</strong> o elegir otra.
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="opt js-opt" data-method="transferencia">
-                                <div class="optBox">
-                                    <div class="optIco">🏦</div>
-                                    <div>
-                                        <div class="optTitle">Transferencia bancaria</div>
-                                        <div class="optDesc">
-                                            Te mostraremos los datos (IBAN y concepto). La activación se realizará tras verificar el pago.
-                                            Después podrás configurar la cuota mensual (si aplica).
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                        </div>
-
-                        @error('pago_inicial_metodo')
-                            <div class="err">{{ $message }}</div>
-                        @enderror
-
-                        <div class="actions">
-                            <button class="btn btnPrimary" type="submit">Continuar</button>
-                            <a class="btn btnSecondary" href="{{ $backRoute }}">Volver</a>
-                        </div>
-
-                        <div class="security">
-                            🔒 Pago seguro: con tarjeta se procesa directamente con Stripe.
-                        </div>
-                    </form>
-
-                    <a class="footerLink" href="https://asesorfy.net" target="_blank" rel="noopener noreferrer">Volver a AsesorFy</a>
-                </div>
-
-            </div>
-        </div>
+      <p class="subhead">
+        Este pago activa tus <span class="text-white">servicios de inicio</span>.
+        @if($itemsRecurrentes->isNotEmpty())
+          Después configurarás la <span class="text-white">cuota mensual</span> (tarjeta o IBAN).
+        @else
+          No hay cuota mensual asociada a esta contratación.
+        @endif
+      </p>
     </div>
+
+    @if(session('error'))
+      <div class="err">{{ session('error') }}</div>
+    @endif
+
+    {{-- DATOS CLIENTE --}}
+    <div class="data-grid">
+      <div><div class="lbl">Titular</div><div class="val">{{ $razon }}</div></div>
+      <div><div class="lbl">DNI / CIF</div><div class="val">{{ $form['cif'] ?? $form['dni'] ?? '—' }}</div></div>
+      <div><div class="lbl">Email</div><div class="val">{{ $form['email'] ?? '—' }}</div></div>
+    </div>
+
+    {{-- ESTADO / RESUMEN --}}
+    <div class="status-box info">
+      <div class="box-header">
+        <div class="box-title" style="color: var(--blue);">🧾 Lo que pagas hoy</div>
+        <div class="box-amount" style="color: var(--blue);">
+          {{ number_format($totalInicial, 2, ',', '.') }} €
+          <small style="font-size:11px;font-weight:800;color:var(--muted);">IVA inc.</small>
+        </div>
+      </div>
+
+      <div class="box-body">
+        Base imponible: <span class="text-white">{{ number_format($baseInicial, 2, ',', '.') }} €</span>
+        · IVA ({{ (int)$porcentajeIva }}%): <span class="text-white">{{ number_format($ivaInicial, 2, ',', '.') }} €</span>
+        @if($descuentoTotal > 0.00001)
+          <br>
+          <span class="text-orange">Descuento aplicado hoy: -{{ number_format($descuentoTotal, 2, ',', '.') }} € (IVA inc.)</span>
+        @endif
+      </div>
+
+      <div class="services-table">
+        <div class="st-head">Servicios incluidos en este pago (pago único)</div>
+
+        @forelse($itemsUnicos as $item)
+          @php
+            $nombre = $item->nombre_personalizado ?? $item->servicio->nombre ?? 'Servicio';
+            $qty = (float) ($item->cantidad ?? 1);
+            if ($qty <= 0) $qty = 1;
+
+            $lineBaseAplicada = (float) ($item->subtotal_aplicado ?? 0);
+
+            $lineBaseAntes =
+              (float) ($item->subtotal_base ?? 0)
+              ?: ((float) ($item->precio_base_original ?? 0) * $qty)
+              ?: $lineBaseAplicada;
+
+            $lineBaseAntes = max($lineBaseAntes, $lineBaseAplicada);
+            $lineDiscBase  = max(0, $lineBaseAntes - $lineBaseAplicada);
+
+            $lineTotalAntes    = round($lineBaseAntes * $factorIva, 2);
+            $lineTotalAplicado = round($lineBaseAplicada * $factorIva, 2);
+            $lineDiscTotal     = round($lineDiscBase * $factorIva, 2);
+          @endphp
+
+          <div class="st-row">
+            <div>
+              <div class="st-name">
+                {{ $nombre }}
+                @if($qty > 1)
+                  <span style="font-weight:600;color:var(--muted);">(x{{ (int)$qty }})</span>
+                @endif
+              </div>
+              <span class="st-meta">
+                Activación / servicio de inicio. Este concepto se cobra una sola vez.
+              </span>
+            </div>
+
+            <div class="st-price">
+              {{ number_format($lineTotalAplicado, 2, ',', '.') }} €
+              <small>IVA inc.</small>
+
+              @if($lineDiscTotal > 0.00001)
+                <div class="old">{{ number_format($lineTotalAntes, 2, ',', '.') }} €</div>
+                <div class="disc">Descuento: -{{ number_format($lineDiscTotal, 2, ',', '.') }} €</div>
+              @endif
+            </div>
+          </div>
+        @empty
+          <div class="box-body">No hay servicios de pago único en esta contratación.</div>
+        @endforelse
+      </div>
+    </div>
+
+    {{-- MÉTODO DE PAGO --}}
+    <div class="status-box warn">
+      <div class="box-header">
+        <div class="box-title" style="color:#fbbf24;">⚡ Elige cómo pagar</div>
+        <div class="box-amount" style="color:#fbbf24;">
+          {{ number_format($totalInicial, 2, ',', '.') }} €
+          <small style="font-size:11px;font-weight:800;color:var(--muted);">IVA inc.</small>
+        </div>
+      </div>
+
+      <div class="box-body">
+        Selecciona el método para completar el pago inicial.
+        <br><span class="text-white">Recomendado:</span> tarjeta para activación inmediata.
+      </div>
+
+      <form method="POST" action="{{ route('conversion.pago-inicial.store', ['token' => $link->token]) }}" class="pay-methods">
+        @csrf
+
+        <div class="hidden-inputs">
+          <input type="radio" name="pago_inicial_metodo" id="m_stripe" value="stripe" @checked($preselect === 'stripe')>
+          <input type="radio" name="pago_inicial_metodo" id="m_transferencia" value="transferencia" @checked($preselect === 'transferencia')>
+        </div>
+
+        <div class="pm-head">Métodos disponibles</div>
+
+        <div class="opt js-opt" data-method="stripe">
+          <div class="optbox">
+            <div class="opt-ico">💳</div>
+            <div>
+              <div class="opt-title">Tarjeta (Stripe)</div>
+              <div class="opt-desc">
+                Confirmación inmediata.
+                @if($itemsRecurrentes->isNotEmpty())
+                  Si luego hay cuota mensual, podrás <strong>usar esta misma tarjeta</strong> o elegir otra.
+                @endif
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="opt js-opt" data-method="transferencia" style="margin-top:10px;">
+          <div class="optbox">
+            <div class="opt-ico">🏦</div>
+            <div>
+              <div class="opt-title">Transferencia bancaria</div>
+              <div class="opt-desc">
+                Te mostraremos los datos (IBAN y concepto). La activación se realizará tras verificar el pago.
+                @if($itemsRecurrentes->isNotEmpty())
+                  Después podrás configurar la cuota mensual (si aplica).
+                @endif
+              </div>
+            </div>
+          </div>
+        </div>
+
+        @error('pago_inicial_metodo')
+          <div class="err">{{ $message }}</div>
+        @enderror
+
+        <div class="btnrow">
+          <button class="btn" type="submit">Continuar</button>
+          <a class="btn btn-secondary" href="{{ $backRoute }}">Volver</a>
+        </div>
+
+        <div class="box-body" style="margin-top:10px;">
+          🔒 Pago seguro: con tarjeta se procesa directamente con Stripe.
+        </div>
+      </form>
+    </div>
+
+    <div class="footer">
+      <a href="https://asesorfy.net" target="_blank" rel="noopener noreferrer">Volver a la web principal</a>
+    </div>
+
+  </div>
 </div>
 
 <script>
 (function () {
-    const opts = document.querySelectorAll('.js-opt');
-    const mStripe = document.getElementById('m_stripe');
-    const mTransfer = document.getElementById('m_transferencia');
+  const opts = document.querySelectorAll('.js-opt');
+  const mStripe = document.getElementById('m_stripe');
+  const mTransfer = document.getElementById('m_transferencia');
 
-    function clearSelected(){ opts.forEach(o => o.classList.remove('is-selected')); }
+  function clearSelected(){ opts.forEach(o => o.classList.remove('is-selected')); }
 
-    function syncSelected(){
-        clearSelected();
-        const current = (mTransfer && mTransfer.checked) ? 'transferencia' : 'stripe';
-        opts.forEach(o => {
-            if (o.getAttribute('data-method') === current) o.classList.add('is-selected');
-        });
-    }
-
+  function syncSelected(){
+    clearSelected();
+    const current = (mTransfer && mTransfer.checked) ? 'transferencia' : 'stripe';
     opts.forEach(o => {
-        o.addEventListener('click', () => {
-            const method = o.getAttribute('data-method');
-            if (method === 'transferencia') mTransfer.checked = true;
-            else mStripe.checked = true;
-            syncSelected();
-        });
+      if (o.getAttribute('data-method') === current) o.classList.add('is-selected');
     });
+  }
 
-    syncSelected();
+  opts.forEach(o => {
+    o.addEventListener('click', () => {
+      const method = o.getAttribute('data-method');
+      if (method === 'transferencia') mTransfer.checked = true;
+      else mStripe.checked = true;
+      syncSelected();
+    });
+  });
+
+  syncSelected();
 })();
 </script>
 

@@ -2,6 +2,10 @@
 
 <x-filament-panels::page>
     @php
+        // Aseguramos variables desde el componente Livewire (Page)
+        $lead = $this->lead;
+        $items = $this->items;
+
         $conversionInfo = $this->conversionInfo ?? null;
 
         $estado = $lead->estado?->value ?? null;
@@ -11,7 +15,6 @@
         $conversionCorreccion = ($estado === 'convertido_correccion');
 
         $accionesBloqueadas = $conversionFinalizada;
-
 
         $expiresAt = !empty($conversionInfo['expires_at'])
             ? \Illuminate\Support\Carbon::parse($conversionInfo['expires_at'])
@@ -45,18 +48,19 @@
         // URL a ver Lead (nueva pestaña)
         $leadViewUrl = \App\Filament\Resources\LeadResource::getUrl('view', ['record' => $lead->id]);
 
-        // Resumen servicios agrupado (con descuentos)
+        // Resumen servicios agrupado (con descuentos + flags)
         $resumen = collect($items ?? [])
             ->filter(fn ($it) => !empty($it['servicio_id']))
             ->map(function ($it) {
                 $tipo = (string) ($it['tipo'] ?? 'unico');
                 $cant = (int) ($it['cantidad'] ?? 1);
 
-                $nombre = null;
+                $svc = null;
                 if (!empty($it['servicio_id'])) {
                     $svc = $this->servicios?->firstWhere('id', (int) $it['servicio_id']);
-                    $nombre = $svc?->nombre;
                 }
+
+                $nombre = $svc?->nombre;
 
                 if (!empty($it['es_editable'])) {
                     $nombre = $it['nombre_personalizado'] ?: $nombre;
@@ -81,6 +85,17 @@
                     }
                 }
 
+                // ✅ flags útiles para el comercial
+                $bloqueaRecurrente = (bool) (
+                    ($it['bloquea_recurrente'] ?? false)
+                    || ($svc?->bloquea_recurrente ?? false)
+                );
+                $proyecto = !empty($it['es_editable'])
+                    ? (bool) ($it['requiere_proyecto'] ?? false)
+                    : (bool) ($it['servicio_requiere_proyecto'] ?? ($svc?->requiere_proyecto_activacion ?? false));
+
+                $cobroPrimerMes = $tipo === 'recurrente' ? ($it['cobro_primer_mes'] ?? 'prorrata') : null;
+
                 return [
                     'nombre' => $nombre ?: 'Servicio',
                     'tipo'   => $tipo,
@@ -90,6 +105,10 @@
                     'dto'    => $dtoLabel,
                     'meses'  => $dtoMeses,
                     'tiene_dto' => $dtoAplicar && $dtoLabel,
+
+                    'bloquea_recurrente' => $bloqueaRecurrente,
+                    'proyecto' => $proyecto,
+                    'cobro_primer_mes' => $cobroPrimerMes,
                 ];
             })
             ->values();
@@ -99,6 +118,9 @@
 
         $totalRec = round((float) $rec->sum('final'), 2);
         $totalUni = round((float) $uni->sum('final'), 2);
+
+        $tieneBloqueoRec = (bool) data_get($this->totales, 'tiene_bloqueo_recurrente', false);
+        $tieneProyecto = (bool) data_get($this->totales, 'tiene_proyecto', false);
     @endphp
 
     <div class="flex flex-col gap-6">
@@ -228,27 +250,25 @@
                                 </div>
 
                                 @php
-                                    $isUsed = !empty($conversionInfo['is_used']);     // firmado / usado
-                                    $isRevoked = !empty($conversionInfo['is_revoked']); // cancelado (si lo metes en conversionInfo)
+                                    $isUsed = !empty($conversionInfo['is_used']);
+                                    $isRevoked = !empty($conversionInfo['is_revoked']);
                                 @endphp
 
-                                {{-- 1) Si está usado (firmado), NO mostramos "caduca en X" aunque expires_at sea futuro --}}
                                 @if($isUsed)
                                    <div class="mt-1 flex flex-wrap items-center gap-2">
-                                    <div class="text-base font-extrabold text-slate-900 dark:text-white">
-                                        Enlace caducado (firmado)
-                                    </div>
+                                        <div class="text-base font-extrabold text-slate-900 dark:text-white">
+                                            Enlace caducado (firmado)
+                                        </div>
 
-                                    <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[12px] font-extrabold text-rose-800
-                                                dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
-                                        Invalidado
-                                    </span>
-                                </div>
+                                        <span class="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[12px] font-extrabold text-rose-800
+                                                    dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">
+                                            Invalidado
+                                        </span>
+                                    </div>
                                     <div class="mt-1 text-sm text-slate-500 dark:text-slate-400">
                                         El enlace queda invalidado automáticamente tras la firma.
                                     </div>
 
-                                {{-- 2) Si está revocado/cancelado --}}
                                 @elseif($isRevoked)
                                     <div class="mt-1 text-base font-extrabold text-slate-900 dark:text-white">
                                         Enlace cancelado
@@ -257,7 +277,6 @@
                                         Genera uno nuevo con “Reiniciar token” o vuelve a enviar la propuesta.
                                     </div>
 
-                                {{-- 3) Caso normal (activo/caducado por tiempo) --}}
                                 @elseif($expiresAt)
                                     <div class="mt-1 text-base font-extrabold text-slate-900 dark:text-white">
                                         {{ $expiresAt->format('d/m/Y H:i') }}
@@ -278,7 +297,6 @@
                                     </div>
                                 @endif
                             </div>
-
 
                             {{-- Token / creado --}}
                             <div class="rounded-xl border border-slate-200 bg-white/80 p-3
@@ -364,6 +382,21 @@
                                                     </svg>
                                                 </span>
                                                 Recurrentes (mensual)
+
+                                                @if($tieneProyecto)
+                                                    <span class="rounded-full bg-indigo-600/15 px-2 py-0.5 text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-600/25
+                                                                dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
+                                                        Proyecto
+                                                    </span>
+                                                @endif
+
+                                                @if($tieneBloqueoRec)
+                                                    <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                                                dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                                                        Bloqueo (prorrata 0)
+                                                    </span>
+                                                @endif
+
                                             </div>
                                             <div class="text-base font-extrabold text-slate-900 dark:text-white">
                                                 {{ number_format($totalRec, 2, ',', '.') }} €/mes
@@ -378,6 +411,14 @@
                                                     $tieneDto = !empty($s['tiene_dto']);
                                                     $dto = $s['dto'] ?? null;
                                                     $meses = $s['meses'] ?? null;
+
+                                                    $proyecto = !empty($s['proyecto']);
+                                                    $bloquea = !empty($s['bloquea_recurrente']);
+                                                    $cobro = $s['cobro_primer_mes'] ?? 'prorrata';
+
+                                                    $cobroLabel = $cobro === 'completo'
+                                                        ? 'Mes completo'
+                                                        : ($cobro === 'gratis' ? 'Gratis' : 'Prorrata');
                                                 @endphp
 
                                                 <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-2 text-sm font-extrabold text-slate-800
@@ -390,6 +431,26 @@
                                                     </span>
 
                                                     <span>{{ $s['nombre'] }}</span>
+
+                                                    {{-- badges prácticos --}}
+                                                    @if($proyecto)
+                                                        <span class="rounded-full bg-indigo-600/15 px-2 py-0.5 text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-600/25
+                                                                     dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
+                                                            Proyecto
+                                                        </span>
+                                                    @endif
+
+                                                    @if($bloquea)
+                                                        <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                                                     dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                                                            Bloquea Rec.
+                                                        </span>
+                                                    @endif
+
+                                                    <span class="rounded-full bg-slate-600/10 px-2 py-0.5 text-[10px] font-bold text-slate-700 ring-1 ring-slate-600/15
+                                                                 dark:bg-white/10 dark:text-slate-200 dark:ring-white/10">
+                                                        {{ $cobroLabel }}
+                                                    </span>
 
                                                     <span class="opacity-80">· {{ $precioTxt }} €/mes</span>
 
@@ -437,6 +498,9 @@
                                                     $baseTxt = number_format((float) $s['base'], 2, ',', '.');
                                                     $tieneDto = !empty($s['tiene_dto']);
                                                     $dto = $s['dto'] ?? null;
+
+                                                    $proyecto = !empty($s['proyecto']);
+                                                    $bloquea = !empty($s['bloquea_recurrente']);
                                                 @endphp
 
                                                 <span class="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-2 text-sm font-extrabold text-slate-800
@@ -449,6 +513,20 @@
                                                     </span>
 
                                                     <span>{{ $s['nombre'] }}</span>
+
+                                                    @if($proyecto)
+                                                        <span class="rounded-full bg-indigo-600/15 px-2 py-0.5 text-[10px] font-bold text-indigo-700 ring-1 ring-indigo-600/25
+                                                                     dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/25">
+                                                            Proyecto
+                                                        </span>
+                                                    @endif
+
+                                                    @if($bloquea)
+                                                        <span class="rounded-full bg-rose-600/15 px-2 py-0.5 text-[10px] font-bold text-rose-700 ring-1 ring-rose-600/25
+                                                                     dark:bg-rose-500/15 dark:text-rose-300 dark:ring-rose-500/25">
+                                                            Bloquea Rec.
+                                                        </span>
+                                                    @endif
 
                                                     <span class="opacity-80">· {{ $precioTxt }} €</span>
 
@@ -480,19 +558,17 @@
                                 Conversión finalizada: el cliente ya ha firmado. Desde aquí solo se muestra el resumen; no se pueden reenviar enlaces ni reiniciar tokens.
                             </div>
                         @else
-                                                <div class="mt-4 text-sm text-slate-600 dark:text-slate-300">
-                                                    El cliente debe completar sus datos y firmar el contrato para finalizar la conversión.
-                                                    <div class="mt-2">
-                                                        <span class="font-extrabold">Reenviar email</span>: úsalo si el cliente no encuentra el correo o necesita que se lo volvamos a mandar.
-                                                        <br>
-                                                        <span class="font-extrabold">Reiniciar token</span>: úsalo si el enlace ha caducado, se ha compartido por error o quieres generar un enlace nuevo por seguridad.
-                                                        <br>
-                                                        <span class="font-extrabold">Cancelar conversión</span>: revoca el enlace actual y vuelve a modo edición para corregir servicios/condiciones antes de enviar de nuevo.
-                                                    </div>
-                                                </div>
+                            <div class="mt-4 text-sm text-slate-600 dark:text-slate-300">
+                                El cliente debe completar sus datos y firmar el contrato para finalizar la conversión.
+                                <div class="mt-2">
+                                    <span class="font-extrabold">Reenviar email</span>: úsalo si el cliente no encuentra el correo o necesita que se lo volvamos a mandar.
+                                    <br>
+                                    <span class="font-extrabold">Reiniciar token</span>: úsalo si el enlace ha caducado, se ha compartido por error o quieres generar un enlace nuevo por seguridad.
+                                    <br>
+                                    <span class="font-extrabold">Cancelar conversión</span>: revoca el enlace actual y vuelve a modo edición para corregir servicios/condiciones antes de enviar de nuevo.
+                                </div>
+                            </div>
                         @endif
-
-
 
                     </div>
 

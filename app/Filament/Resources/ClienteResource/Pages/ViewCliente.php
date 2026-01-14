@@ -142,7 +142,7 @@ class ViewCliente extends ViewRecord
             ->label('Cambiar Estado')
             ->color('info')
                 ->visible(fn (ViewRecord $livewire): bool =>
-                    auth()->user()?->can('cambiarEstado', $livewire->getRecord()) ?? false
+                    auth()->user()?->can('CambiarEstado:Cliente', $livewire->getRecord()) ?? false
                 )
 
             ->icon('heroicon-o-pencil')

@@ -23,7 +23,7 @@ return [
             'pages' => true,
             'widgets' => true,
             'resources' => true,
-            'custom_permissions' => false,
+            'custom_permissions' => true,
         ],
     ],
 
@@ -254,7 +254,11 @@ return [
     |
     */
 
-    'custom_permissions' => [],
+    'custom_permissions' => [
+    'Chats:MarkRead' => 'Chats · Marcar chat como leído',
+     'Chats:ReLinkTelegram' => 'Chats · Re-vincular Telegram',
+                            ],
+
 
     /*
     |--------------------------------------------------------------------------
