@@ -254,10 +254,24 @@ return [
     |
     */
 
+   // config/filament-shield.php
+
     'custom_permissions' => [
-    'Chats:MarkRead' => 'Chats · Marcar chat como leído',
-     'Chats:ReLinkTelegram' => 'Chats · Re-vincular Telegram',
-                            ],
+
+        // ✅ MisChats / Telegram
+        'Chats:MarkRead'        => 'Chats · Marcar chat como leído',
+        'Chats:ReLinkTelegram'  => 'Chats · Re-vincular Telegram',
+
+        // ✅ NUEVOS: visibilidad por rol
+        'Chats:ViewAll'         => 'Chats · Ver todos los chats (Admin)',
+        'Chats:ViewTeam'        => 'Chats · Ver chats del departamento (Coordinador)',
+
+        // ✅ (Opcional, para el siguiente paso)
+        'Chats:Export'          => 'Chats · Exportar conversación (TXT)',
+        'Chats:DownloadFiles'   => 'Chats · Descargar/ver adjuntos',
+
+    ],
+
 
 
     /*

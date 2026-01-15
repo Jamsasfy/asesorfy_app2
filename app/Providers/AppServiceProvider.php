@@ -16,6 +16,8 @@ use App\Models\Lead;
 use App\Observers\LeadObserver;
 use App\Models\Servicio;
 use App\Observers\ServicioObserver;
+use App\Models\ChatMensaje;
+use App\Observers\ChatMensajeObserver;
 
 use Illuminate\Support\ServiceProvider;
 
@@ -46,5 +48,6 @@ class AppServiceProvider extends ServiceProvider
         Cliente::observe(ClienteObserver::class);
          Lead::observe(LeadObserver::class);
          Servicio::observe(ServicioObserver::class);
+         ChatMensaje::observe(ChatMensajeObserver::class);
     }
 }

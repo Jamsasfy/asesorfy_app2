@@ -16,6 +16,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Livewire\WithFileUploads;
+use Filament\Actions\Action;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
 
 class MisChats extends Page
 {
@@ -57,68 +60,199 @@ class MisChats extends Page
 
     public bool $sendingFile = false;
 
-    public function mount(): void
+    public string $tab = 'all'; // all|vinculados|sin_vincular
+
+
+        protected function getHeaderActions(): array
     {
-        $this->ensureChatsForAssignedClients();
+        return [
+            Action::make('exportChat')
+                ->label('Exportar chat')
+                ->icon('heroicon-m-arrow-down-tray')
+                ->visible(fn () => (bool) $this->selectedChatId && auth()->user()?->can('Chats:Export'))
+                ->action(fn () => $this->exportSelectedChat()),
+        ];
+    }
+
+    public function setTab(string $tab): void
+    {
+        $allowed = ['all', 'vinculados', 'sin_vincular'];
+        $this->tab = in_array($tab, $allowed, true) ? $tab : 'all';
+
+        // reset paginado de lista
+        $this->chatsTake = 10;
+    }
+
+
+
+    public function getKpisProperty(): array
+    {
+        $base = $this->queryChatsForKpis();
+
+        $total = (clone $base)->count();
+        $sinVincular = (clone $base)->whereNull('telegram_chat_id')->count();
+        $vinculados = max(0, $total - $sinVincular);
+
+        $sinContestar = (clone $base)->where('pendiente_respuesta', true)->count();
+
+        $topRow = (clone $base)
+            ->where('pendiente_respuesta', true)
+            ->selectRaw('asesor_id, COUNT(*) as c')
+            ->groupBy('asesor_id')
+            ->orderByDesc('c')
+            ->first();
+
+        $top = null;
+        if ($topRow?->asesor_id) {
+            $u = \App\Models\User::query()->select('id','name')->find($topRow->asesor_id);
+            $top = ['name' => $u?->name ?? 'N/D', 'count' => (int) $topRow->c];
+        }
+
+        $over24h = (clone $base)
+            ->where('pendiente_respuesta', true)
+            ->whereNotNull('pendiente_since_at')
+            ->where('pendiente_since_at', '<=', now()->subHours(24))
+            ->count();
+
+        $avgSec = (clone $base)
+            ->whereNotNull('last_response_seconds')
+            ->avg('last_response_seconds');
+
+        $avgMin = $avgSec !== null ? (int) round(((float) $avgSec) / 60) : null;
+
+        $worstRow = (clone $base)
+            ->whereNotNull('last_response_seconds')
+            ->selectRaw('asesor_id, AVG(last_response_seconds) as a')
+            ->groupBy('asesor_id')
+            ->orderByDesc('a')
+            ->first();
+
+        $worst = null;
+        if ($worstRow?->asesor_id) {
+            $u = \App\Models\User::query()->select('id','name')->find($worstRow->asesor_id);
+            $worst = [
+                'name' => $u?->name ?? 'N/D',
+                'minutes' => (int) round(((float) $worstRow->a) / 60),
+            ];
+        }
+
+        return [
+            'chats_total' => $total,
+            'sin_vincular' => $sinVincular,
+            'vinculados' => $vinculados,
+
+            'sin_contestar' => $sinContestar,
+            'top_sin_contestar_asesor' => $top,
+
+            'tiempo_medio_respuesta_min' => $avgMin,
+            'peor_tiempo_asesor' => $worst,
+
+            'sin_contestar_24h' => $over24h,
+        ];
+    }
+
+        public function mount(): void
+    {
+        // Solo el asesor normal auto-crea chats para sus clientes
+        if (! $this->canViewAllChats() && ! $this->canViewTeamChats()) {
+            $this->ensureChatsForAssignedClients();
+        }
 
         $first = $this->queryChats()->value('id');
         $this->selectedChatId = $first ?: null;
     }
 
+
+        private function isSuperAdmin(): bool
+    {
+        $user = Auth::user();
+
+        // Shield suele ir con Spatie Roles
+        if ($user && method_exists($user, 'hasRole')) {
+            return $user->hasRole('super_admin');
+        }
+
+        // Fallback por si tienes boolean
+        return (bool) ($user->is_super_admin ?? false);
+    }
+
+
     // ✅ ENVIAR TEXTO
     public function send(): void
     {
         $chat = $this->selectedChat;
-        if (! $chat) return;
+        if (! $chat) {
+            return;
+        }
 
-        $text = trim($this->message);
-        if ($text === '') return;
+        $text = trim((string) $this->message);
+        if ($text === '') {
+            return;
+        }
 
+        // Caso "fake telegram" (tests / sandbox)
         if ($chat->telegram_chat_id && str_starts_with((string) $chat->telegram_chat_id, '999')) {
             ChatMensaje::create([
                 'chat_id' => $chat->id,
-                'origen' => 'asesor',
-                'tipo' => 'text',
+                'user_id' => Auth::id(),
+                'origen'  => 'asesor',
+                'tipo'    => 'text',
                 'contenido' => $text,
                 'estado_envio' => 'sent',
             ]);
 
             $chat->update(['last_message_at' => now()]);
+
             $this->message = '';
+            $this->dispatch('composer-reset'); // ✅ reset altura
+
             $this->markAsRead($chat->id);
+
             return;
         }
 
+        // No vinculado -> mensaje sistema + reset
         if (! $chat->telegram_chat_id) {
             ChatMensaje::create([
                 'chat_id' => $chat->id,
-                'origen' => 'sistema',
-                'tipo' => 'text',
+                'origen'  => 'sistema',
+                'tipo'    => 'text',
                 'contenido' => 'No se puede enviar: este chat no está vinculado a Telegram.',
             ]);
 
             $this->message = '';
+            $this->dispatch('composer-reset'); // ✅ reset altura
+
             $this->markAsRead($chat->id);
+
             return;
         }
 
         $this->sending = true;
 
-        $msg = ChatMensaje::create([
-            'chat_id' => $chat->id,
-            'origen' => 'asesor',
-            'tipo' => 'text',
-            'contenido' => $text,
-            'estado_envio' => 'pending',
-        ]);
+        try {
+            $msg = ChatMensaje::create([
+                'chat_id' => $chat->id,
+                'user_id' => Auth::id(),
+                'origen'  => 'asesor',
+                'tipo'    => 'text',
+                'contenido' => $text,
+                'estado_envio' => 'pending',
+            ]);
 
-        $chat->update(['last_message_at' => now()]);
-        $this->sending = false;
-        $this->message = '';
-        $this->markAsRead($chat->id);
+            $chat->update(['last_message_at' => now()]);
 
-        SendTelegramMessageJob::dispatchSync($msg->id);
+            $this->message = '';
+            $this->dispatch('composer-reset'); // ✅ reset altura
+
+            $this->markAsRead($chat->id);
+
+            SendTelegramMessageJob::dispatch($msg->id);
+        } finally {
+            $this->sending = false;
+        }
     }
+
 
     protected function rules(): array
     {
@@ -130,6 +264,23 @@ class MisChats extends Page
             'pendingUploads.*' => 'file|max:25600|mimes:pdf,doc,docx,xls,xlsx,txt,jpg,jpeg,png,webp',
         ];
     }
+        //query para KPIs (sin búsquedas, paginación, etc)
+        private function queryChatsForKpis()
+    {
+        return ChatConversacion::query()
+            ->where('tipo', 'cliente')
+            ->when(! $this->canViewAllChats(), function ($q) {
+                if ($this->canViewTeamChats() && $this->isCoordinadorDeMiDepartamento()) {
+                    $departamentoId = (int) (Auth::user()?->departamento_id ?? 0);
+
+                    $q->whereHas('asesor', fn ($uq) => $uq->where('departamento_id', $departamentoId));
+                    return;
+                }
+
+                $q->where('asesor_id', Auth::id());
+            });
+    }
+
 
     /**
      * Cada vez que el usuario selecciona archivo(s) en el input:
@@ -240,7 +391,9 @@ class MisChats extends Page
     public function sendFiles(): void
     {
         $chat = $this->selectedChat;
-        if (! $chat) return;
+        if (! $chat) {
+            return;
+        }
 
         if (! $chat->telegram_chat_id) {
             Notification::make()
@@ -249,7 +402,10 @@ class MisChats extends Page
                 ->warning()
                 ->send();
 
+            $this->message = '';
             $this->clearUpload();
+            $this->dispatch('composer-reset'); // ✅ reset altura textarea
+
             return;
         }
 
@@ -258,6 +414,7 @@ class MisChats extends Page
                 ->title('No hay archivos seleccionados')
                 ->warning()
                 ->send();
+
             return;
         }
 
@@ -306,7 +463,7 @@ class MisChats extends Page
                 $finalExt = $ext !== '' ? $ext : ($isImage ? 'jpg' : 'bin');
                 $filename = Str::uuid()->toString() . '.' . $finalExt;
 
-                // ✅ Guardar en disk local (root storage/app/private)
+                // ✅ Guardar en disk local (storage/app/private si tienes local apuntando ahí)
                 $storedPath = $file->storeAs($folder, $filename, 'local');
 
                 // Caption: lo que haya escrito (opcional)
@@ -318,10 +475,11 @@ class MisChats extends Page
 
                 $msg = ChatMensaje::create([
                     'chat_id' => $chat->id,
-                    'origen' => 'asesor',
-                    'tipo' => $tipo,
+                    'user_id' => Auth::id(),
+                    'origen'  => 'asesor',
+                    'tipo'    => $tipo,
                     'contenido' => $preview,
-                    'caption' => $caption !== '' ? $caption : null,
+                    'caption'   => $caption !== '' ? $caption : null,
 
                     'file_path' => $storedPath,
                     'file_original_name' => $originalName,
@@ -340,15 +498,17 @@ class MisChats extends Page
                         $file->delete();
                     }
                 } catch (\Throwable $e) {
-                    // no pasa nada, Livewire limpiará luego, pero intentamos
+                    // ok
                 }
 
-                SendTelegramMessageJob::dispatch($msg->id)->afterResponse();
+                // ✅ Cola normal (NO afterResponse) para ver reloj -> ✓
+                SendTelegramMessageJob::dispatch($msg->id);
             }
 
             // ✅ Al final: limpiar buffer + texto
             $this->message = '';
             $this->clearUpload();
+            $this->dispatch('composer-reset'); // ✅ reset altura textarea
 
         } finally {
             $this->sendingFile = false;
@@ -460,6 +620,10 @@ class MisChats extends Page
     public function updatedSearch(): void
     {
         $this->chatsTake = 10;
+         // si buscamos, queremos ver TODO (sin filtrar por tabs)
+        if (trim($this->search) !== '') {
+            $this->tab = 'all';
+        }
     }
 
     public function loadMoreChats(): void
@@ -576,19 +740,44 @@ class MisChats extends Page
             ->with('cliente:id,razon_social,nombre,apellidos,email_contacto')
             ->addSelect([
                 'last_text' => ChatMensaje::query()
-                    ->select('contenido')
+                    ->selectRaw("
+                        CASE
+                            WHEN contenido IS NOT NULL AND contenido <> '' THEN contenido
+                            WHEN tipo = 'photo' THEN '📷 Foto'
+                            WHEN file_path IS NOT NULL THEN CONCAT('📋 ', COALESCE(file_original_name, 'Documento'))
+                            ELSE '—'
+                        END
+                    ")
                     ->whereColumn('chat_id', 'chat_conversaciones.id')
                     ->orderByDesc('id')
                     ->limit(1),
             ])
+
+            // ✅ Inbox:
+            // 1) pendientes arriba
+            // 2) pendientes: más antiguos primero (pendiente_since_at ASC)
+            // 3) no pendientes: más recientes arriba (last_message_at DESC)
+            ->orderByDesc('pendiente_respuesta')
+            ->orderByRaw('pendiente_since_at IS NULL ASC')
+            ->orderBy('pendiente_since_at')
+            ->orderByRaw('last_message_at IS NULL ASC')
+            ->orderByDesc('last_message_at')
+            ->orderByDesc('id')
+
             ->take($this->chatsTake)
             ->get();
     }
 
+
+
     public function getHasMoreChatsProperty(): bool
-    {
-        return $this->queryChats()->count() > $this->chatsTake;
-    }
+        {
+            return $this->queryChats()
+                ->skip($this->chatsTake)
+                ->take(1)
+                ->exists();
+        }
+
 
     public function getSelectedChatProperty(): ?ChatConversacion
     {
@@ -645,27 +834,71 @@ class MisChats extends Page
     public function loadOlderMessages(): void
     {
         $this->messagesTake = min($this->messagesTake + $this->messagesStep, $this->messagesTakeMax);
-        $this->dispatch('$refresh');
+       
     }
 
-    private function queryChats()
+        private function canViewAllChats(): bool
     {
-        return ChatConversacion::query()
-            ->where('tipo', 'cliente')
-            ->where('asesor_id', Auth::id())
-            ->when($this->search !== '', function ($q) {
-                $q->whereHas('cliente', function ($cq) {
-                    $s = $this->search;
-
-                    $cq->where('razon_social', 'like', "%{$s}%")
-                        ->orWhere('nombre', 'like', "%{$s}%")
-                        ->orWhere('apellidos', 'like', "%{$s}%")
-                        ->orWhere('dni_cif', 'like', "%{$s}%");
-                });
-            })
-            ->orderByRaw('last_message_at IS NULL ASC')
-            ->orderByDesc('last_message_at');
+        return Auth::user()?->can('Chats:ViewAll') ?? false;
     }
+
+    private function canViewTeamChats(): bool
+    {
+        return Auth::user()?->can('Chats:ViewTeam') ?? false;
+    }
+
+    private function isCoordinadorDeMiDepartamento(): bool
+    {
+        $user = Auth::user();
+        if (! $user) return false;
+
+        $depId = (int) ($user->departamento_id ?? 0);
+        if ($depId === 0) return false;
+
+        return (int) ($user->departamento?->coordinador_id ?? 0) === (int) $user->id;
+    }
+
+
+        private function queryChats()
+        {
+            return ChatConversacion::query()
+                ->where('tipo', 'cliente')
+                ->when(! $this->canViewAllChats(), function ($q) {
+
+                    if ($this->canViewTeamChats() && $this->isCoordinadorDeMiDepartamento()) {
+                        $departamentoId = (int) (Auth::user()?->departamento_id ?? 0);
+                        $q->whereHas('asesor', fn ($uq) => $uq->where('departamento_id', $departamentoId));
+                        return;
+                    }
+
+                    $q->where('asesor_id', Auth::id());
+                })
+
+                // ✅ Tabs: solo cuando NO hay búsqueda
+                ->when(trim($this->search) === '', function ($q) {
+                    if ($this->tab === 'vinculados') {
+                        $q->whereNotNull('telegram_chat_id');
+                    } elseif ($this->tab === 'sin_vincular') {
+                        $q->whereNull('telegram_chat_id');
+                    }
+                })
+
+                ->when($this->search !== '', function ($q) {
+                    $q->whereHas('cliente', function ($cq) {
+                        $s = $this->search;
+
+                        $cq->where('razon_social', 'like', "%{$s}%")
+                            ->orWhere('nombre', 'like', "%{$s}%")
+                            ->orWhere('apellidos', 'like', "%{$s}%")
+                            ->orWhere('dni_cif', 'like', "%{$s}%");
+                    });
+                })
+
+                // OJO: aquí NO ordenamos, lo hacemos en getChatsProperty()
+                ;
+        }
+
+
 
     private function ensureChatsForAssignedClients(): void
     {
@@ -702,4 +935,76 @@ class MisChats extends Page
 
         DB::table('chat_conversaciones')->insert($rows);
     }
+
+        public function exportSelectedChat(): StreamedResponse
+    {
+        abort_unless(auth()->user()?->can('Chats:Export'), 403);
+
+        if (! $this->selectedChatId) {
+            abort(404);
+        }
+
+        // ✅ IMPORTANTÍSIMO: usar queryChats() para respetar permisos (admin/coordinador/asesor)
+        $chat = $this->queryChats()
+            ->with([
+                'cliente:id,razon_social,nombre,apellidos,dni_cif',
+                'asesor:id,name',
+                 'mensajes' => fn ($q) => $q->orderBy('id')->with('user:id,name'),
+            ])
+            ->whereKey($this->selectedChatId)
+            ->firstOrFail();
+
+        $clienteNombre = trim(implode(' ', array_filter([
+            $chat->cliente?->razon_social,
+            $chat->cliente?->nombre,
+            $chat->cliente?->apellidos,
+        ])));
+
+        $header = [];
+        $header[] = 'AsesorFy — Export chat';
+        $header[] = 'Chat ID: ' . $chat->id;
+        $header[] = 'Cliente: ' . ($clienteNombre !== '' ? $clienteNombre : 'N/D');
+        $header[] = 'Cliente DNI/CIF: ' . ($chat->cliente?->dni_cif ?? 'N/D');
+        $header[] = 'Asesor: ' . ($chat->asesor?->name ?? 'N/D');
+        $header[] = 'Exportado: ' . now()->format('Y-m-d H:i:s');
+        $header[] = str_repeat('-', 70);
+
+        $lines = $header;
+
+        foreach ($chat->mensajes as $m) {
+            $ts = optional($m->created_at)->format('d-m-Y H:i:s') ?? 'N/D';
+
+            $who = match ($m->origen) {
+                'cliente' => 'Cliente',
+                'asesor' => $m->user?->name
+                        ? ('Asesor: ' . $m->user->name)
+                        : ($chat->asesor?->name ? ('Asesor: ' . $chat->asesor->name) : 'Asesor'),
+                'sistema' => 'Sistema',
+                default => $m->origen ?: 'N/D',
+            };
+
+            $text = trim((string) ($m->contenido ?? ''));
+            if ($text === '') {
+                $text = '[sin texto]';
+            }
+
+            if (! empty($m->file_original_name)) {
+                $text .= ' [adjunto: ' . $m->file_original_name . ']';
+            }
+
+            $lines[] = "[$ts] $who: $text";
+        }
+
+        $payload = implode("\n", $lines) . "\n";
+
+        $safeCliente = $chat->cliente?->dni_cif ?: ('chat_' . $chat->id);
+        $filename = 'chat_' . $safeCliente . '_' . now()->format('Ymd_His') . '.txt';
+
+        return response()->streamDownload(
+            fn () => print($payload),
+            $filename,
+            ['Content-Type' => 'text/plain; charset=UTF-8']
+        );
+    }
+
 }

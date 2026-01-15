@@ -11,6 +11,7 @@ class ChatMensaje extends Model
 
     protected $fillable = [
         'chat_id',
+        'user_id',
         'origen',
         'tipo',
         'contenido',
@@ -43,6 +44,11 @@ class ChatMensaje extends Model
         'leido'   => 'boolean',
         'read_at' => 'datetime',
     ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class);
+    }
 
     public function chat(): BelongsTo
     {

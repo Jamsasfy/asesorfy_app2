@@ -21,14 +21,33 @@ class ChatMensajeFileController extends Controller
             abort(404);
         }
 
-        // 3) Seguridad: el asesor solo puede ver archivos de sus chats
-        // (Ajusta si tienes roles/coordinador; por ahora “simple y seguro”)
+        // 3) Seguridad:
+        // - Asesor: solo sus chats
+        // - Coordinador (con permiso): chats de su departamento
+        // - ViewAll (super_admin): todos
         $chat = $chatMensaje->chat; // requiere relación en ChatMensaje -> chat()
-        if (! $chat || (int) $chat->asesor_id !== (int) Auth::id()) {
+        if (! $chat) {
             abort(403);
         }
 
-        // 4) Resolver path absoluto en disk local (storage/app)
+        $user = Auth::user();
+
+        $canViewAll = $user?->can('Chats:ViewAll') ?? false;
+
+        $canViewTeam = ($user?->can('Chats:ViewTeam') ?? false)
+            && (int) ($user->departamento?->coordinador_id ?? 0) === (int) $user->id;
+
+        $inMyTeam = false;
+        if ($canViewTeam) {
+            // Requiere relación ChatConversacion->asesor()
+            $inMyTeam = (int) ($chat->asesor?->departamento_id ?? 0) === (int) ($user->departamento_id ?? 0);
+        }
+
+        if (! $canViewAll && ! $inMyTeam && (int) $chat->asesor_id !== (int) $user->id) {
+            abort(403);
+        }
+
+        // 4) Resolver path absoluto en disk local (storage/app/private por tu config)
         $disk = Storage::disk('local');
 
         if (! $disk->exists($chatMensaje->file_path)) {

@@ -8,275 +8,247 @@ use App\Services\TelegramService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Models\ChatMensaje;
+use App\Models\ChatConversacion;
 
 class TelegramWebhookController extends Controller
 {
-public function __invoke(Request $request)
-{
-    // 1) Seguridad: comprobar secret header (setWebhook secret token)
-    $secret = (string) config('services.telegram.webhook_secret', env('TELEGRAM_WEBHOOK_SECRET'));
-    $header = (string) $request->header('X-Telegram-Bot-Api-Secret-Token');
+    public function __invoke(Request $request)
+    {
+        // 1) Seguridad: comprobar secret header (setWebhook secret token)
+        $secret = (string) config('services.telegram.webhook_secret', env('TELEGRAM_WEBHOOK_SECRET'));
+        $header = (string) $request->header('X-Telegram-Bot-Api-Secret-Token');
 
-    if ($secret !== '' && ! hash_equals($secret, $header)) {
-        return response()->json(['ok' => false], 403);
-    }
+        if ($secret !== '' && ! hash_equals($secret, $header)) {
+            return response()->json(['ok' => false], 403);
+        }
 
-    $update = $request->all();
-    $updateId = data_get($update, 'update_id');
+        $update = $request->all();
+        $updateId = data_get($update, 'update_id');
 
-    // 2) Idempotencia: si ya procesamos este update_id, salimos OK
-    if ($updateId && DB::table('chat_mensajes')->where('telegram_update_id', $updateId)->exists()) {
-        return response()->json(['ok' => true]);
-    }
+        // 2) Idempotencia: si ya procesamos este update_id, salimos OK
+        if ($updateId && ChatMensaje::query()->where('telegram_update_id', $updateId)->exists()) {
+            return response()->json(['ok' => true]);
+        }
 
-    // 3) Telegram puede mandar distintos tipos. Para MVP usamos message o edited_message.
-    $message = data_get($update, 'message') ?: data_get($update, 'edited_message');
-    if (! $message) {
-        return response()->json(['ok' => true]);
-    }
+        // 3) Telegram puede mandar distintos tipos. Para MVP usamos message o edited_message.
+        $message = data_get($update, 'message') ?: data_get($update, 'edited_message');
+        if (! $message) {
+            return response()->json(['ok' => true]);
+        }
 
-    $telegramChatId = (int) data_get($message, 'chat.id');
-    $telegramMessageId = (int) data_get($message, 'message_id');
+        $telegramChatId = (int) data_get($message, 'chat.id');
+        $telegramMessageId = (int) data_get($message, 'message_id');
 
-    $text = trim((string) data_get($message, 'text', ''));
-    $caption = trim((string) data_get($message, 'caption', ''));
+        $text = trim((string) data_get($message, 'text', ''));
+        $caption = trim((string) data_get($message, 'caption', ''));
 
-    // (Opcional útil para futuro)
-    $telegramUserId = (int) data_get($message, 'from.id');
-    $telegramUsername = (string) data_get($message, 'from.username', '');
+        // (Opcional útil para futuro)
+        $telegramUserId = (int) data_get($message, 'from.id');
+        $telegramUsername = (string) data_get($message, 'from.username', '');
 
-    // Textos estándar
-    $txtAudioBlocked = "🛡️ Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite mensajes de audio. Por favor, envía tu consulta por texto o adjunta la documentación necesaria. Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy. 🔒";
+        // Textos estándar
+        $txtAudioBlocked = "🛡️ Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite mensajes de audio. Por favor, envía tu consulta por texto o adjunta la documentación necesaria. Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy. 🔒";
 
-    $txtVideoBlocked = "🔒 Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite vídeos.\n\nPor favor, envía tu consulta por texto o adjunta la documentación necesaria (PDF, Word o Excel). Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy.";
+        $txtVideoBlocked = "🔒 Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite vídeos.\n\nPor favor, envía tu consulta por texto o adjunta la documentación necesaria (PDF, Word o Excel). Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy.";
 
-    $txtAnimBlocked = "🔒 Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite GIFs, stickers ni elementos animados.\n\nPor favor, envía tu consulta por texto o adjunta la documentación necesaria. Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy.";
+        $txtAnimBlocked = "🔒 Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite GIFs, stickers ni elementos animados.\n\nPor favor, envía tu consulta por texto o adjunta la documentación necesaria. Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy.";
 
-    // 3.5) Bloqueo: NO aceptamos audios (voice/audio)
-    $hasVoice = (bool) data_get($message, 'voice');
-    $hasAudio = (bool) data_get($message, 'audio');
+        // 3.5) Bloqueo: NO aceptamos audios (voice/audio)
+        $hasVoice = (bool) data_get($message, 'voice');
+        $hasAudio = (bool) data_get($message, 'audio');
 
-    if ($hasVoice || $hasAudio) {
+        if ($hasVoice || $hasAudio) {
 
-        // Auditoría (opcional): si el chat existe, guardamos mensaje sistema
-        $chat = DB::table('chat_conversaciones')
+            // Auditoría (opcional): si el chat existe, guardamos mensaje sistema
+            $chat = ChatConversacion::query()
+                ->where('telegram_chat_id', $telegramChatId)
+                ->first();
+
+            if ($chat) {
+                ChatMensaje::create([
+                    'chat_id'             => $chat->id,
+                    'origen'              => 'sistema',
+                    'tipo'                => 'text',
+                    'contenido'           => 'El cliente intentó enviar un audio (bloqueado).',
+                    'telegram_message_id' => $telegramMessageId ?: null,
+                    'telegram_update_id'  => null,
+                    'payload'             => json_encode($update),
+                    'leido'               => true,
+                ]);
+
+                DB::table('chat_conversaciones')->where('id', $chat->id)->update([
+                    'last_message_at' => now(),
+                    'updated_at'      => now(),
+                ]);
+            }
+
+            $this->replyTelegram($telegramChatId, $txtAudioBlocked);
+
+            return response()->json(['ok' => true]);
+        }
+
+        // 3.6) Bloqueo: NO aceptamos vídeos (video / video_note / animation)
+        $hasVideo = (bool) data_get($message, 'video');
+        $hasVideoNote = (bool) data_get($message, 'video_note');
+        $hasAnimation = (bool) data_get($message, 'animation'); // GIF también entra aquí
+
+        if ($hasVideo || $hasVideoNote || $hasAnimation) {
+
+            // Auditoría (opcional)
+            $chat = ChatConversacion::query()
+                ->where('telegram_chat_id', $telegramChatId)
+                ->first();
+
+            if ($chat) {
+                ChatMensaje::create([
+                    'chat_id'             => $chat->id,
+                    'origen'              => 'sistema',
+                    'tipo'                => 'text',
+                    'contenido'           => 'El cliente intentó enviar un vídeo/GIF (bloqueado).',
+                    'telegram_message_id' => $telegramMessageId ?: null,
+                    'telegram_update_id'  => null,
+                    'payload'             => json_encode($update),
+                    'leido'               => true,
+                ]);
+
+                DB::table('chat_conversaciones')->where('id', $chat->id)->update([
+                    'last_message_at' => now(),
+                    'updated_at'      => now(),
+                ]);
+            }
+
+            // Si es animation (GIF), usamos el texto de animaciones; si no, el de vídeo
+            $this->replyTelegram($telegramChatId, $hasAnimation ? $txtAnimBlocked : $txtVideoBlocked);
+
+            return response()->json(['ok' => true]);
+        }
+
+        // 3.7) Bloqueo: GIFs / stickers / animaciones (y emojis animados tipo Telegram Premium)
+        $hasSticker = (bool) data_get($message, 'sticker');
+        $hasDice = (bool) data_get($message, 'dice');
+
+        $entities = (array) data_get($message, 'entities', []);
+        $captionEntities = (array) data_get($message, 'caption_entities', []);
+
+        $hasCustomEmoji = collect(array_merge($entities, $captionEntities))
+            ->contains(fn ($e) => (string) data_get($e, 'type') === 'custom_emoji');
+
+        if ($hasSticker || $hasDice || $hasCustomEmoji) {
+            $this->replyTelegram($telegramChatId, $txtAnimBlocked);
+            return response()->json(['ok' => true]);
+        }
+
+        // 4) Caso /start <token> => vinculación
+        if (str_starts_with($text, '/start')) {
+            $parts = preg_split('/\s+/', $text);
+            $token = $parts[1] ?? null;
+
+            if ($token) {
+                $this->handleStartToken(
+                    token: $token,
+                    telegramChatId: $telegramChatId,
+                    updateId: $updateId,
+                    telegramMessageId: $telegramMessageId,
+                    update: $update,
+                    telegramUserId: $telegramUserId,
+                    telegramUsername: $telegramUsername,
+                );
+            } else {
+                $this->replyTelegram($telegramChatId, 'Enlace inválido. Pide uno nuevo a tu asesor.');
+            }
+
+            return response()->json(['ok' => true]);
+        }
+
+        // 5) Localizar conversación por telegram_chat_id
+        $chat = ChatConversacion::query()
             ->where('telegram_chat_id', $telegramChatId)
             ->first();
 
-        if ($chat) {
-            DB::table('chat_mensajes')->insert([
-                'chat_id'             => $chat->id,
-                'origen'              => 'sistema',
-                'tipo'                => 'text',
-                'contenido'           => 'El cliente intentó enviar un audio (bloqueado).',
-                'telegram_message_id' => $telegramMessageId ?: null,
-                'telegram_update_id'  => null,
-                'payload'             => json_encode($update),
-                'leido'               => true,
-                'created_at'          => now(),
-                'updated_at'          => now(),
-            ]);
-
-            DB::table('chat_conversaciones')->where('id', $chat->id)->update([
-                'last_message_at' => now(),
-                'updated_at'      => now(),
-            ]);
-        }
-
-        $this->replyTelegram($telegramChatId, $txtAudioBlocked);
-
-        return response()->json(['ok' => true]);
-    }
-
-    // 3.6) Bloqueo: NO aceptamos vídeos (video / video_note / animation)
-    $hasVideo = (bool) data_get($message, 'video');
-    $hasVideoNote = (bool) data_get($message, 'video_note');
-    $hasAnimation = (bool) data_get($message, 'animation'); // GIF también entra aquí
-
-    if ($hasVideo || $hasVideoNote || $hasAnimation) {
-
-        // Auditoría (opcional)
-        $chat = DB::table('chat_conversaciones')
-            ->where('telegram_chat_id', $telegramChatId)
-            ->first();
-
-        if ($chat) {
-            DB::table('chat_mensajes')->insert([
-                'chat_id'             => $chat->id,
-                'origen'              => 'sistema',
-                'tipo'                => 'text',
-                'contenido'           => 'El cliente intentó enviar un vídeo/GIF (bloqueado).',
-                'telegram_message_id' => $telegramMessageId ?: null,
-                'telegram_update_id'  => null,
-                'payload'             => json_encode($update),
-                'leido'               => true,
-                'created_at'          => now(),
-                'updated_at'          => now(),
-            ]);
-
-            DB::table('chat_conversaciones')->where('id', $chat->id)->update([
-                'last_message_at' => now(),
-                'updated_at'      => now(),
-            ]);
-        }
-
-        // Si es animation (GIF), usamos el texto de animaciones; si no, el de vídeo
-        $this->replyTelegram($telegramChatId, $hasAnimation ? $txtAnimBlocked : $txtVideoBlocked);
-
-        return response()->json(['ok' => true]);
-    }
-
-    // 3.7) Bloqueo: GIFs / stickers / animaciones (y emojis animados tipo Telegram Premium)
-    $hasSticker = (bool) data_get($message, 'sticker');
-    $hasDice = (bool) data_get($message, 'dice');
-
-    $entities = (array) data_get($message, 'entities', []);
-    $captionEntities = (array) data_get($message, 'caption_entities', []);
-
-    $hasCustomEmoji = collect(array_merge($entities, $captionEntities))
-        ->contains(fn ($e) => (string) data_get($e, 'type') === 'custom_emoji');
-
-    if ($hasSticker || $hasDice || $hasCustomEmoji) {
-        $this->replyTelegram($telegramChatId, $txtAnimBlocked);
-        return response()->json(['ok' => true]);
-    }
-
-    // 4) Caso /start <token> => vinculación
-    if (str_starts_with($text, '/start')) {
-        $parts = preg_split('/\s+/', $text);
-        $token = $parts[1] ?? null;
-
-        if ($token) {
-            $this->handleStartToken(
-                token: $token,
-                telegramChatId: $telegramChatId,
-                updateId: $updateId,
-                telegramMessageId: $telegramMessageId,
-                update: $update,
-                telegramUserId: $telegramUserId,
-                telegramUsername: $telegramUsername,
-            );
-        } else {
-            $this->replyTelegram($telegramChatId, 'Enlace inválido. Pide uno nuevo a tu asesor.');
-        }
-
-        return response()->json(['ok' => true]);
-    }
-
-    // 5) Localizar conversación por telegram_chat_id
-    $chat = DB::table('chat_conversaciones')
-        ->where('telegram_chat_id', $telegramChatId)
-        ->first();
-
-    if (! $chat) {
-        $this->replyTelegram(
-            $telegramChatId,
-            'Esta cuenta de Telegram no está vinculada a AsesorFy. Usa el enlace más reciente o pide uno nuevo a tu asesor.'
-        );
-
-        return response()->json(['ok' => true]);
-    }
-
-    // 6) Validación de documentos (allowlist + tamaño) ANTES de guardar
-    $document = data_get($message, 'document');
-    if ($document) {
-        $mime = (string) data_get($document, 'mime_type', '');
-        $fileName = (string) data_get($document, 'file_name', '');
-        $fileSize = (int) data_get($document, 'file_size', 0);
-        $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-
-        // Si el "documento" realmente es un vídeo, lo bloqueamos SIEMPRE con el mensaje de vídeos
-        $videoExt = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v'];
-        $isVideoDoc = str_starts_with($mime, 'video/')
-            || in_array($ext, $videoExt, true)
-            || in_array($mime, ['application/x-matroska'], true);
-
-        if ($isVideoDoc) {
-            $this->replyTelegram($telegramChatId, $txtVideoBlocked);
-            return response()->json(['ok' => true]);
-        }
-
-        // Máximo 25 MB
-        $maxBytes = 25 * 1024 * 1024;
-
-        if ($fileSize > $maxBytes) {
+        if (! $chat) {
             $this->replyTelegram(
                 $telegramChatId,
-                "🔒 Archivo demasiado grande. El tamaño máximo permitido es 25 MB.\n\nPor favor, envía un archivo más ligero o divídelo en varios."
+                'Esta cuenta de Telegram no está vinculada a AsesorFy. Usa el enlace más reciente o pide uno nuevo a tu asesor.'
             );
+
             return response()->json(['ok' => true]);
         }
 
-        // Allowlist MIME (sin ZIP)
-        $allowedMimes = [
-            'application/pdf',
-            'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'text/plain',
-            'image/jpeg',
-            'image/png',
-            'image/webp',
-        ];
+        // 6) Validación de documentos (allowlist + tamaño) ANTES de guardar
+        $document = data_get($message, 'document');
+        if ($document) {
+            $mime = (string) data_get($document, 'mime_type', '');
+            $fileName = (string) data_get($document, 'file_name', '');
+            $fileSize = (int) data_get($document, 'file_size', 0);
+            $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
-        // Allowlist por extensión (por si Telegram no manda mime)
-        $allowedExt = [
-            'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt',
-            'jpg', 'jpeg', 'png', 'webp',
-        ];
+            // Si el "documento" realmente es un vídeo, lo bloqueamos SIEMPRE con el mensaje de vídeos
+            $videoExt = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v'];
+            $isVideoDoc = str_starts_with($mime, 'video/')
+                || in_array($ext, $videoExt, true)
+                || in_array($mime, ['application/x-matroska'], true);
 
-        $mimeOk = ($mime !== '' && in_array($mime, $allowedMimes, true));
-        $extOk = ($ext !== '' && in_array($ext, $allowedExt, true));
+            if ($isVideoDoc) {
+                $this->replyTelegram($telegramChatId, $txtVideoBlocked);
+                return response()->json(['ok' => true]);
+            }
 
-        if (! $mimeOk && ! $extOk) {
-            $this->replyTelegram(
-                $telegramChatId,
-                "🔒 Formato no admitido por motivos de seguridad.\n\nFormatos permitidos: PDF, Word (DOC/DOCX), Excel (XLS/XLSX), TXT e imágenes (JPG/PNG/WEBP).\nTamaño máximo: 25 MB."
-            );
-            return response()->json(['ok' => true]);
+            // Máximo 25 MB
+            $maxBytes = 25 * 1024 * 1024;
+
+            if ($fileSize > $maxBytes) {
+                $this->replyTelegram(
+                    $telegramChatId,
+                    "🔒 Archivo demasiado grande. El tamaño máximo permitido es 25 MB.\n\nPor favor, envía un archivo más ligero o divídelo en varios."
+                );
+                return response()->json(['ok' => true]);
+            }
+
+            // Allowlist MIME (sin ZIP)
+            $allowedMimes = [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'text/plain',
+                'image/jpeg',
+                'image/png',
+                'image/webp',
+            ];
+
+            // Allowlist por extensión (por si Telegram no manda mime)
+            $allowedExt = [
+                'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt',
+                'jpg', 'jpeg', 'png', 'webp',
+            ];
+
+            $mimeOk = ($mime !== '' && in_array($mime, $allowedMimes, true));
+            $extOk = ($ext !== '' && in_array($ext, $allowedExt, true));
+
+            if (! $mimeOk && ! $extOk) {
+                $this->replyTelegram(
+                    $telegramChatId,
+                    "🔒 Formato no admitido por motivos de seguridad.\n\nFormatos permitidos: PDF, Word (DOC/DOCX), Excel (XLS/XLSX), TXT e imágenes (JPG/PNG/WEBP).\nTamaño máximo: 25 MB."
+                );
+                return response()->json(['ok' => true]);
+            }
         }
-    }
 
-    // 7) Detectar adjuntos (document / photo)
-    $photos = data_get($message, 'photo');
+        // 7) Detectar adjuntos (document / photo)
+        $photos = data_get($message, 'photo');
 
-    // --- A) DOCUMENTO ---
-    if (is_array($document) && ! empty($document['file_id'])) {
-        $this->storeIncomingAttachment(
-            chatId: (int) $chat->id,
-            tipo: 'document',
-            fileId: (string) ($document['file_id'] ?? ''),
-            fileUniqueId: (string) ($document['file_unique_id'] ?? ''),
-            originalName: (string) ($document['file_name'] ?? 'documento'),
-            mime: (string) ($document['mime_type'] ?? ''),
-            size: (int) ($document['file_size'] ?? 0),
-            caption: $caption,
-            telegramMessageId: $telegramMessageId,
-            updateId: $updateId,
-            update: $update
-        );
-
-        $this->bumpChatCounters((int) $chat->id);
-        return response()->json(['ok' => true]);
-    }
-
-    // --- B) FOTO (array de tamaños -> cogemos el último, suele ser el mayor) ---
-    if (is_array($photos) && count($photos) > 0) {
-        $best = end($photos);
-        $fileId = (string) data_get($best, 'file_id', '');
-        $fileUniqueId = (string) data_get($best, 'file_unique_id', '');
-        $size = (int) data_get($best, 'file_size', 0);
-
-        if ($fileId !== '') {
+        // --- A) DOCUMENTO ---
+        if (is_array($document) && ! empty($document['file_id'])) {
             $this->storeIncomingAttachment(
                 chatId: (int) $chat->id,
-                tipo: 'photo',
-                fileId: $fileId,
-                fileUniqueId: $fileUniqueId,
-                originalName: 'foto',
-                mime: '',
-                size: $size,
+                tipo: 'document',
+                fileId: (string) ($document['file_id'] ?? ''),
+                fileUniqueId: (string) ($document['file_unique_id'] ?? ''),
+                originalName: (string) ($document['file_name'] ?? 'documento'),
+                mime: (string) ($document['mime_type'] ?? ''),
+                size: (int) ($document['file_size'] ?? 0),
                 caption: $caption,
                 telegramMessageId: $telegramMessageId,
                 updateId: $updateId,
@@ -286,31 +258,54 @@ public function __invoke(Request $request)
             $this->bumpChatCounters((int) $chat->id);
             return response()->json(['ok' => true]);
         }
-    }
 
-    // --- C) TEXTO ---
-    if ($text === '') {
+        // --- B) FOTO (array de tamaños -> cogemos el último, suele ser el mayor) ---
+        if (is_array($photos) && count($photos) > 0) {
+            $best = end($photos);
+            $fileId = (string) data_get($best, 'file_id', '');
+            $fileUniqueId = (string) data_get($best, 'file_unique_id', '');
+            $size = (int) data_get($best, 'file_size', 0);
+
+            if ($fileId !== '') {
+                $this->storeIncomingAttachment(
+                    chatId: (int) $chat->id,
+                    tipo: 'photo',
+                    fileId: $fileId,
+                    fileUniqueId: $fileUniqueId,
+                    originalName: 'foto',
+                    mime: '',
+                    size: $size,
+                    caption: $caption,
+                    telegramMessageId: $telegramMessageId,
+                    updateId: $updateId,
+                    update: $update
+                );
+
+                $this->bumpChatCounters((int) $chat->id);
+                return response()->json(['ok' => true]);
+            }
+        }
+
+        // --- C) TEXTO ---
+        if ($text === '') {
+            return response()->json(['ok' => true]);
+        }
+
+        ChatMensaje::create([
+            'chat_id'             => $chat->id,
+            'origen'              => 'cliente',
+            'tipo'                => 'text',
+            'contenido'           => $text,
+            'telegram_message_id' => $telegramMessageId ?: null,
+            'telegram_update_id'  => $updateId ?: null,
+            'payload'             => json_encode($update),
+            'leido'               => false,
+        ]);
+
+        $this->bumpChatCounters((int) $chat->id);
+
         return response()->json(['ok' => true]);
     }
-
-    DB::table('chat_mensajes')->insertOrIgnore([
-        'chat_id'             => $chat->id,
-        'origen'              => 'cliente',
-        'tipo'                => 'text',
-        'contenido'           => $text,
-        'telegram_message_id' => $telegramMessageId ?: null,
-        'telegram_update_id'  => $updateId ?: null,
-        'payload'             => json_encode($update),
-        'leido'               => false,
-        'created_at'          => now(),
-        'updated_at'          => now(),
-    ]);
-
-    $this->bumpChatCounters((int) $chat->id);
-
-    return response()->json(['ok' => true]);
-}
-
 
     private function bumpChatCounters(int $chatId): void
     {
@@ -376,7 +371,7 @@ public function __invoke(Request $request)
             ? trim($caption)
             : ($tipo === 'photo' ? '📷 Foto' : ('📎 ' . ($originalName ?: 'Documento')));
 
-        DB::table('chat_mensajes')->insertOrIgnore([
+        ChatMensaje::create([
             'chat_id'                   => $chatId,
             'origen'                    => 'cliente',
             'tipo'                      => $tipo,
@@ -395,8 +390,6 @@ public function __invoke(Request $request)
 
             'payload'                   => json_encode($update),
             'leido'                     => false,
-            'created_at'                => now(),
-            'updated_at'                => now(),
         ]);
     }
 
@@ -599,7 +592,7 @@ public function __invoke(Request $request)
         ?int $updateId,
         array $update
     ): void {
-        DB::table('chat_mensajes')->insertOrIgnore([
+        ChatMensaje::create([
             'chat_id'             => $chatId,
             'origen'              => 'sistema',
             'tipo'                => 'text',
@@ -608,8 +601,6 @@ public function __invoke(Request $request)
             'telegram_update_id'  => $updateId ?: null,
             'payload'             => json_encode($update),
             'leido'               => true,
-            'created_at'          => now(),
-            'updated_at'          => now(),
         ]);
     }
 
