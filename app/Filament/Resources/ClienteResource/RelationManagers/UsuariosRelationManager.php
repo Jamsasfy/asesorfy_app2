@@ -148,31 +148,31 @@ class UsuariosRelationManager extends RelationManager
             ->filtersFormColumns(3)
 
             ->headerActions([
-                CreateAction::make()
-                ->label('➕ Añadir usuario con accesoa este cliente')
-                ->icon('heroicon-o-user-plus')
-                ->modalHeading('Nuevo usuario con acceso al cliente')
-                ->mutateDataUsing(function (array $data): array {
-                    $data['password'] = bcrypt($data['password']);
-                    return $data;
-                })
-                ->using(function (array $data): User {
-                    $cliente = $this->getOwnerRecord(); // ✅ Obtener el cliente padre desde el relation manager
-                    $user = User::create($data);
-                    $user->assignRole('cliente_acceso');
-                    $cliente->usuarios()->attach($user->id);
-                    return $user;
-                })
-               ->after(function (User $record, Cliente $ownerRecord) {
-                    Notification::make()
-                        ->title('✅ Usuario  correctamente')
-                        ->body("Se ha creado un usuario con NOMBRE: 👤 <span style='color:#2563eb; font-weight:bold'>{$record->name}</span> para acceder a este cliente en la plataforma AsesorFy.")
-                        ->success()
-                        ->send();
-                }) 
-                
+              CreateAction::make()
+    ->label('➕ Añadir usuario con acceso a este cliente')
+    ->icon('heroicon-o-user-plus')
+    ->modalHeading('Nuevo usuario con acceso al cliente')
+    
+    ->using(function (array $data, $livewire): User {
+        $cliente = $livewire->getOwnerRecord();
 
+        $user = User::create($data);
+
+        $cliente->usuarios()->attach($user->id);
+
+        return $user;
+    })
+    ->after(function (User $record, $livewire): void {
+        // $ownerRecord = $livewire->getOwnerRecord(); // si lo necesitas para el texto
+
+        Notification::make()
+            ->title('✅ Usuario creado correctamente')
+            ->body("Se ha creado un usuario con NOMBRE: 👤 <span style='color:#2563eb; font-weight:bold'>{$record->name}</span> para acceder a este cliente en la plataforma AsesorFy.")
+            ->success()
+            ->send();
+    })
             ])
+
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),

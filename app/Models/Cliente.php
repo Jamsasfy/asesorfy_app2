@@ -167,34 +167,31 @@ public function documentosVinculados(): HasMany
 protected static function booted(): void
 {
     static::deleting(function (Cliente $cliente) {
-        // 🗑️ Comentarios
-        $cliente->comentarios()->delete();
+    // 🗑️ Comentarios
+    $cliente->comentarios()->delete();
 
-        // 🗑️ Documentos normales
-        $cliente->documentos()->each(fn ($doc) => $doc->delete());
+    // 🗑️ Documentos (ownership por cliente_id) -> dispara deleting() y borra el fichero
+    $cliente->documentosVinculados()->each(fn ($doc) => $doc->delete());
 
-        // 🗑️ Documentos polimórficos
-        $cliente->documentosPolimorficos()->each(fn ($doc) => $doc->delete());
+    // 🗑️ Ventas
+    //$cliente->ventas()->each(fn ($venta) => $venta->delete());
 
-        // 🗑️ Ventas
-        $cliente->ventas()->each(fn ($venta) => $venta->delete());
+    // 🗑️ Suscripciones
+    $cliente->suscripciones()->each(fn ($suscripcion) => $suscripcion->delete());
 
-        // 🗑️ Suscripciones
-        $cliente->suscripciones()->each(fn ($suscripcion) => $suscripcion->delete());
+    // 👥 Usuarios con acceso a este cliente
+    foreach ($cliente->usuarios as $usuario) {
+        $otrosClientes = $usuario->clientes()->where('clientes.id', '!=', $cliente->id)->exists();
 
-        // 👥 Usuarios con acceso a este cliente
-        foreach ($cliente->usuarios as $usuario) {
-            $otrosClientes = $usuario->clientes()->where('clientes.id', '!=', $cliente->id)->exists();
-
-            if (! $otrosClientes) {
-                // Solo se elimina si no tiene más accesos
-                $usuario->delete();
-            }
+        if (! $otrosClientes) {
+            $usuario->delete();
         }
+    }
 
-        // 🔓 Limpieza de la tabla pivote
-        $cliente->usuarios()->detach();
-    });
+    // 🔓 Limpieza de la tabla pivote
+    $cliente->usuarios()->detach();
+});
+
 }
 public function tieneMetodoPagoStripe(): bool
 {

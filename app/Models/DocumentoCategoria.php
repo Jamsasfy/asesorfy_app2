@@ -13,7 +13,8 @@ class DocumentoCategoria extends Model
     protected $fillable = ['nombre', 'descripcion', 'activo', 'color'];
 
     public function subtipos(): HasMany
-    {
-        return $this->hasMany(DocumentoSubtipo::class, 'categoria_id');
-    }
+{
+    return $this->hasMany(DocumentoSubtipo::class, 'documento_categoria_id');
+}
+
 }

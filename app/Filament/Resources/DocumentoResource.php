@@ -48,6 +48,17 @@ use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
+use Illuminate\Support\HtmlString;
+
+
+use App\Enums\DocumentoEstadoEnum;
+use Filament\Forms\Components\Textarea as FormTextarea;
+
+use Filament\Support\Enums\IconSize;
+
+
+
+
 
 class DocumentoResource extends Resource 
 {
@@ -142,17 +153,17 @@ public static function getNavigationGroup(): ?string
 
 
 
-    public static function form(Schema $schema): Schema
-    {
-        return $schema
-            ->components([
-
+   public static function form(Schema $schema): Schema
+{
+    return $schema
+        ->components([
             Select::make('tipo_documento_id')
                 ->label('Tipo de documento')
-                ->helperText('Selecciona el tipo generico o familia del documento que vas a subir al cliente.')
+                ->helperText('Selecciona el tipo genérico o familia del documento.')
                 ->relationship('tipo', 'nombre')
                 ->required()
-                ->live(), // <- IMPORTANTE
+                ->live(),
+
             Select::make('subtipo_documento_id')
                 ->label('Subtipo')
                 ->helperText('Selecciona el subtipo. Si no existe, contacta con tu superior.')
@@ -165,25 +176,24 @@ public static function getNavigationGroup(): ?string
             FileUpload::make('ruta')
                 ->label('Archivo')
                 ->disk('public')
-                ->directory('documentos') // o la carpeta que uses
-                ->maxSize(32768) // 32 MB
+                ->directory('documentos')
+                ->maxSize(32768)
                 ->required()
-                ->moveFiles() // ✅ Esto evita la subida inmediata
+                ->moveFiles()
                 ->acceptedFileTypes([
                     'application/pdf',
                     'image/jpeg',
                     'image/png',
                     'image/webp',
                     'image/gif',
-                    'application/msword', // .doc
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // ✅ .docx
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
                     'application/vnd.ms-excel',
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 ])
                 ->preserveFilenames(false)
                 ->visibility('public')
-                ->visible(fn (string $context) => $context === 'create') // 👈 Aquí está la clave
-
+                ->visible(fn (string $context) => $context === 'create')
                 ->validationMessages([
                     'required' => 'Por favor, selecciona un archivo.',
                     'accepted_file_types' => 'Solo se permiten PDF, imágenes, Word y Excel.',
@@ -191,55 +201,88 @@ public static function getNavigationGroup(): ?string
                 ])
                 ->afterStateUpdated(function ($state, callable $set) {
                     if ($state) {
-                        $set('nombre', $state->getClientOriginalName()); // ✅ guarda el nombre real
+                        $set('nombre', $state->getClientOriginalName());
                     }
                 }),
+
             TextInput::make('nombre')
                 ->label('Nombre del documento')
                 ->required()
-               // ->searchable()
                 ->maxLength(255)
                 ->placeholder('Se rellenará automáticamente con el nombre del archivo')
                 ->helperText('Puedes modificar el nombre si lo deseas.'),
+
             Textarea::make('observaciones')
-                ->label('Observaciones')
+                ->label('Observaciones del cliente')
+                ->helperText('Solo lectura. Texto aportado por el cliente.')
+                ->columnSpanFull()
+                    ->visible(fn (string $context) => $context === 'edit')
+
+                ->disabled(),
+
+            Textarea::make('observaciones_internas')
+                ->label('Observaciones internas')
+                ->helperText('Solo visible para el equipo. El cliente NO lo verá.')
                 ->columnSpanFull(),
+                
 
-             // Selección de cliente solo visible para roles internos
-        Select::make('cliente_id')
-        ->label('Cliente')      
-         ->relationship(
-    name: 'cliente',
-    titleAttribute: 'razon_social',
-    modifyQueryUsing: function (Builder $query) {
-        /** @var User|null $user */
-        $user = Auth::user();
+            // ✅ NUEVO: Estado (Enum)
+            Select::make('estado')
+                ->label('Estado')
+                ->options([
+                    DocumentoEstadoEnum::PENDIENTE->value  => DocumentoEstadoEnum::PENDIENTE->label(),
+                    DocumentoEstadoEnum::VERIFICADO->value => DocumentoEstadoEnum::VERIFICADO->label(),
+                    DocumentoEstadoEnum::RECHAZADO->value  => DocumentoEstadoEnum::RECHAZADO->label(),
+                ])
+                ->required()
+                ->native(false)
+                ->live()
+                ->afterStateUpdated(function ($state, callable $set) {
+                    // compat boolean
+                    $set('verificado', $state === DocumentoEstadoEnum::VERIFICADO->value);
 
-        if ($user) {
-            // Para depurar qué roles tiene el usuario actual (puedes descomentar temporalmente):
-            // \Illuminate\Support\Facades\Log::info('Usuario en form cliente_id:', ['email's => $user->email, 'roles' => $user->getRoleNames()->toArray()]);
+                    // si deja de ser rechazado, limpia motivo
+                    if ($state !== DocumentoEstadoEnum::RECHAZADO->value) {
+                        $set('motivo_rechazo', null);
+                    }
+                }),
 
-            if ($user->hasRole('super_admin')) {
-                // El super_admin ve todos los clientes, no se añade ningún filtro aquí.
-                // La consulta base de la relación se usará tal cual.
-            } elseif ($user->hasRole('asesor')) {
-                // Si NO es super_admin PERO SÍ es asesor, filtramos por sus clientes.
-                $query->where('asesor_id', $user->id);
-            }
+            // ✅ NUEVO: Motivo rechazo (obligatorio si rechazado)
+            FormTextarea::make('motivo_rechazo')
+                ->label('Motivo de rechazo')
+                ->placeholder('Explica por qué se rechaza y qué debe corregir el cliente…')
+                ->rows(4)
+                ->columnSpanFull()
+                ->visible(fn (callable $get) => $get('estado') === DocumentoEstadoEnum::RECHAZADO->value)
+                ->required(fn (callable $get) => $get('estado') === DocumentoEstadoEnum::RECHAZADO->value),
 
-        } else {
-            // No hay usuario autenticado (no debería ocurrir en Filament)
-            $query->whereRaw('1 = 0'); // No muestra nada
-        }
-    }
-)
-        ->searchable()
-        ->preload()
-        ->required()
-            ->reactive(),
+            // Selección de cliente
+            Select::make('cliente_id')
+                ->label('Cliente')
+                ->relationship(
+                    name: 'cliente',
+                    titleAttribute: 'razon_social',
+                    modifyQueryUsing: function (Builder $query) {
+                        /** @var User|null $user */
+                        $user = Auth::user();
 
+                        if ($user) {
+                            if ($user->hasRole('super_admin')) {
+                                // sin filtro
+                            } elseif ($user->hasRole('asesor')) {
+                                $query->where('asesor_id', $user->id);
+                            }
+                        } else {
+                            $query->whereRaw('1 = 0');
+                        }
+                    }
+                )
+                ->searchable()
+                ->preload()
+                ->required()
+                ->reactive(),
 
-        Select::make('documentable_type')
+            Select::make('documentable_type')
                 ->label('¿A qué va asociado?')
                 ->options([
                     'App\Models\Cliente' => 'Cliente',
@@ -248,269 +291,777 @@ public static function getNavigationGroup(): ?string
                 ->required()
                 ->reactive(),
 
-
-            // 2️⃣ Selecciona el registro concreto del modelo elegido
             Select::make('documentable_id')
-            ->label('Selecciona el registro')
-            ->required()
-            ->searchable()
-            ->options(function (callable $get) {
-                $type = $get('documentable_type');
-                $clienteId = $get('cliente_id');
+                ->label('Selecciona el registro')
+                ->required()
+                ->searchable()
+                ->options(function (callable $get) {
+                    $type = $get('documentable_type');
+                    $clienteId = $get('cliente_id');
 
-                if ($type === 'App\Models\Cliente' && $clienteId) {
-                    // Solo deja elegir el cliente seleccionado
-                    $cliente = Cliente::find($clienteId);
-                    return $cliente ? [$cliente->id => $cliente->razon_social] : [];
-                }
-                if ($type === 'App\Models\Proyecto' && $clienteId) {
-                    // Filtra proyectos SOLO de ese cliente
-                    return Proyecto::where('cliente_id', $clienteId)
-                        ->pluck('nombre', 'id');
-                }
-                return [];
-            })
-            ->visible(fn (callable $get) => filled($get('documentable_type')))
-            ->helperText('Primero selecciona cliente y después el tipo de asociación.'),
+                    if ($type === 'App\Models\Cliente' && $clienteId) {
+                        $cliente = Cliente::find($clienteId);
+                        return $cliente ? [$cliente->id => $cliente->razon_social] : [];
+                    }
 
-    ]);
-    }
+                    if ($type === 'App\Models\Proyecto' && $clienteId) {
+                        return Proyecto::where('cliente_id', $clienteId)->pluck('nombre', 'id');
+                    }
 
-public static function infolist(Schema $schema): Schema
-{
-    return $schema
-        ->columns(1) // 🔑 TODO en una sola columna
-        ->components([
-
-            /* ===============================
-             | INFO + ESTADO (FULL WIDTH)
-             =============================== */
-            Section::make()
-                ->schema([
-                    Section::make('Información general')
-                        ->schema([
-                            TextEntry::make('nombre')
-                                ->label('📄 Nombre')
-                                ->weight(FontWeight::Bold),
-
-                            TextEntry::make('tipo.nombre')
-                                ->label('📁 Tipo')
-                                ->badge()
-                                ->color(fn ($record) => $record->tipo->color ?? 'gray'),
-
-                            TextEntry::make('subtipo.nombre')
-                                ->label('📂 Subtipo')
-                                ->badge()
-                                ->color('info'),
-
-                            TextEntry::make('observaciones')
-                                ->label('📝 Observaciones'),
-
-                            TextEntry::make('cliente.razon_social')
-                                ->label('Cliente')
-                                ->state(function ($record) {
-                                    $nombre = $record->cliente?->razon_social ?? 'No asignado';
-                                    $url = route(
-                                        'filament.admin.resources.clientes.view',
-                                        ['record' => $record->cliente_id]
-                                    );
-
-                                    return "<a href='{$url}' target='_blank'
-                                            class='text-yellow-500 underline font-semibold'>
-                                            🏢 {$nombre}
-                                        </a>";
-                                })
-                                ->html(),
-                        ])
-                        ->columns(5),
-
-                    Section::make('Estado')
-                        ->schema([
-                         TextEntry::make('verificado')
-    ->label('Verificado')
-    ->formatStateUsing(fn (bool $state) =>
-        $state ? '✅ Verificado' : '⚠️ No verificado'
-    )
-    ->color(fn (bool $state) =>
-        $state ? 'success' : 'danger'
-    )
-    ->belowContent([
-        Action::make('toggle_verificacion')
-            ->label(fn ($record) =>
-                $record->verificado
-                    ? 'Quitar verificación'
-                    : 'Verificar documento'
-            )
-            ->icon(fn ($record) =>
-                $record->verificado
-                    ? 'heroicon-o-x-circle'
-                    : 'heroicon-o-check-circle'
-            )
-            ->color(fn ($record) =>
-                $record->verificado ? 'danger' : 'success'
-            )
-            ->size('sm')
-            ->requiresConfirmation()
-            ->modalHeading(fn ($record) =>
-                $record->verificado
-                    ? '¿Quitar verificación?'
-                    : '¿Verificar documento?'
-            )
-            ->action(function ($record) {
-                $record->verificado = ! $record->verificado;
-                $record->save();
-
-                Notification::make()
-                    ->title(
-                        $record->verificado
-                            ? 'Documento verificado'
-                            : 'Verificación retirada'
-                    )
-                    ->success()
-                    ->send();
-            })
-            ->visible(fn ($record) =>
-                auth()->user()?->can('verificar', $record) ?? false
-            ),
-        ]),
-
-
-                            TextEntry::make('user.name')
-                                ->label('👤 Subido por')
-                                ->weight(FontWeight::Bold),
-
-                            TextEntry::make('created_at')
-                                ->label('🕓 Subido el')
-                                ->dateTime('d/m/Y - H:i'),
-                        ])
-                        ->columns(3),
-                ]),
-
-            /* ===============================
-             | ARCHIVO (FULL WIDTH ABAJO)
-             =============================== */
-            Section::make('Archivo')
-                ->schema([
-                    // 🔘 BOTONES VER / DESCARGAR
-                    TextEntry::make('archivo_actions')
-    ->label(false)
-    ->state(fn () => '')
-    ->belowContent([
-        Action::make('ver_archivo')
-            ->label('Ver')
-            ->icon('heroicon-o-eye')
-            ->color('info')
-            ->url(fn ($record) => Storage::url($record->ruta))
-            ->openUrlInNewTab(),
-
-      Action::make('descargar_archivo')
-    ->label('Descargar')
-    ->icon('heroicon-o-arrow-down-tray')
-    ->color('success')
-    ->action(function ($record) {
-
-        $path = Storage::disk('public')->path($record->ruta);
-
-        // 🔑 Nombre final con extensión REAL
-        $filename = $record->nombre;
-
-        if (! str_contains($filename, '.')) {
-            $extension = pathinfo($record->ruta, PATHINFO_EXTENSION);
-            $filename .= '.' . $extension;
-        }
-
-        return response()->download($path, $filename);
-    }),
-
-        Action::make('toggle_verificacion')
-            ->label(fn ($record) =>
-                $record->verificado ? 'Quitar verificación' : 'Verificar'
-            )
-            ->icon(fn ($record) =>
-                $record->verificado
-                    ? 'heroicon-o-x-circle'
-                    : 'heroicon-o-check-circle'
-            )
-            ->color(fn ($record) =>
-                $record->verificado ? 'danger' : 'success'
-            )
-            ->requiresConfirmation()
-            ->action(function ($record) {
-                $record->verificado = ! $record->verificado;
-                $record->save();
-
-                Notification::make()
-                    ->title(
-                        $record->verificado
-                            ? 'Documento verificado'
-                            : 'Verificación retirada'
-                    )
-                    ->success()
-                    ->send();
-            })
-            ->visible(fn ($record) =>
-                auth()->user()?->can('verificar', $record) ?? false
-            ),
-    ])
-    ->visible(fn ($record) => filled($record->ruta)),
-
-
-                    // 🖼 Imagen
-                  TextEntry::make('preview_imagen')
-    ->label('Vista previa de imagen')
-    ->state(function ($record) {
-        $url = Storage::url($record->ruta);
-
-        return <<<HTML
-            <div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                background: #0f0f0f;
-                padding: 1rem;
-                border-radius: 12px;
-            ">
-                <img 
-                    src="$url"
-                    style="
-                        max-width: 100%;
-                        max-height: 600px;
-                        width: auto;
-                        height: auto;
-                        object-fit: contain;
-                        border-radius: 10px;
-                        box-shadow: 0 4px 12px rgba(0,0,0,.4);
-                    "
-                >
-            </div>
-        HTML;
-    })
-    ->html()
-    ->visible(fn ($record) => str_starts_with($record->mime_type, 'image/')),
-                    // 📄 PDF
-                    PdfViewerEntry::make('preview_pdf')
-                        ->label('Vista previa del PDF')
-                        ->fileUrl(fn ($record) => Storage::url($record->ruta))
-                        ->minHeight('700px')
-                        ->visible(fn ($record) =>
-                            $record->mime_type === 'application/pdf'
-                        ),
-                ]),
+                    return [];
+                })
+                ->visible(fn (callable $get) => filled($get('documentable_type')))
+                ->helperText('Primero selecciona cliente y después el tipo de asociación.'),
         ]);
 }
 
 
-    public static function table(Table $table): Table
-    {
-        return $table
-        ->recordUrl(null)
+public static function infolist(\Filament\Schemas\Schema $schema): \Filament\Schemas\Schema
+{
+    return $schema
+        ->columns(12)
+        ->components([
+            // =========================
+            // COLUMNA IZQUIERDA (INFO)
+            // =========================
+            \Filament\Schemas\Components\Section::make()
+                ->columnSpan(4)
+                ->schema([
+                    \Filament\Schemas\Components\Section::make('Información')
+                        ->schema([
+                            \Filament\Infolists\Components\TextEntry::make('nombre')
+                                ->label('📄 Nombre')
+                                ->weight(\Filament\Support\Enums\FontWeight::Bold)
+                                ->columnSpanFull(),
 
+                            \Filament\Infolists\Components\TextEntry::make('cliente.razon_social')
+                                ->label('Documento del cliente')
+                                ->state(function ($record) {
+                                    $nombre = $record->cliente?->razon_social ?? 'No asignado';
+                                    $url = route('filament.admin.resources.clientes.view', ['record' => $record->cliente_id]);
+
+                                    return "<a href='{$url}' target='_blank' class='text-yellow-500 underline font-semibold'>🏢 {$nombre}</a>";
+                                })
+                                ->html()
+                                ->columnSpanFull(),
+                        ])
+                        ->columns(2),
+
+                    \Filament\Schemas\Components\Section::make('Estado')
+                        ->schema([
+                            \Filament\Infolists\Components\TextEntry::make('estado')
+                                ->label('Estado')
+                                ->badge()
+                                ->formatStateUsing(fn (\App\Enums\DocumentoEstadoEnum $state) => $state->label())
+                                ->color(fn (\App\Enums\DocumentoEstadoEnum $state) => $state->color()),
+
+                            \Filament\Infolists\Components\TextEntry::make('tipo.nombre')
+                                ->label('Tipo')
+                                ->badge()
+                                ->color(function ($record) {
+                                    $nombre = mb_strtolower((string) ($record->tipo?->nombre ?? ''));
+                                    return $nombre === 'sin clasificar'
+                                        ? 'warning'
+                                        : ($record->tipo?->color ?? 'gray');
+                                }),
+
+                            \Filament\Infolists\Components\TextEntry::make('subtipo.nombre')
+                                ->label('Subtipo')
+                                ->badge()
+                                ->color(function ($record) {
+                                    $nombre = mb_strtolower((string) ($record->subtipo?->nombre ?? ''));
+                                    return $nombre === 'pendiente de clasificar'
+                                        ? 'warning'
+                                        : ($record->subtipo?->color ?? 'gray');
+                                }),
+
+                            \Filament\Infolists\Components\TextEntry::make('subido_por')
+                                ->label('👤 Subido por')
+                                ->state(function ($record) {
+                                    $uploader = $record->user;
+                                    $nombre = $uploader?->name ?? '—';
+
+                                    $isCliente = false;
+                                    if ($uploader && $record->cliente_id && method_exists($uploader, 'clientes')) {
+                                        $isCliente = $uploader->clientes()->whereKey($record->cliente_id)->exists();
+                                    }
+
+                                    $label = $isCliente ? 'Cliente' : 'AsesorFy';
+                                    $icon  = $isCliente ? 'heroicon-o-arrow-up-right' : 'heroicon-o-arrow-down-left';
+
+                                    $badgeClasses = $isCliente
+                                        ? 'bg-warning-50 text-warning-700 ring-warning-600/20 dark:bg-warning-950/40 dark:text-warning-200'
+                                        : 'bg-primary-50 text-primary-700 ring-primary-600/20 dark:bg-primary-950/40 dark:text-primary-200';
+
+                                    return "
+                                        <div class='flex items-center gap-2'>
+                                            <span class='inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset {$badgeClasses}'>
+                                                <span class='fi-icon {$icon}'></span>
+                                                {$label}
+                                            </span>
+                                            <span class='font-medium text-gray-900 dark:text-gray-100'>{$nombre}</span>
+                                        </div>
+                                    ";
+                                })
+                                ->html(),
+
+                            \Filament\Infolists\Components\TextEntry::make('created_at')
+                                ->label('🕓 Subido el')
+                                ->dateTime('d/m/Y - H:i'),
+                        ])
+                        ->columns(3),
+
+                    \Filament\Schemas\Components\Section::make('📝 Observaciones del cliente')
+                        ->schema([
+                            \Filament\Infolists\Components\TextEntry::make('observaciones')
+                                ->hiddenLabel()
+                                ->placeholder('—')
+                                ->columnSpanFull(),
+                        ])
+                        ->visible(fn ($record) => filled($record->observaciones))
+                        ->columns(1),
+
+                    \Filament\Schemas\Components\Section::make('🛠️ Observaciones internas AsesorFy')
+                        ->schema([
+                            \Filament\Infolists\Components\TextEntry::make('observaciones_internas')
+                                ->hiddenLabel()
+                                ->placeholder('—')
+                                ->columnSpanFull(),
+                        ])
+                        ->visible(fn ($record) => filled($record->observaciones_internas))
+                        ->columns(1),
+
+                    \Filament\Schemas\Components\Section::make('⛔ Documento rechazado')
+                        ->schema([
+                            \Filament\Infolists\Components\TextEntry::make('motivo_rechazo')
+                                ->label('Motivo de rechazo (visible para el cliente)')
+                                ->placeholder('—')
+                                ->columnSpanFull()
+                                ->color('danger'),
+                            \Filament\Infolists\Components\TextEntry::make('purge_reason')
+                                ->label('Motivo de purga (interno)')
+                                ->badge()
+                                ->color(fn ($state) => $state === 'sensible' ? 'danger' : 'gray')
+                                ->visible(fn ($record) => filled($record->purged_at)),
+
+                            \Filament\Infolists\Components\TextEntry::make('purge_note')
+                                ->label('Nota interna (auditoría)')
+                                ->placeholder('—')
+                                ->columnSpanFull()
+                                ->visible(fn ($record) => filled($record->purged_at)),
+
+                            \Filament\Infolists\Components\TextEntry::make('purged_at')
+                                ->label('Purgado el')
+                                ->dateTime('d/m/Y H:i')
+                                ->visible(fn ($record) => filled($record->purged_at)),
+
+                            \Filament\Infolists\Components\TextEntry::make('purgedBy.name')
+                                ->label('Purgado por')
+                                ->placeholder('—')
+                                ->visible(fn ($record) => filled($record->purged_at)),
+
+    
+                        ])
+                        ->extraAttributes([
+                            'class' => 'bg-red-50 dark:bg-red-950/30 rounded-xl p-4',
+                        ])
+                        ->visible(fn ($record) => $record->estado === \App\Enums\DocumentoEstadoEnum::RECHAZADO)
+                        ->columns(1),
+                ]),
+
+            // =========================
+            // COLUMNA DERECHA (PREVIEW)
+            // =========================
+            \Filament\Schemas\Components\Section::make('Archivo')
+                ->columnSpan(8)
+                ->schema([
+                    \Filament\Infolists\Components\TextEntry::make('purged_notice')
+                        ->label('Archivo')
+                        ->state(function ($record) {
+                            if (filled($record->ruta)) return null;
+
+                            $fecha = $record->purged_at?->format('d/m/Y H:i') ?? null;
+                            $reason = $record->purge_reason ? strtoupper((string) $record->purge_reason) : null;
+
+                            $linea2 = $reason ? "Motivo: {$reason}" : "Motivo: —";
+                            $linea3 = $fecha ? "Fecha: {$fecha}" : "Fecha: —";
+
+                            return "🧹 Archivo eliminado.\n{$linea2}\n{$linea3}";
+                        })
+                        ->visible(fn ($record) => empty($record->ruta))
+                        ->extraAttributes(['class' => 'whitespace-pre-line text-sm text-gray-600']),
+
+                    \Filament\Infolists\Components\TextEntry::make('archivo_actions')
+                        ->hiddenLabel()
+                        ->state(fn () => '')
+                        ->belowContent([
+                            \Filament\Actions\Action::make('ver_archivo')
+                                ->label('Ver')
+                                ->icon('heroicon-o-eye')
+                                ->color('info')
+                                ->visible(fn ($record) => filled($record->ruta))
+                                ->url(fn ($record) => \Illuminate\Support\Facades\Storage::url($record->ruta))
+                                ->openUrlInNewTab(),
+
+                            \Filament\Actions\Action::make('descargar_archivo')
+                                ->label('Descargar')
+                                ->icon('heroicon-o-arrow-down-tray')
+                                ->color('warning')
+                                ->visible(fn ($record) => filled($record->ruta))
+                                ->action(function ($record) {
+                                    $path = \Illuminate\Support\Facades\Storage::disk('public')->path($record->ruta);
+
+                                    $filename = $record->nombre;
+                                    if ($filename && ! str_contains($filename, '.')) {
+                                        $extension = pathinfo($record->ruta, PATHINFO_EXTENSION);
+                                        if ($extension) $filename .= '.' . $extension;
+                                    }
+
+                                    return response()->download($path, $filename ?: basename($path));
+                                }),
+
+                            \Filament\Actions\Action::make('verificar_documento')
+                                ->label('Verificar')
+                                ->icon('heroicon-o-check-circle')
+                                ->color('success')
+                                ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::VERIFICADO)
+                                ->modalWidth('lg')
+                                ->modalHeading('Verificar y clasificar documento')
+                                ->modalDescription('Selecciona Tipo y Subtipo antes de marcarlo como verificado.')
+                                ->fillForm(fn ($record) => [
+                                    'tipo_documento_id'      => $record->tipo_documento_id,
+                                    'subtipo_documento_id'   => $record->subtipo_documento_id,
+                                    'observaciones_internas' => $record->observaciones_internas,
+                                ])
+                               ->form([
+    \Filament\Forms\Components\Placeholder::make('quick_facturas_header')
+        ->hiddenLabel()
+        ->content(new \Illuminate\Support\HtmlString(<<<HTML
+        <div class="space-y-1">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    Tipo <span class="text-danger-600">*</span>
+                </div>
+            </div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+                Usa los atajos para “Factura recibida” o “Factura emitida”, o clasifica manualmente.
+            </div>          
+        </div>
+    HTML))
+        ->columnSpanFull(),
+
+    \Filament\Forms\Components\Select::make('tipo_documento_id')
+        ->hiddenLabel()
+        ->relationship('tipo', 'nombre')
+        ->required()
+        ->native(false)
+        ->searchable()
+        ->preload()
+        ->live()
+        ->afterStateUpdated(fn (callable $set) => $set('subtipo_documento_id', null))
+        ->hintActions([
+            \Filament\Actions\Action::make('quick_factura_recibida')
+                ->label('Factura recibida (Gasto)')
+                ->icon('heroicon-o-arrow-down-tray')
+                ->color('warning')
+                ->action(function (\Filament\Schemas\Components\Utilities\Set $set) {
+                    $set('tipo_documento_id', 2);
+                    $set('subtipo_documento_id', 5);
+                }),
+
+            \Filament\Actions\Action::make('quick_factura_emitida')
+                ->label('Factura emitida (Ingreso)')
+                ->icon('heroicon-o-arrow-up-tray')
+                ->color('success')
+                ->action(function (\Filament\Schemas\Components\Utilities\Set $set) {
+                    $set('tipo_documento_id', 2);
+                    $set('subtipo_documento_id', 4);
+                }),
+        ])
+        ->columnSpanFull(),
+
+    \Filament\Forms\Components\Select::make('subtipo_documento_id')
+        ->label('Subtipo')
+        ->options(fn (callable $get) => filled($get('tipo_documento_id'))
+            ? \App\Models\DocumentoSubtipo::query()
+                ->where('documento_categoria_id', $get('tipo_documento_id'))
+                ->orderBy('nombre')
+                ->pluck('nombre', 'id')
+                ->toArray()
+            : []
+        )
+        ->required()
+        ->native(false)
+        ->searchable()
+        ->preload()
+        ->hidden(fn (callable $get) => blank($get('tipo_documento_id')))
+        ->helperText('Selecciona primero el tipo'),
+
+    \Filament\Forms\Components\Textarea::make('observaciones_internas')
+        ->label('Observaciones internas (opcional)')
+        ->rows(3),
+                            ])
+
+
+                                                    ->action(function ($record, array $data, $livewire) {
+                                $wasPendiente = (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value;
+
+                                $tipo = \App\Models\DocumentoCategoria::find($data['tipo_documento_id'] ?? null);
+                                $subtipo = \App\Models\DocumentoSubtipo::find($data['subtipo_documento_id'] ?? null);
+
+                                $tipoNombre = mb_strtolower((string) ($tipo?->nombre ?? ''));
+                                $subtipoNombre = mb_strtolower((string) ($subtipo?->nombre ?? ''));
+
+                                if ($tipoNombre === 'sin clasificar' || $subtipoNombre === 'pendiente de clasificar') {
+                                    throw \Illuminate\Validation\ValidationException::withMessages([
+                                        'tipo_documento_id'    => 'Antes de verificar, debes clasificar el documento con un tipo real.',
+                                        'subtipo_documento_id' => 'Antes de verificar, debes clasificar el documento con un subtipo real.',
+                                    ]);
+                                }
+
+                                $record->tipo_documento_id = $data['tipo_documento_id'];
+                                $record->subtipo_documento_id = $data['subtipo_documento_id'];
+                                $record->observaciones_internas = $data['observaciones_internas'] ?? null;
+
+                                $record->estado = \App\Enums\DocumentoEstadoEnum::VERIFICADO;
+                                $record->motivo_rechazo = null;
+                                $record->save();
+
+                                // ✅ Leer chain/cliente/seen desde Referer (Livewire)
+                                $qs = [];
+                                $referer = (string) request()->headers->get('referer', '');
+                                parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
+
+                                $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
+                                $clienteId = (int) ($qs['cliente'] ?? 0);
+                                if ($clienteId <= 0) {
+                                    $clienteId = (int) ($record->cliente_id ?? 0);
+                                }
+
+                                if ($wasPendiente && $chain && $clienteId > 0) {
+                                    // ✅ Seen (para “una sola vuelta”, compartido con el botón Siguiente)
+                                    $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
+                                        ->filter()
+                                        ->map(fn ($id) => (int) $id)
+                                        ->push((int) $record->id) // marcamos este como visitado
+                                        ->unique()
+                                        ->values()
+                                        ->all();
+
+                                    // Base: pendientes “reales” (restantes)
+                                    $base = \App\Models\Documento::query()
+                                        ->where('cliente_id', $clienteId)
+                                        ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
+                                        ->whereNotNull('ruta')
+                                        ->where('ruta', '!=', '')
+                                        ->whereNull('purged_at')
+                                        ->whereNotIn('id', $seen);
+
+                                    // 1) siguiente hacia delante (cursor)
+                                    $next = (clone $base)
+                                        ->where(function ($q) use ($record) {
+                                            $q->where('created_at', '>', $record->created_at)
+                                            ->orWhere(function ($q) use ($record) {
+                                                $q->where('created_at', $record->created_at)
+                                                    ->where('id', '>', $record->id);
+                                            });
+                                        })
+                                        ->orderBy('created_at')
+                                        ->orderBy('id')
+                                        ->first();
+
+                                    // 2) wrap al primero NO visto
+                                    if (! $next) {
+                                        $next = (clone $base)
+                                            ->orderBy('created_at')
+                                            ->orderBy('id')
+                                            ->first();
+                                    }
+
+                                    // 3) fin de vuelta (no quedan pendientes no vistos)
+                                    if (! $next) {
+                                        return $livewire->redirect(
+                                            route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
+                                            navigate: true
+                                        );
+                                    }
+
+                                    $seenStr = implode(',', $seen);
+
+                                    return $livewire->redirect(
+                                        route('filament.admin.resources.documentos.view', ['record' => $next->id])
+                                            . '?chain=1&cliente=' . $clienteId . '&seen=' . $seenStr,
+                                        navigate: true
+                                    );
+                                }
+
+                                // Si no hay chain: refresco normal
+                                $record->refresh();
+                                $livewire->dispatch('$refresh');
+                            }),
+
+                            \Filament\Actions\Action::make('rechazar_documento')
+                                ->label('Rechazar')
+                                ->icon('heroicon-o-x-circle')
+                                ->color('danger')
+                                ->modalHeading('Rechazar documento')
+                                ->modalDescription('Indica el motivo (obligatorio). El cliente lo verá en el portal.')
+                                ->form([
+                                    \Filament\Forms\Components\Textarea::make('motivo_rechazo')
+                                        ->label('Motivo de rechazo')
+                                        ->required()
+                                        ->rows(4),
+                                ])
+                                ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::RECHAZADO)
+                                ->action(function ($record, array $data, $livewire) {
+                                    $wasPendiente = (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value;
+
+                                    $record->estado = \App\Enums\DocumentoEstadoEnum::RECHAZADO;
+                                    $record->motivo_rechazo = $data['motivo_rechazo'];
+                                    $record->save();
+
+                                    // ✅ Leer chain/cliente/seen desde Referer (Livewire)
+                                    $qs = [];
+                                    $referer = (string) request()->headers->get('referer', '');
+                                    parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
+
+                                    $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
+                                    $clienteId = (int) ($qs['cliente'] ?? 0);
+                                    if ($clienteId <= 0) {
+                                        $clienteId = (int) ($record->cliente_id ?? 0);
+                                    }
+
+                                    if ($wasPendiente && $chain && $clienteId > 0) {
+                                        // ✅ Seen (una sola vuelta)
+                                        $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
+                                            ->filter()
+                                            ->map(fn ($id) => (int) $id)
+                                            ->push((int) $record->id)
+                                            ->unique()
+                                            ->values()
+                                            ->all();
+
+                                        // Base: pendientes “reales” restantes
+                                        $base = \App\Models\Documento::query()
+                                            ->where('cliente_id', $clienteId)
+                                            ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
+                                            ->whereNotNull('ruta')
+                                            ->where('ruta', '!=', '')
+                                            ->whereNull('purged_at')
+                                            ->whereNotIn('id', $seen);
+
+                                        // 1) siguiente hacia delante
+                                        $next = (clone $base)
+                                            ->where(function ($q) use ($record) {
+                                                $q->where('created_at', '>', $record->created_at)
+                                                ->orWhere(function ($q) use ($record) {
+                                                    $q->where('created_at', $record->created_at)
+                                                        ->where('id', '>', $record->id);
+                                                });
+                                            })
+                                            ->orderBy('created_at')
+                                            ->orderBy('id')
+                                            ->first();
+
+                                        // 2) wrap al primero NO visto
+                                        if (! $next) {
+                                            $next = (clone $base)
+                                                ->orderBy('created_at')
+                                                ->orderBy('id')
+                                                ->first();
+                                        }
+
+                                        // 3) fin: no quedan pendientes no vistos
+                                        if (! $next) {
+                                            return $livewire->redirect(
+                                                route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
+                                                navigate: true
+                                            );
+                                        }
+
+                                        $seenStr = implode(',', $seen);
+
+                                        return $livewire->redirect(
+                                            route('filament.admin.resources.documentos.view', ['record' => $next->id])
+                                                . '?chain=1&cliente=' . $clienteId . '&seen=' . $seenStr,
+                                            navigate: true
+                                        );
+                                    }
+
+                                    // Si no hay chain: refresco normal
+                                    $record->refresh();
+                                    $livewire->dispatch('$refresh');
+                                }),
+
+
+                               \Filament\Actions\Action::make('saltar_documento')
+                                ->label('Saltar')
+                                ->icon('heroicon-o-forward')
+                                ->color('gray')
+                                ->visible(fn ($record) => (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
+                                ->action(function ($record, $livewire) {
+                                // Leer chain/cliente/seen desde Referer (Livewire)
+                                $qs = [];
+                                $referer = (string) request()->headers->get('referer', '');
+                                parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
+
+                                $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
+                                $clienteId = (int) ($qs['cliente'] ?? 0);
+                                if ($clienteId <= 0) $clienteId = (int) ($record->cliente_id ?? 0);
+
+                                if (! $chain || $clienteId <= 0) {
+                                    return;
+                                }
+
+                                // ✅ Seen: ids ya visitados (una sola vuelta)
+                                $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
+                                    ->filter()
+                                    ->map(fn ($id) => (int) $id)
+                                    ->push((int) $record->id) // marcamos el actual como visitado
+                                    ->unique()
+                                    ->values()
+                                    ->all();
+
+                                // Query base: pendientes “reales”
+                                $base = \App\Models\Documento::query()
+                                    ->where('cliente_id', $clienteId)
+                                    ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
+                                    ->whereNotNull('ruta')
+                                    ->where('ruta', '!=', '')
+                                    ->whereNull('purged_at')
+                                    ->whereNotIn('id', $seen);
+
+                                // 1) Siguiente “hacia delante” respecto al actual
+                                $next = (clone $base)
+                                    ->where(function ($q) use ($record) {
+                                        $q->where('created_at', '>', $record->created_at)
+                                        ->orWhere(function ($q) use ($record) {
+                                            $q->where('created_at', $record->created_at)
+                                                ->where('id', '>', $record->id);
+                                        });
+                                    })
+                                    ->orderBy('created_at')
+                                    ->orderBy('id')
+                                    ->first();
+
+                                // 2) WRAP: si no hay siguiente hacia delante, vamos al primero NO visto
+                                if (! $next) {
+                                    $next = (clone $base)
+                                        ->orderBy('created_at')
+                                        ->orderBy('id')
+                                        ->first();
+                                }
+
+                                // 3) Si no queda ninguno NO visto -> fin de vuelta
+                                if (! $next) {
+                                    return $livewire->redirect(
+                                        route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
+                                        navigate: true
+                                    );
+                                }
+
+                                $seenStr = implode(',', $seen);
+
+                                return $livewire->redirect(
+                                    route('filament.admin.resources.documentos.view', ['record' => $next->id])
+                                        . '?chain=1&cliente=' . $clienteId . '&seen=' . $seenStr,
+                                    navigate: true
+                                );
+                            })
+                            ,
+
+
+
+                            \Filament\Actions\Action::make('ampliar_imagen')
+                                ->label('Ampliar')
+                                ->icon('heroicon-o-magnifying-glass-plus')
+                                ->color('gray')
+                                ->visible(fn ($record) => filled($record->ruta) && str_starts_with((string) $record->mime_type, 'image/'))
+                                ->modalHeading('Vista ampliada')
+                                ->modalWidth('7xl')
+                                ->modalSubmitAction(false)
+                                ->modalCancelActionLabel('Cerrar')
+                                ->modalContent(function ($record) {
+                                    $url = \Illuminate\Support\Facades\Storage::url($record->ruta);
+
+                                    return new \Illuminate\Support\HtmlString(<<<HTML
+                                    <div
+                                        x-data="{
+                                            scale: 1,
+                                            isPanning: false,
+                                            startX: 0,
+                                            startY: 0,
+                                            scrollLeft: 0,
+                                            scrollTop: 0,
+                                        }"
+                                        class="relative"
+                                        style="height: 78vh;"
+                                    >
+                                        <div class="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-lg bg-black/60 px-2 py-1 text-white">
+                                            <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = Math.max(1, scale - 0.25)">−</button>
+                                            <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = 1">100%</button>
+                                            <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = Math.min(4, scale + 0.25)">+</button>
+                                            <span class="text-xs" x-text="Math.round(scale * 100) + '%'"></span>
+                                        </div>
+
+                                        <div
+                                            x-ref="viewport"
+                                            class="absolute inset-0 overflow-auto rounded-xl bg-black/90 select-none"
+                                            :style="isPanning ? 'cursor: grabbing;' : (scale > 1 ? 'cursor: grab;' : 'cursor: default;')"
+                                            @mousedown.prevent="
+                                                if (scale <= 1) return;
+                                                isPanning = true;
+                                                startX = \$event.pageX;
+                                                startY = \$event.pageY;
+                                                scrollLeft = \$refs.viewport.scrollLeft;
+                                                scrollTop  = \$refs.viewport.scrollTop;
+                                            "
+                                            @mousemove.prevent="
+                                                if (!isPanning) return;
+                                                const dx = \$event.pageX - startX;
+                                                const dy = \$event.pageY - startY;
+                                                \$refs.viewport.scrollLeft = scrollLeft - dx;
+                                                \$refs.viewport.scrollTop  = scrollTop  - dy;
+                                            "
+                                            @mouseup="isPanning = false"
+                                            @mouseleave="isPanning = false"
+                                            @wheel.prevent="
+                                                const dir = \$event.deltaY > 0 ? -1 : 1;
+                                                const next = Math.min(4, Math.max(1, scale + (dir * 0.15)));
+                                                if (next === scale) return;
+
+                                                const rect = \$refs.viewport.getBoundingClientRect();
+                                                const x = (\$event.clientX - rect.left) + \$refs.viewport.scrollLeft;
+                                                const y = (\$event.clientY - rect.top) + \$refs.viewport.scrollTop;
+
+                                                const prev = scale;
+                                                scale = next;
+
+                                                \$nextTick(() => {
+                                                    const ratio = scale / prev;
+                                                    \$refs.viewport.scrollLeft = (x * ratio) - (\$event.clientX - rect.left);
+                                                    \$refs.viewport.scrollTop  = (y * ratio) - (\$event.clientY - rect.top);
+                                                });
+                                            "
+                                        >
+                                            <div class="p-2">
+                                                <img src="{$url}" draggable="false" class="block max-w-none rounded-lg" :style="'width: ' + (scale * 100) + '%; height: auto;'" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    HTML);
+                                                                    }),
+                        ])
+                        ->visible(fn ($record) => filled($record->ruta)),
+
+                    // Imagen normal (sin modal)
+                    \Filament\Infolists\Components\TextEntry::make('preview_imagen')
+                        ->label('Vista previa')
+                        ->state(function ($record) {
+                            $url = \Illuminate\Support\Facades\Storage::url($record->ruta);
+
+                            return <<<HTML
+                            <div style="display:flex;justify-content:center;align-items:center;background:#0f0f0f;padding:1rem;border-radius:12px;">
+                                <img src="{$url}" style="max-width:100%;max-height:820px;width:auto;height:auto;object-fit:contain;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,.4);">
+                            </div>
+                            HTML;
+                        })
+                        ->html()
+                        ->visible(fn ($record) => filled($record->ruta) && str_starts_with((string) $record->mime_type, 'image/')),
+
+                    \Joaopaulolndev\FilamentPdfViewer\Infolists\Components\PdfViewerEntry::make('preview_pdf')
+                        ->label('Vista previa')
+                        ->fileUrl(fn ($record) => \Illuminate\Support\Facades\Storage::url($record->ruta))
+                        ->minHeight('820px')
+                        ->visible(fn ($record) => filled($record->ruta) && (string) $record->mime_type === 'application/pdf'),
+
+                       \Filament\Infolists\Components\TextEntry::make('preview_otro')
+                            ->label('Vista previa')
+                            ->state(function ($record) {
+                                $mime = (string) ($record->mime_type ?? '');
+                                $ruta = (string) ($record->ruta ?? '');
+
+                                $ext = strtolower(pathinfo($ruta, PATHINFO_EXTENSION));
+
+                                $isExcel = in_array($ext, ['xls', 'xlsx', 'csv', 'ods'], true)
+                                    || str_contains($mime, 'spreadsheet')
+                                    || str_contains($mime, 'excel')
+                                    || $mime === 'text/csv';
+
+                                $isWord = in_array($ext, ['doc', 'docx', 'odt'], true)
+                                    || str_contains($mime, 'word')
+                                    || str_contains($mime, 'officedocument.wordprocessingml');
+
+                                $title = $isExcel ? 'Archivo Excel / Hoja de cálculo'
+                                    : ($isWord ? 'Documento Word' : 'Archivo');
+
+                                $hint = 'Este tipo de archivo no admite vista previa. Usa "Ver" o "Descargar".';
+
+                                // ✅ Cargar SVG desde resources/svg
+                                $svgFile = $isExcel
+                                    ? resource_path('svg/excel2.svg')
+                                    : ($isWord
+                                        ? resource_path('svg/doc.svg')
+                                        : resource_path('svg/tipodocumento.svg')
+                                    );
+
+                                $svg = '';
+                                if (is_file($svgFile)) {
+                                    $svg = (string) file_get_contents($svgFile);
+
+                                    // Forzar tamaño y heredar color (por si tu SVG viene sin clases)
+                                    // 1) Metemos class al <svg> si no la tiene
+                                    if (str_contains($svg, '<svg') && ! str_contains($svg, 'class=')) {
+                                        $svg = preg_replace('/<svg\b/', '<svg class="h-7 w-7"', $svg, 1);
+                                    }
+
+                                    // 2) Si ya tiene class, añadimos h-7 w-7
+                                    $svg = preg_replace('/class="([^"]*)"/', 'class="$1 h-7 w-7"', $svg, 1);
+
+                                    // 3) Quitamos width/height hardcoded (si los trae) para que manden las clases
+                                    $svg = preg_replace('/\s(width|height)="[^"]*"/', '', $svg);
+                                }
+
+                                return new \Illuminate\Support\HtmlString(<<<HTML
+                                    <div class="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 p-6">
+                                        <div class="flex items-center gap-3">
+                                            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-white/5">
+                                                <div class="text-gray-700 dark:text-gray-200">
+                                                    {$svg}
+                                                </div>
+                                            </div>
+
+                                            <div class="min-w-0">
+                                                <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">{$title}</div>
+                                                <div class="text-xs text-gray-600 dark:text-gray-300 mt-0.5">{$hint}</div>
+                                                <div class="text-xs text-gray-500 dark:text-gray-400 mt-2 break-all">{$ruta}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                HTML);
+                            })
+                            ->html()
+                            ->visible(fn ($record) =>
+                                filled($record->ruta)
+                                && ! str_starts_with((string) $record->mime_type, 'image/')
+                                && (string) $record->mime_type !== 'application/pdf'
+                            ),
+
+                        ]),
+              ]);
+}
+
+
+
+   public static function table(Table $table): Table
+{
+    return $table
+        ->recordUrl(null)
         ->columns([
             TextColumn::make('user.name')
                 ->label('Subido por')
                 ->getStateUsing(function ($record) {
                     $user = $record->user;
-
                     if (! $user) return 'Usuario desconocido';
 
                     $nombre = $user->full_name ?? $user->name;
@@ -523,68 +1074,50 @@ public static function infolist(Schema $schema): Schema
 
                     return "{$nombre} ({$tipo})";
                 }),
-                 TextColumn::make('cliente_origen')
-                    ->label('Origen')
-                    ->icon('icon-customer')
-                    ->iconPosition('before')
-                    ->badge()
-                    ->searchable()
-                    ->getStateUsing(function ($record) {
-                        if ($record->cliente) {
-                            return $record->cliente->razon_social;
-                        }
 
-                        if ($record->documentable_type === \App\Models\Lead::class) {
-                            return 'Lead';
-                        }
+            TextColumn::make('cliente_origen')
+                ->label('Origen')
+                ->icon('icon-customer')
+                ->iconPosition('before')
+                ->badge()
+                ->searchable()
+                ->getStateUsing(function ($record) {
+                    if ($record->cliente) {
+                        return $record->cliente->razon_social;
+                    }
 
-                        if ($record->documentable_type === \App\Models\Proyecto::class) {
-                            return 'Proyecto';
-                        }
+                    if ($record->documentable_type === \App\Models\Lead::class) {
+                        return 'Lead';
+                    }
 
-                        return '—';
-                    })
-                    ->color(function ($record) {
-                        if ($record->cliente) {
-                            return 'warning';   // Cliente
-                        }
+                    if ($record->documentable_type === \App\Models\Proyecto::class) {
+                        return 'Proyecto';
+                    }
 
-                        if ($record->documentable_type === \App\Models\Lead::class) {
-                            return 'info';      // Lead
-                        }
+                    return '—';
+                })
+                ->color(function ($record) {
+                    if ($record->cliente) return 'warning';
+                    if ($record->documentable_type === \App\Models\Lead::class) return 'info';
+                    if ($record->documentable_type === \App\Models\Proyecto::class) return 'primary';
+                    return 'gray';
+                })
+                ->url(function ($record) {
+                    if ($record->cliente_id) {
+                        return \App\Filament\Resources\ClienteResource::getUrl('view', ['record' => $record->cliente_id]);
+                    }
 
-                        if ($record->documentable_type === \App\Models\Proyecto::class) {
-                            return 'primary';  // Proyecto
-                        }
+                    if ($record->documentable_type === \App\Models\Lead::class) {
+                        return \App\Filament\Resources\LeadResource::getUrl('view', ['record' => $record->documentable_id]);
+                    }
 
-                        return 'gray';
-                    })
-                    ->url(function ($record) {
-                        // 🔗 Cliente
-                        if ($record->cliente_id) {
-                            return \App\Filament\Resources\ClienteResource::getUrl('view', [
-                                'record' => $record->cliente_id,
-                            ]);
-                        }
+                    if ($record->documentable_type === \App\Models\Proyecto::class) {
+                        return \App\Filament\Resources\ProyectoResource::getUrl('view', ['record' => $record->documentable_id]);
+                    }
 
-                        // 🔗 Lead
-                        if ($record->documentable_type === \App\Models\Lead::class) {
-                            return \App\Filament\Resources\LeadResource::getUrl('view', [
-                                'record' => $record->documentable_id,
-                            ]);
-                        }
-
-                        // 🔗 Proyecto
-                        if ($record->documentable_type === \App\Models\Proyecto::class) {
-                            return \App\Filament\Resources\ProyectoResource::getUrl('view', [
-                                'record' => $record->documentable_id,
-                            ]);
-                        }
-
-                        return null;
-                    })
-                    ->openUrlInNewTab(),
-
+                    return null;
+                })
+                ->openUrlInNewTab(),
 
             TextColumn::make('tipo.nombre')
                 ->label('Tipo')
@@ -595,161 +1128,145 @@ public static function infolist(Schema $schema): Schema
                 ->label('Subtipo')
                 ->badge()
                 ->color('gray'),
+
+            // ✅ NUEVO: Estado enum (badge)
+            TextColumn::make('estado')
+                ->label('Estado')
+                ->badge()
+                ->formatStateUsing(fn (DocumentoEstadoEnum $state) => $state->label())
+                ->color(fn (DocumentoEstadoEnum $state) => $state->color())
+                ->sortable(),
+
             TextColumn::make('ruta')
                 ->label('Archivo')
                 ->url(fn ($record) => Storage::url($record->ruta), true)
                 ->openUrlInNewTab()
                 ->formatStateUsing(fn ($record) => $record->nombre),
+
             TextColumn::make('observaciones')
                 ->label('Observaciones')
                 ->limit(30),
 
-
-                IconColumn::make('verificado')
+            // compat visual
+            IconColumn::make('verificado')
                 ->label('Verificado')
                 ->boolean()
                 ->trueIcon('heroicon-m-check-circle')
                 ->falseIcon('heroicon-m-x-circle')
                 ->trueColor('success')
-                ->falseColor('danger')
-                ->action(function ($record, $livewire) {
-                    // Verificamos si el usuario tiene el permiso "verificado_documento"
-                    if (! auth()->user()->can('verificar', $record)) {
+                ->falseColor('danger'),
 
-                        Notification::make()
-                            ->title('No tienes permiso para verificar este documento.')
-                            ->danger()
-                            ->send();
-                        return;
-                    }
-                    // Si tiene permiso, alterna el estado de verificado
-                    $record->verificado = ! $record->verificado;
-                    $record->save();
-
-                    Notification::make()
-                        ->title($record->verificado ? 'Documento verificado' : 'Verificación retirada')
-                        ->success()
-                        ->send();
-                })
-                ->tooltip(fn ($record) => $record->verificado
-                    ? 'Marcar como NO verificado'
-                    : 'Marcar como verificado')
-                ->extraAttributes(['style' => 'cursor: pointer;']),
-
-
-                IconColumn::make('mime_type')
+            IconColumn::make('mime_type')
                 ->label('Tipo')
                 ->icon(function ($record) {
                     $mime = $record->mime_type ?? '';
                     $extension = strtolower(pathinfo($record->ruta, PATHINFO_EXTENSION));
 
-                    // Tipos de imagen diferenciados
-                    if ($mime === 'image/png' || $extension === 'png') {
-                        return 'icon-png'; // PNG
-                    }
+                    if ($mime === 'image/png' || $extension === 'png') return 'icon-png';
+                    if ($mime === 'image/jpeg' && $extension === 'jpg') return 'icon-jpg';
+                    if ($mime === 'image/jpeg' && $extension === 'jpeg') return 'icon-jpeg';
+                    if ($mime === 'application/pdf') return 'icon-pdf';
 
-                    if ($mime === 'image/jpeg' && $extension === 'jpg') {
-                        return 'icon-jpg'; // JPG
-                    }
-
-                    if ($mime === 'image/jpeg' && $extension === 'jpeg') {
-                        return 'icon-jpeg'; // JPEG
-                    }
-
-                    // PDF
-                    if ($mime === 'application/pdf') {
-                        return 'icon-pdf';
-                    }
-
-                    // Word
                     if (in_array($mime, [
                         'application/msword',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    ])) {
-                        return 'icon-doc';
-                    }
+                    ])) return 'icon-doc';
 
-                    // Excel
                     if (in_array($mime, [
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    ])) {
-                        return 'icon-excel';
-                    }
+                    ])) return 'icon-excel';
 
-                    // Por defecto
                     return 'heroicon-o-question-mark-circle';
                 })
                 ->tooltip(fn ($record) => $record->mime_type ?? 'Desconocido')
                 ->color(function ($record) {
                     $mime = $record->mime_type ?? '';
-
-                    if (str_starts_with($mime, 'image/')) {
-                        return 'info'; // Azul
-                    }
-
-                    if ($mime === 'application/pdf') {
-                        return 'danger'; // Rojo
-                    }
+                    if (str_starts_with($mime, 'image/')) return 'info';
+                    if ($mime === 'application/pdf') return 'danger';
 
                     if (in_array($mime, [
                         'application/msword',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    ])) {
-                        return 'primary'; // Azul oscuro
-                    }
+                    ])) return 'primary';
 
                     if (in_array($mime, [
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    ])) {
-                        return 'success'; // Verde
-                    }
+                    ])) return 'success';
 
-                    return 'gray'; // Por defecto
+                    return 'gray';
                 }),
 
-                    TextColumn::make('created_at')
-                        ->label('Subido el')
-                        ->dateTime('d/m/Y H:i')
-                        ->sortable(),
+            TextColumn::make('created_at')
+                ->label('Subido el')
+                ->dateTime('d/m/Y H:i')
+                ->sortable(),
 
-                ])
-                ->defaultSort('created_at', 'desc')
-            ->filters([
-              /*   SelectFilter::make('user_id')
-                ->label('Subido por')
-                ->options(fn () => User::pluck('name', 'id')) // o full_name si lo usas
-                ->searchable()
-                ->native(false), */
+                Tables\Columns\TextColumn::make('purged_at')
+    ->label('Purgado')
+    ->dateTime('d/m/Y H:i')
+   ->toggleable(isToggledHiddenByDefault: true)
+    ->sortable()
+    ->placeholder('—'),
+
+Tables\Columns\TextColumn::make('purge_reason')
+    ->label('Motivo purga')
+    ->badge()
+    ->color(fn ($state) => $state === 'sensible' ? 'danger' : 'gray')
+    ->toggleable(isToggledHiddenByDefault: true)
+    ->placeholder('—'),
+
+Tables\Columns\TextColumn::make('purgedBy.name')
+    ->label('Purgado por')
+    ->toggleable(isToggledHiddenByDefault: true)
+    ->placeholder('—'),
+
+Tables\Columns\IconColumn::make('hidden_in_portal')
+    ->label('Oculto portal')
+    ->boolean()
+    ->toggleable(isToggledHiddenByDefault: true),
+        ])
+        ->defaultSort('created_at', 'desc')
+        ->filters([
             SelectFilter::make('cliente_id')
                 ->label('Cliente')
                 ->options(Cliente::pluck('razon_social', 'id'))
                 ->searchable()
-                ->native(false),       
+                ->native(false),
+
+            // ✅ NUEVO filtro por estado
+            SelectFilter::make('estado')
+                ->label('Estado')
+                ->options([
+                    DocumentoEstadoEnum::PENDIENTE->value => DocumentoEstadoEnum::PENDIENTE->label(),
+                    DocumentoEstadoEnum::VERIFICADO->value => DocumentoEstadoEnum::VERIFICADO->label(),
+                    DocumentoEstadoEnum::RECHAZADO->value => DocumentoEstadoEnum::RECHAZADO->label(),
+                ])
+                ->native(false),
+
+            // mantengo tu ternary por si lo quieres, pero ya no es necesario
+            // si prefieres lo quitamos
             TernaryFilter::make('verificado')
                 ->label('Verificado')
                 ->trueLabel('Solo verificados')
                 ->falseLabel('Solo no verificados')
                 ->native(false),
 
-            // 📂 Tipo de documento
             SelectFilter::make('tipo_documento_id')
                 ->label('Tipo')
                 ->options(DocumentoCategoria::pluck('nombre', 'id'))
                 ->searchable()
                 ->native(false),
-              // 🧾 Subtipo de documento
+
             SelectFilter::make('subtipo_documento_id')
                 ->label('Subtipo')
                 ->options(DocumentoSubtipo::pluck('nombre', 'id'))
                 ->searchable()
                 ->native(false),
-             // 🧑‍💼 Cliente
 
             SelectFilter::make('mime_type')
                 ->label('Buscar por extensión')
-
                 ->options([
                     'application/pdf' => 'PDF',
                     'image/png' => 'Imagen PNG',
@@ -760,34 +1277,79 @@ public static function infolist(Schema $schema): Schema
                     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'Excel (xlsx)',
                 ]),
 
-                SelectFilter::make('documentable_type')
+            SelectFilter::make('documentable_type')
                 ->label('Tipo de asociado')
                 ->options([
                     'App\Models\Cliente' => 'Cliente',
                     'App\Models\Proyecto' => 'Proyecto',
                     'App\Models\Lead' => 'Lead',
                 ]),
-               // ->native(false),     
+
             DateRangeFilter::make('created_at')
                 ->label('Subido')
-                ->placeholder('Rango de fechas a buscar'),  
+                ->placeholder('Rango de fechas a buscar'),
+
             DateRangeFilter::make('updated_at')
                 ->label('Actualizado')
-                ->placeholder('Rango de fechas a buscar'),      
-            ],layout: FiltersLayout::AboveContent)
-            ->filtersFormColumns(7)
-            ->recordActions([
-                EditAction::make(),
-                ViewAction::make()
-                ->label('Ver'), // Automáticamente usa ViewDocumento
+                ->placeholder('Rango de fechas a buscar'),
+        ], layout: FiltersLayout::AboveContent)
+        ->filtersFormColumns(7)
+        ->recordActions([
+            // ✅ NUEVAS acciones (modal motivo obligatorio)
+            Action::make('verificar')
+                ->label('Verificar')
+                ->icon('heroicon-o-check-circle')
+                ->color('success')
+                ->requiresConfirmation()
+                ->visible(fn ($record) => $record->estado !== DocumentoEstadoEnum::VERIFICADO)
+                ->action(function ($record) {
+                    $record->estado = DocumentoEstadoEnum::VERIFICADO;
+                    $record->verificado = true;
+                    $record->motivo_rechazo = null;
+                    $record->save();
 
-            ])
-            ->toolbarActions([
-                BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                ]),
-            ]);
-    }
+                    Notification::make()->title('Documento verificado')->success()->send();
+                }),
+
+            Action::make('rechazar')
+                ->label('Rechazar')
+                ->icon('heroicon-o-x-circle')
+                ->color('danger')
+                ->modalHeading('Rechazar documento')
+                ->modalDescription('Indica el motivo (obligatorio). El cliente lo verá en el portal.')
+                ->form([
+                    FormTextarea::make('motivo_rechazo')
+                        ->label('Motivo de rechazo')
+                        ->required()
+                        ->rows(4),
+                ])
+                ->visible(fn ($record) => $record->estado !== DocumentoEstadoEnum::RECHAZADO)
+                ->action(function ($record, array $data) {
+                    $record->estado = DocumentoEstadoEnum::RECHAZADO;
+                    $record->verificado = false;
+                    $record->motivo_rechazo = $data['motivo_rechazo'];
+                    $record->save();
+
+                    Notification::make()->title('Documento rechazado')->danger()->send();
+                }),
+
+                
+
+            EditAction::make()
+            
+                ->url(fn ($record) => DocumentoResource::getUrl('edit', ['record' => $record]))
+        ->openUrlInNewTab(),
+            ViewAction::make()->label('Ver')
+               ->url(fn ($record) => DocumentoResource::getUrl('view', ['record' => $record]))
+                ->openUrlInNewTab(),
+     
+        ])
+        ->toolbarActions([
+            BulkActionGroup::make([
+                DeleteBulkAction::make(),
+            ]),
+        ]);
+}
 
 
 
@@ -802,12 +1364,17 @@ public static function infolist(Schema $schema): Schema
     {
         return [
             'index' => ListDocumentos::route('/'),
-            'create' => CreateDocumento::route('/create'),
+            //'create' => CreateDocumento::route('/create'),
             'edit' => EditDocumento::route('/{record}/edit'),
             'view' => ViewDocumento::route('/{record}/view'),
 
         ];
     }
+
+            public static function canCreate(): bool
+        {
+            return false;
+        }
 
     /* public static function getWidgets(): array
     {
