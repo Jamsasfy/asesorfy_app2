@@ -14,8 +14,14 @@ class Documento extends Model
 
     protected $casts = [
         'verificado' => 'bool',
+        'hidden_in_portal' => 'bool',
+
         'revisado_at' => 'datetime',
         'purged_at' => 'datetime',
+
+        'aclaracion_at' => 'datetime',
+        'aclaracion_respondida_at' => 'datetime',
+
         'estado' => DocumentoEstadoEnum::class,
     ];
 
@@ -109,6 +115,22 @@ class Documento extends Model
                     $documento->nombre = "{$tipoSlug}_{$subtipoSlug}_{$random}.{$ext}";
                 }
             }
+
+            // ✅ Calcular hash SHA256 si falta (para detectar duplicados)
+                if (blank($documento->file_sha256) && filled($documento->ruta)) {
+                    try {
+                        $path = Storage::disk('public')->path($documento->ruta);
+
+                        if (is_file($path)) {
+                            $documento->file_sha256 = hash_file('sha256', $path);
+                        }
+                    } catch (\Throwable $e) {
+                        // No rompemos el guardado por un hash (log opcional)
+                        // logger()->warning('No se pudo calcular file_sha256', ['id' => $documento->id, 'ruta' => $documento->ruta]);
+                    }
+                }
+
+
         });
 
     }
@@ -150,6 +172,35 @@ class Documento extends Model
     public function purgedBy()
     {
         return $this->belongsTo(\App\Models\User::class, 'purged_by_id');
+    }
+
+        public function possibleDuplicates()
+    {
+        return self::query()
+            ->where('cliente_id', $this->cliente_id)
+            ->whereNotNull('file_sha256')
+            ->where('file_sha256', $this->file_sha256)
+            ->whereKeyNot($this->getKey());
+    }
+
+    public function hasPossibleDuplicate(): bool
+    {
+        // ✅ si ya fue revisado (ignored/confirmed), no volver a tratarlo como “posible duplicado”
+        if (! blank($this->duplicate_status ?? null)) {
+            return false;
+        }
+
+        return filled($this->file_sha256)
+            && $this->possibleDuplicates()->exists();
+    }
+
+    /**
+     * Si tú usas $record->is_duplicate en la tabla/action:
+     * lo definimos aquí para que respete lo de arriba.
+     */
+    public function getIsDuplicateAttribute(): bool
+    {
+        return $this->hasPossibleDuplicate();
     }
 
 

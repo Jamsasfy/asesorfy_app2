@@ -36,6 +36,7 @@ class DocumentosTable
     {
         return $table
             ->recordUrl(null)
+            ->poll(10)
             ->modifyQueryUsing(fn ($query) => $query->where('hidden_in_portal', false))
             ->columns([
                 // 🔁 Subido por (icono tipo “llamadas”)
@@ -73,97 +74,121 @@ class DocumentosTable
                     ->color(fn ($record) => blank($record->ruta) ? 'danger' : null),
             
 
-                    TextColumn::make('tipo.nombre')
-                        ->label('Tipo')
-                        ->badge()
-                        ->color(function ($record) {
-                            $nombre = mb_strtolower((string) ($record->tipo?->nombre ?? ''));
+                  TextColumn::make('tipo.nombre')
+                            ->label('Tipo')
+                            ->badge()
+                            ->color(function ($record) {
+                                $tipo = $record->tipo?->nombre;
 
-                            if ($nombre === 'sin clasificar') {
-                                return 'warning';
-                            }
+                                if (blank($tipo)) {
+                                    return 'gray'; // no hay tipo aún
+                                }
 
-                            return $record->tipo?->color ?? 'gray';
-                        }),
+                                return mb_strtolower((string) $tipo) === 'sin clasificar'
+                                    ? 'gray'
+                                    : 'info';
+                            }),
+                                TextColumn::make('subtipo.nombre')
+                                    ->label('Subtipo')
+                                    ->badge()
+                                    ->color(function ($record) {
+                                        $subtipo = $record->subtipo?->nombre;
 
-                    TextColumn::make('subtipo.nombre')
-                        ->label('Subtipo')
-                        ->badge()
-                        ->color(function ($record) {
-                            $nombre = mb_strtolower((string) ($record->subtipo?->nombre ?? ''));
+                                        if (blank($subtipo)) {
+                                            return 'gray'; // no hay subtipo aún
+                                        }
 
-                            if ($nombre === 'pendiente de clasificar') {
-                                return 'warning';
-                            }
+                                        return mb_strtolower((string) $subtipo) === 'pendiente de clasificar'
+                                            ? 'gray'
+                                            : 'info';
+                                    }),
 
-                            return $record->subtipo?->color ?? 'gray';
-                        }),
 
 
                 // ✅ Nuevo: Estado (badge)
-               TextColumn::make('estado')
-                ->label('Estado')
-                ->badge()
-                ->formatStateUsing(function ($state) {
-                    if ($state instanceof DocumentoEstadoEnum) {
-                        return $state->label();
-                    }
+            TextColumn::make('estado')
+    ->label('Estado')
+    ->badge()
+    ->formatStateUsing(function ($state) {
+        $enum = $state instanceof DocumentoEstadoEnum
+            ? $state
+            : DocumentoEstadoEnum::tryFrom((string) $state);
 
-                    return match ((string) $state) {
-                        'verificado' => 'Verificado',
-                        'rechazado'  => 'Rechazado',
-                        default      => 'Pendiente',
-                    };
-                })
-                ->color(function ($state) {
-                    if ($state instanceof DocumentoEstadoEnum) {
-                        return $state->color();
-                    }
+        return match ($enum) {
+            DocumentoEstadoEnum::VERIFICADO          => 'Verificado',
+            DocumentoEstadoEnum::PENDIENTE           => 'En revisión',
+            DocumentoEstadoEnum::NECESITA_ACLARACION => 'Requiere tu respuesta',
+            DocumentoEstadoEnum::RECHAZADO           => 'Rechazado',
+            DocumentoEstadoEnum::ARCHIVADO           => 'Archivado',
+            default                                  => 'En revisión',
+        };
+    })
+    ->color(function ($state) {
+        $enum = $state instanceof DocumentoEstadoEnum
+            ? $state
+            : DocumentoEstadoEnum::tryFrom((string) $state);
 
-                    return match ((string) $state) {
-                        'verificado' => 'success',
-                        'rechazado'  => 'danger',
-                        default      => 'warning',
-                    };
-                }),
+        return match ($enum) {
+            DocumentoEstadoEnum::VERIFICADO          => 'success',
+            DocumentoEstadoEnum::PENDIENTE           => 'gray',    // 👈 portal: no molestar
+            DocumentoEstadoEnum::NECESITA_ACLARACION => 'warning', // 👈 lo importante
+            DocumentoEstadoEnum::RECHAZADO           => 'danger',
+            DocumentoEstadoEnum::ARCHIVADO           => 'gray',
+            default                                  => 'gray',
+        };
+    }),
 
-            IconColumn::make('estado_icon')
-                ->label('') // o 'Estado'
-                ->state(fn ($record) => $record->estado) // 👈 le pasamos el estado real
-                ->icon(function ($state) {
-                    if ($state instanceof DocumentoEstadoEnum) {
-                        return match ($state) {
-                            DocumentoEstadoEnum::VERIFICADO => 'heroicon-m-check-circle',
-                            DocumentoEstadoEnum::PENDIENTE  => 'heroicon-m-exclamation-triangle',
-                            DocumentoEstadoEnum::RECHAZADO  => 'heroicon-m-x-circle',
-                        };
-                    }
 
-                    return match ((string) $state) {
-                        'verificado' => 'heroicon-m-check-circle',
-                        'pendiente'  => 'heroicon-m-exclamation-triangle',
-                        'rechazado'  => 'heroicon-m-x-circle',
-                        default      => 'heroicon-m-question-mark-circle',
-                    };
-                })
-                ->color(function ($state) {
-                    if ($state instanceof DocumentoEstadoEnum) {
-                        return match ($state) {
-                            DocumentoEstadoEnum::VERIFICADO => 'success',
-                            DocumentoEstadoEnum::PENDIENTE  => 'warning',
-                            DocumentoEstadoEnum::RECHAZADO  => 'danger',
-                        };
-                    }
+         IconColumn::make('estado_icon')
+    ->label('')
+    ->state(fn ($record) => $record) // 👈 necesitamos el record
+    ->icon(function ($record) {
+        $estado = $record->estado instanceof DocumentoEstadoEnum
+            ? $record->estado
+            : DocumentoEstadoEnum::tryFrom((string) $record->estado);
 
-                    return match ((string) $state) {
-                        'verificado' => 'success',
-                        'pendiente'  => 'warning',
-                        'rechazado'  => 'danger',
-                        default      => 'gray',
-                    };
-                })
-                
-                ->alignCenter(),
+        return match ($estado) {
+            DocumentoEstadoEnum::VERIFICADO          => 'heroicon-m-check-circle',
+            DocumentoEstadoEnum::RECHAZADO           => 'heroicon-m-x-circle',
+            DocumentoEstadoEnum::NECESITA_ACLARACION => 'heroicon-m-question-mark-circle',
+            DocumentoEstadoEnum::ARCHIVADO           => 'heroicon-m-archive-box',
+            DocumentoEstadoEnum::PENDIENTE           => filled($record->aclaracion_respondida_at)
+                ? 'heroicon-m-arrow-path'  // ✅ volvió a revisión
+                : 'heroicon-m-clock',      // normal
+            default => 'heroicon-m-question-mark-circle',
+        };
+    })
+    ->color(function ($record) {
+        $estado = $record->estado instanceof DocumentoEstadoEnum
+            ? $record->estado
+            : DocumentoEstadoEnum::tryFrom((string) $record->estado);
+
+        return match ($estado) {
+            DocumentoEstadoEnum::VERIFICADO          => 'success',
+            DocumentoEstadoEnum::RECHAZADO           => 'danger',
+            DocumentoEstadoEnum::NECESITA_ACLARACION => 'warning', // lo importante
+            DocumentoEstadoEnum::ARCHIVADO           => 'gray',
+            DocumentoEstadoEnum::PENDIENTE           => filled($record->aclaracion_respondida_at)
+                ? 'info'  // ✅ azul: “recibido, revisando”
+                : 'gray',
+            default => 'gray',
+        };
+    })
+    ->tooltip(function ($record) {
+        $estado = $record->estado instanceof DocumentoEstadoEnum
+            ? $record->estado
+            : DocumentoEstadoEnum::tryFrom((string) $record->estado);
+
+        if ($estado === DocumentoEstadoEnum::PENDIENTE && filled($record->aclaracion_respondida_at)) {
+            return 'Hemos recibido tu respuesta. Está de nuevo en revisión.';
+        }
+
+        return $estado?->label() ?? 'En revisión';
+    })
+    ->alignCenter(),
+
+
+
 
                 TextColumn::make('created_at')
                     ->label('Subido el')
@@ -290,110 +315,124 @@ class DocumentosTable
                     ->emptyStateIcon('heroicon-o-document-plus')
 
 
-                        /* =========================
-                        | HEADER ACTIONS (MODAL SUBIR)
-                        ========================= */
-                        ->headerActions([
-                            CreateAction::make('subir_documento')
-                                ->label('Subir documento')
-                                ->icon('heroicon-o-document-plus')
-                                ->modalHeading('Subir documento')
-                                ->modalWidth('3xl')
-                                ->form(function (): array {
-                                    $user = auth()->user();
-                                    $clientes = $user->clientes()->select('clientes.id', 'razon_social')->get();
-                                    $tieneVarios = $clientes->count() > 1;
+                       ->headerActions([
+    Action::make('subir_documentos')
+        ->label('Subir documentos')
+        ->icon('heroicon-o-document-plus')
+        ->modalHeading('Subir documentos')
+        ->closeModalByClickingAway(false)
+        ->closeModalByEscaping(false)
+        ->modalWidth('3xl')
+        ->form(function (): array {
+            $user = auth()->user();
+            $clientes = $user->clientes()->select('clientes.id', 'razon_social')->get();
+            $tieneVarios = $clientes->count() > 1;
 
-                                    return [
-                                        Section::make()
-                                            ->schema([
-                                                Select::make('cliente_id')
-                                                    ->label('Cliente')
-                                                    ->options($clientes->pluck('razon_social', 'id')->toArray())
-                                                    ->required()
-                                                    ->native(false)
-                                                    ->visible($tieneVarios)
-                                                    ->columnSpanFull(),
+            return [
+                Section::make()
+                    ->schema([
+                        Select::make('cliente_id')
+                            ->label('Cliente')
+                            ->options($clientes->pluck('razon_social', 'id')->toArray())
+                            ->required()
+                            ->native(false)
+                            ->visible($tieneVarios)
+                            ->columnSpanFull(),
 
-                                                FileUpload::make('ruta')
-                                                    ->label('Archivo')
-                                                    ->disk('public')
-                                                    ->directory('documentos')
-                                                    ->maxSize(32768)
-                                                    ->required()
-                                                    ->acceptedFileTypes([
-                                                        'application/pdf',
-                                                        'image/jpeg',
-                                                        'image/png',
-                                                        'image/webp',
-                                                        'image/gif',
-                                                        'application/msword',
-                                                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                                                        'application/vnd.ms-excel',
-                                                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                                                    ])
-                                                    ->visibility('public')
-                                                    ->columnSpanFull(),
-
-                                                Textarea::make('observaciones')
-                                                    ->label('Observaciones')
-                                                    ->helperText('Opcional. Si quieres, añade una nota para tu asesor.')
-                                                    ->columnSpanFull(),
-                                            ])
-                                            ->columns(2),
-                                    ];
-                                })
-                                ->mutateDataUsing(function (array $data): array {
-                                    $user = auth()->user();
-
-                                    if (empty($data['cliente_id'])) {
-                                        $data['cliente_id'] = $user->clientes()->pluck('clientes.id')->first();
-                                    }
-
-                                    $cliente = $data['cliente_id']
-                                        ? \App\Models\Cliente::find($data['cliente_id'])
-                                        : null;
-
-                                    // ✅ Asignar tipo/subtipo por defecto (sin clasificar)
-                                    $categoria = \App\Models\DocumentoCategoria::query()
-                                        ->where('nombre', 'Sin clasificar')
-                                        ->first();
-
-                                    $subtipo = $categoria
-                                        ? \App\Models\DocumentoSubtipo::query()
-                                            ->where('documento_categoria_id', $categoria->id)
-                                            ->where('nombre', 'Pendiente de clasificar')
-                                            ->first()
-                                        : null;
-
-                                    if ($categoria && $subtipo) {
-                                        $data['tipo_documento_id'] = $categoria->id;
-                                        $data['subtipo_documento_id'] = $subtipo->id;
-                                    }
-
-                                    $data['user_id'] = $user->id;
-                                    $data['mime_type'] = Storage::disk('public')->mimeType($data['ruta']);
-
-                                    $data['estado'] = DocumentoEstadoEnum::PENDIENTE->value;
-                                    $data['verificado'] = false;
-
-                                    if ($cliente) {
-                                        $data['documentable_type'] = \App\Models\Cliente::class;
-                                        $data['documentable_id'] = $cliente->id;
-                                    }
-
-                                    // ✅ Nombre automático (sin depender de selects del cliente)
-                                   if (empty($data['nombre'])) {
-                                        $random = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6));
-                                        $extension = pathinfo($data['ruta'], PATHINFO_EXTENSION);
-
-                                        $data['nombre'] = 'cliente_documento_' . $random . ($extension ? ".{$extension}" : '');
-                                    }
-
-
-                                    return $data;
-                                }),
+                       FileUpload::make('rutas')
+                        ->label('Archivos')
+                        ->disk('public')
+                        ->directory('documentos')
+                        ->maxSize(32768)
+                        ->required()
+                        ->multiple()
+                        ->previewable(false) // ✅ fuera miniaturas/previews (compacto y seguro)
+                        ->maxFiles(20)       // ✅ evita modal infinito por cantidad
+                        ->helperText('Puedes subir varios a la vez (máx. 20 por tanda). Si tienes más, repite el proceso.')
+                        ->uploadingMessage('Subiendo archivos… espera a que termine para enviar')
+                        ->acceptedFileTypes([
+                            'application/pdf',
+                            'image/jpeg',
+                            'image/png',
+                            'image/webp',
+                            'image/gif',
+                            'application/msword',
+                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                            'application/vnd.ms-excel',
+                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                         ])
+                        ->visibility('public')
+                        ->columnSpanFull(),
+
+
+
+                        Textarea::make('observaciones')
+                            ->label('Observaciones')
+                            ->helperText('Opcional. Si quieres, añade una nota para tu asesor (se copia en cada documento).')
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(2),
+            ];
+        })
+        ->action(function (array $data): void {
+            $user = auth()->user();
+
+            $clienteId = (int) ($data['cliente_id'] ?? 0);
+            if ($clienteId <= 0) {
+                $clienteId = (int) $user->clientes()->pluck('clientes.id')->first();
+            }
+
+            $cliente = $clienteId ? \App\Models\Cliente::find($clienteId) : null;
+
+            // ✅ Tipo/Subtipo por defecto
+            $categoria = \App\Models\DocumentoCategoria::query()
+                ->where('nombre', 'Sin clasificar')
+                ->first();
+
+            $subtipo = $categoria
+                ? \App\Models\DocumentoSubtipo::query()
+                    ->where('documento_categoria_id', $categoria->id)
+                    ->where('nombre', 'Pendiente de clasificar')
+                    ->first()
+                : null;
+
+            $rutas = (array) ($data['rutas'] ?? []);
+            $observaciones = $data['observaciones'] ?? null;
+
+            foreach ($rutas as $ruta) {
+                $mime = filled($ruta) ? Storage::disk('public')->mimeType($ruta) : null;
+
+                // ✅ Nombre automático por archivo
+                $random = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(6));
+                $extension = pathinfo((string) $ruta, PATHINFO_EXTENSION);
+                $nombre = 'cliente_documento_' . $random . ($extension ? ".{$extension}" : '');
+
+                $payload = [
+                    'cliente_id'           => $clienteId,
+                    'user_id'              => $user->id,
+                    'ruta'                 => $ruta,
+                    'mime_type'            => $mime,
+                    'observaciones'        => $observaciones,
+                    'observaciones_internas' => null,
+                    'estado'               => \App\Enums\DocumentoEstadoEnum::PENDIENTE->value,
+                    'verificado'           => false,
+                    'nombre'               => $nombre,
+                ];
+
+                if ($categoria && $subtipo) {
+                    $payload['tipo_documento_id'] = $categoria->id;
+                    $payload['subtipo_documento_id'] = $subtipo->id;
+                }
+
+                if ($cliente) {
+                    $payload['documentable_type'] = \App\Models\Cliente::class;
+                    $payload['documentable_id'] = $cliente->id;
+                }
+
+                \App\Models\Documento::create($payload);
+            }
+        }),
+])
 
 
             ->recordActions([
