@@ -2,9 +2,10 @@
 
 namespace App\Services;
 
-use Stripe\StripeClient;
 use App\Models\Cliente;
 use Illuminate\Support\Facades\Log;
+use Stripe\Stripe;
+use Stripe\StripeClient;
 
 class StripePaymentMethodResolver
 {
@@ -15,7 +16,7 @@ class StripePaymentMethodResolver
         }
 
         try {
-            $stripe = new StripeClient(config('services.stripe.secret'));
+            $stripe = self::makeClient();
 
             /**
              * 1️⃣ SUSCRIPCIÓN ACTIVA (prioridad máxima)
@@ -28,22 +29,61 @@ class StripePaymentMethodResolver
 
             foreach ($subscriptions->data as $subscription) {
                 // default_payment_method directo
-                if ($subscription->default_payment_method) {
+                if (! empty($subscription->default_payment_method)) {
                     return self::fromPaymentMethod(
                         $stripe->paymentMethods->retrieve($subscription->default_payment_method),
                         'subscription'
                     );
                 }
 
-                // latest invoice → payment intent
-                if ($subscription->latest_invoice?->payment_intent) {
-                    $pi = $stripe->paymentIntents->retrieve(
-                        $subscription->latest_invoice->payment_intent
-                    );
+                /**
+                 * latest_invoice puede venir:
+                 * - como string ID ("in_...")
+                 * - como objeto invoice expandido
+                 *
+                 * y payment_intent puede venir:
+                 * - como string ID ("pi_...")
+                 * - como objeto paymentIntent expandido
+                 */
+                $latestInvoice = $subscription->latest_invoice ?? null;
 
-                    if ($pi->payment_method) {
+                $paymentIntentId = null;
+
+                if (is_object($latestInvoice)) {
+                    $pi = $latestInvoice->payment_intent ?? null;
+                    if (is_string($pi)) {
+                        $paymentIntentId = $pi;
+                    } elseif (is_object($pi) && ! empty($pi->id)) {
+                        $paymentIntentId = $pi->id;
+                    }
+                } elseif (is_string($latestInvoice) && $latestInvoice !== '') {
+                    // Si latest_invoice es string, lo recuperamos para sacar el payment_intent
+                    try {
+                        $inv = $stripe->invoices->retrieve($latestInvoice, []);
+                        $pi = $inv->payment_intent ?? null;
+
+                        if (is_string($pi)) {
+                            $paymentIntentId = $pi;
+                        } elseif (is_object($pi) && ! empty($pi->id)) {
+                            $paymentIntentId = $pi->id;
+                        }
+                    } catch (\Throwable) {
+                        // si falla, seguimos con siguientes estrategias
+                    }
+                }
+
+                if ($paymentIntentId) {
+                    $piObj = $stripe->paymentIntents->retrieve($paymentIntentId, []);
+
+                    $pmId = $piObj->payment_method ?? null;
+                    if (is_string($pmId) && $pmId !== '') {
                         return self::fromPaymentMethod(
-                            $stripe->paymentMethods->retrieve($pi->payment_method),
+                            $stripe->paymentMethods->retrieve($pmId),
+                            'subscription_invoice'
+                        );
+                    } elseif (is_object($pmId) && ! empty($pmId->id)) {
+                        return self::fromPaymentMethod(
+                            $stripe->paymentMethods->retrieve($pmId->id),
                             'subscription_invoice'
                         );
                     }
@@ -74,12 +114,20 @@ class StripePaymentMethodResolver
             ]);
 
             foreach ($invoices->data as $invoice) {
-                if ($invoice->payment_intent) {
-                    $pi = $stripe->paymentIntents->retrieve($invoice->payment_intent);
+                $piId = $invoice->payment_intent ?? null;
 
-                    if ($pi->payment_method) {
+                if (is_string($piId) && $piId !== '') {
+                    $pi = $stripe->paymentIntents->retrieve($piId);
+
+                    $pmId = $pi->payment_method ?? null;
+                    if (is_string($pmId) && $pmId !== '') {
                         return self::fromPaymentMethod(
-                            $stripe->paymentMethods->retrieve($pi->payment_method),
+                            $stripe->paymentMethods->retrieve($pmId),
+                            'invoice'
+                        );
+                    } elseif (is_object($pmId) && ! empty($pmId->id)) {
+                        return self::fromPaymentMethod(
+                            $stripe->paymentMethods->retrieve($pmId->id),
                             'invoice'
                         );
                     }
@@ -95,10 +143,9 @@ class StripePaymentMethodResolver
                 'limit'    => 1,
             ]);
 
-            if (!empty($methods->data)) {
+            if (! empty($methods->data)) {
                 return self::fromPaymentMethod($methods->data[0], 'fallback');
             }
-
         } catch (\Throwable $e) {
             Log::error('StripePaymentMethodResolver error', [
                 'cliente_id' => $cliente->id,
@@ -109,15 +156,36 @@ class StripePaymentMethodResolver
         return self::empty();
     }
 
+    /**
+     * Igual que tus controllers: en local desactiva verificación SSL para evitar el error de CA.
+     * (En prod NO se toca)
+     */
+    protected static function makeClient(): StripeClient
+    {
+        Stripe::setApiKey(config('services.stripe.secret'));
+
+        if (app()->isLocal()) {
+            Stripe::setVerifySslCerts(false);
+        }
+
+        return new StripeClient(config('services.stripe.secret'));
+    }
+
     protected static function fromPaymentMethod($pm, string $source): array
     {
+        if (! isset($pm->type)) {
+            return self::empty();
+        }
+
         if ($pm->type === 'card') {
             return [
-                'type'   => 'card',
-                'label'  => 'Tarjeta',
-                'last4'  => $pm->card->last4,
-                'brand'  => $pm->card->brand,
-                'source' => $source,
+                'type'      => 'card',
+                'label'     => 'Tarjeta',
+                'last4'     => $pm->card->last4 ?? null,
+                'brand'     => $pm->card->brand ?? null,
+                'exp_month' => $pm->card->exp_month ?? null,
+                'exp_year'  => $pm->card->exp_year ?? null,
+                'source'    => $source,
             ];
         }
 
@@ -125,7 +193,7 @@ class StripePaymentMethodResolver
             return [
                 'type'   => 'sepa_debit',
                 'label'  => 'SEPA',
-                'last4'  => $pm->sepa_debit->last4,
+                'last4'  => $pm->sepa_debit->last4 ?? null,
                 'brand'  => 'SEPA',
                 'source' => $source,
             ];
@@ -137,11 +205,13 @@ class StripePaymentMethodResolver
     protected static function empty(): array
     {
         return [
-            'type'   => null,
-            'label'  => 'Sin método configurado',
-            'last4'  => null,
-            'brand'  => null,
-            'source' => null,
+            'type'      => null,
+            'label'     => 'Sin método configurado',
+            'last4'     => null,
+            'brand'     => null,
+            'exp_month' => null,
+            'exp_year'  => null,
+            'source'    => null,
         ];
     }
 }

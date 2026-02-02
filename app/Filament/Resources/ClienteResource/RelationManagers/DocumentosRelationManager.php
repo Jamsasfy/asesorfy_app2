@@ -77,6 +77,7 @@ class DocumentosRelationManager extends RelationManager
                 ->directory('documentos')
                 ->maxSize(32768)
                 ->required()
+              
                 ->acceptedFileTypes([
                     'application/pdf',
                     'image/jpeg',
@@ -118,6 +119,8 @@ class DocumentosRelationManager extends RelationManager
     public function table(Table $table): Table
     {
        return $table
+        ->deferFilters(false)
+          ->poll(20)
             ->recordTitleAttribute('nombre')
             ->defaultSort('created_at', 'desc')
             ->modifyQueryUsing(function (Builder $query) {
@@ -259,23 +262,25 @@ class DocumentosRelationManager extends RelationManager
                 TextColumn::make('subtipo.nombre')->label('Subtipo')->badge()->color('gray'),
 
                 // ✅ Estado (badge con colores del Enum)
-                TextColumn::make('estado')
-                    ->label('Estado')
-                    ->badge()
-                    ->formatStateUsing(function ($state) {
-                        $enum = $state instanceof \App\Enums\DocumentoEstadoEnum
-                            ? $state
-                            : \App\Enums\DocumentoEstadoEnum::tryFrom((string) $state);
+             \Filament\Tables\Columns\TextColumn::make('estado')
+    ->label('Estado')
+    ->badge()
+    ->formatStateUsing(function ($state) {
+        $enum = $state instanceof \App\Enums\DocumentoEstadoEnum
+            ? $state
+            : \App\Enums\DocumentoEstadoEnum::tryFrom((string) $state);
 
-                        return $enum?->label() ?? 'Pendiente';
-                    })
-                    ->color(function ($state) {
-                        $enum = $state instanceof \App\Enums\DocumentoEstadoEnum
-                            ? $state
-                            : \App\Enums\DocumentoEstadoEnum::tryFrom((string) $state);
+        return $enum?->label() ?? 'Pendiente';
+    })
+    ->color(function ($state) {
+        $enum = $state instanceof \App\Enums\DocumentoEstadoEnum
+            ? $state
+            : \App\Enums\DocumentoEstadoEnum::tryFrom((string) $state);
 
-                        return $enum?->color() ?? 'warning';
-                    }),      
+        return $enum?->color() ?? 'warning';
+    })
+    ->sortable(),
+
 
                 // ✅ Icono del estado (igual que portal, con “cliente respondió”)
 IconColumn::make('estado_icon')
@@ -330,6 +335,8 @@ IconColumn::make('estado_icon')
                 // ✅ Archivo: link si existe, si no -> "Purgado"
                 TextColumn::make('archivo')
                     ->label('Archivo')
+                     ->searchable(['nombre', 'ruta']) // ✅ aquí
+                       ->sortable(query: fn ($query, string $direction) => $query->orderBy('nombre', $direction))
                     ->state(fn ($record) => $record->ruta ? $record->nombre : 'Purgado')
                     ->badge(fn ($record) => empty($record->ruta))
                     ->color(fn ($record) => empty($record->ruta) ? 'gray' : null)
@@ -341,77 +348,141 @@ IconColumn::make('estado_icon')
                 TextColumn::make('updated_at')->label('Actualizado el')->dateTime('d/m/Y H:i'),
             ])
 
-                ->filters([
-                
+->filters([
+    // =========================
+    // ✅ 1) ESTADO (primero)
+    // =========================
+    \Filament\Tables\Filters\SelectFilter::make('estado')
+        ->label('Estado')
+        ->options([
+            \App\Enums\DocumentoEstadoEnum::PENDIENTE->value           => \App\Enums\DocumentoEstadoEnum::PENDIENTE->label(),
+            \App\Enums\DocumentoEstadoEnum::VERIFICADO->value          => \App\Enums\DocumentoEstadoEnum::VERIFICADO->label(),
+            \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION->value => \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION->label(),
+            \App\Enums\DocumentoEstadoEnum::RECHAZADO->value           => \App\Enums\DocumentoEstadoEnum::RECHAZADO->label(),
+            \App\Enums\DocumentoEstadoEnum::ARCHIVADO->value           => \App\Enums\DocumentoEstadoEnum::ARCHIVADO->label(),
+        ])
+        ->native(false),
 
-            // ✅ Tipo + Subtipo REACTIVO (Subtipo aparece solo si hay Tipo)
-            Filter::make('tipo_y_subtipo')
-                ->label('Tipo / Subtipo')
-                ->form([
-                    Select::make('tipo_documento_id')
-                        ->label('Tipo')
-                        ->relationship('tipo', 'nombre')
-                        ->searchable()
-                        ->preload()
-                        ->native(false)
-                        ->live(),
+    // =========================
+    // ✅ 2) TIPO + SUBTIPO (dependen)
+    // =========================
+    \Filament\Tables\Filters\Filter::make('tipo_y_subtipo')
+        ->label('Tipo / Subtipo')
+        ->form([
+            \Filament\Forms\Components\Select::make('tipo_documento_id')
+                ->label('Tipo')
+                ->relationship('tipo', 'nombre')
+                ->searchable()
+                ->preload()
+                ->native(false)
+                ->live()
+                ->afterStateUpdated(fn (callable $set) => $set('subtipo_documento_id', null)),
 
-                    Select::make('subtipo_documento_id')
-                        ->label('Subtipo')
-                        ->options(fn (callable $get) => filled($get('tipo_documento_id'))
-                            ? DocumentoSubtipo::query()
-                                ->where('documento_categoria_id', $get('tipo_documento_id'))
-                                ->orderBy('nombre')
-                                ->pluck('nombre', 'id')
-                                ->toArray()
-                            : []
-                        )
-                        ->searchable()
-                        ->preload()
-                        ->native(false)
-                        ->visible(fn (callable $get) => filled($get('tipo_documento_id'))),
-                ])
-                ->query(function (Builder $query, array $data): Builder {
-                    if (filled($data['tipo_documento_id'] ?? null)) {
-                        $query->where('tipo_documento_id', $data['tipo_documento_id']);
-                    }
+            \Filament\Forms\Components\Select::make('subtipo_documento_id')
+                ->label('Subtipo')
+                ->options(fn (callable $get) => filled($get('tipo_documento_id'))
+                    ? \App\Models\DocumentoSubtipo::query()
+                        ->where('documento_categoria_id', $get('tipo_documento_id'))
+                        ->orderBy('nombre')
+                        ->pluck('nombre', 'id')
+                        ->toArray()
+                    : []
+                )
+                ->searchable()
+                ->preload()
+                ->native(false)
+                ->visible(fn (callable $get) => filled($get('tipo_documento_id'))),
+        ])
+        ->query(function (\Illuminate\Database\Eloquent\Builder $query, array $data): \Illuminate\Database\Eloquent\Builder {
+            if (filled($data['tipo_documento_id'] ?? null)) {
+                $query->where('tipo_documento_id', $data['tipo_documento_id']);
+            }
 
-                    if (filled($data['subtipo_documento_id'] ?? null)) {
-                        $query->where('subtipo_documento_id', $data['subtipo_documento_id']);
-                    }
+            if (filled($data['subtipo_documento_id'] ?? null)) {
+                $query->where('subtipo_documento_id', $data['subtipo_documento_id']);
+            }
 
-                    return $query;
-                }),
+            return $query;
+        }),
 
-            // ✅ Estado (Enum)
-            \Filament\Tables\Filters\SelectFilter::make('estado')
-                ->label('Estado')
-                ->options([
-                    DocumentoEstadoEnum::PENDIENTE->value           => DocumentoEstadoEnum::PENDIENTE->label(),
-                    DocumentoEstadoEnum::VERIFICADO->value          => DocumentoEstadoEnum::VERIFICADO->label(),
-                    DocumentoEstadoEnum::NECESITA_ACLARACION->value => DocumentoEstadoEnum::NECESITA_ACLARACION->label(),
-                    DocumentoEstadoEnum::RECHAZADO->value           => DocumentoEstadoEnum::RECHAZADO->label(),
-                    DocumentoEstadoEnum::ARCHIVADO->value           => DocumentoEstadoEnum::ARCHIVADO->label(),
-                ])
-                ->native(false),
+    // =========================
+    // ✅ 3) SUBIDO POR (Cliente vs AsesorFy)
+    // =========================
+    \Filament\Tables\Filters\TernaryFilter::make('subido_por_cliente')
+        ->label('Subido por')
+        ->placeholder('Todos')
+        ->trueLabel('Cliente')
+        ->falseLabel('AsesorFy')
+        ->queries(
+            true: function (\Illuminate\Database\Eloquent\Builder $query) {
+                $clienteId = $this->getOwnerRecord()->id;
+
+                $portalUserIds = \Illuminate\Support\Facades\DB::table('cliente_user')
+                    ->where('cliente_id', $clienteId)
+                    ->pluck('user_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+                return $query->whereIn('user_id', $portalUserIds);
+            },
+            false: function (\Illuminate\Database\Eloquent\Builder $query) {
+                $clienteId = $this->getOwnerRecord()->id;
+
+                $portalUserIds = \Illuminate\Support\Facades\DB::table('cliente_user')
+                    ->where('cliente_id', $clienteId)
+                    ->pluck('user_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all();
+
+                return $query->whereNotIn('user_id', $portalUserIds);
+            },
+            blank: fn (\Illuminate\Database\Eloquent\Builder $query) => $query,
+        ),
+
+    // =========================
+    // ✅ 4) DATE RANGE (tal cual)
+    // =========================
+    \Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter::make('created_at')
+        ->label('Subido en'),
+// ✅ TOGGLE: Posible duplicado (usa is_duplicate alias => HAVING)
+// Importante: usamos baseQuery() para que NO lo meta dentro de un where() scoped.
+Filter::make('posible_duplicado')
+    ->label('Posible duplicado')
+    ->toggle()
+    ->baseQuery(fn (Builder $query) => $query->having('is_duplicate', '=', 1)),
+
+// ✅ TOGGLE: Solo pendientes
+Filter::make('solo_pendientes')
+    ->label('Pendientes')
+    ->toggle()
+    ->query(fn (Builder $query): Builder => $query->where(
+        'estado',
+        \App\Enums\DocumentoEstadoEnum::PENDIENTE
+    )),
+// ✅ TOGGLE: Necesita aclaración (cliente aún NO ha contestado)
+Filter::make('necesita_aclaracion_sin_respuesta')
+    ->label('Acl. sin respuesta')
+    ->toggle()
+    ->query(fn (Builder $query): Builder => $query
+        ->where('estado', \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION)
+        ->whereNull('aclaracion_respondida_at')
+    ),
+    
+// ✅ TOGGLE: Pendientes con respuesta del cliente
+Filter::make('pendientes_con_respuesta')
+    ->label('Pend. con respuesta')
+    ->toggle()
+    ->query(fn (Builder $query): Builder => $query
+        ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE)
+        ->whereNotNull('aclaracion_respondida_at')
+    ),
+
+], layout: \Filament\Tables\Enums\FiltersLayout::AboveContent)
+
+// ✅ una sola fila
+->filtersFormColumns(8)
 
 
-            // ✅ Purgado (ruta NULL)
-            \Filament\Tables\Filters\TernaryFilter::make('purgado')
-                ->label('Purgado')
-                ->placeholder('Todos')
-                ->trueLabel('Solo purgados')
-                ->falseLabel('Solo con archivo')
-                ->queries(
-                    true: fn (Builder $query) => $query->whereNull('ruta'),
-                    false: fn (Builder $query) => $query->whereNotNull('ruta'),
-                    blank: fn (Builder $query) => $query,
-                ),
-
-            \Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter::make('created_at')
-                ->label('Subido en'),
-        ], layout: \Filament\Tables\Enums\FiltersLayout::AboveContent)
-        //->filtersFormHeading(null)
 
                     ->headerActions([
                         CreateAction::make()

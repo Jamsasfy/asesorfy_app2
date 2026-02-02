@@ -15,7 +15,9 @@ use App\Http\Controllers\Public\StripeSetupController;
 
 use App\Http\Controllers\Webhooks\StripeWebhookController;
 use App\Http\Controllers\ChatMensajeFileController;
+use App\Http\Controllers\Portal\PortalFacturaPdfController;
 
+use App\Http\Controllers\Portal\StripeBillingPortalController;
 
 
 
@@ -127,5 +129,27 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/admin/chat-mensajes/{chatMensaje}/file', ChatMensajeFileController::class)
         ->name('chat-mensajes.file');
 });
+
+//portal
+
+
+//facturas ver y descargar
+Route::middleware(['auth'])->group(function () {
+    Route::get('/portal/facturas/{factura}/pdf', \App\Http\Controllers\Portal\PortalFacturaPdfController::class)
+        ->name('portal.facturas.pdf');
+
+    Route::get('/portal/facturas/{factura}/pdf/descargar', \App\Http\Controllers\Portal\PortalFacturaPdfDownloadController::class)
+        ->name('portal.facturas.pdf.download');
+});
+//portal metodo de pago 
+
+Route::middleware(['web', 'auth'])
+    ->prefix('portal')
+    ->name('portal.')
+    ->group(function () {
+        Route::get('/billing-portal', StripeBillingPortalController::class)
+            ->name('stripe.billing-portal');
+    });
+
 
 require __DIR__.'/auth.php';

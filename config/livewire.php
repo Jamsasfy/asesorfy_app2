@@ -65,7 +65,7 @@ return [
 
     'temporary_file_upload' => [
         'disk' => 'local',
-        'rules' => ['required', 'file', 'max:25600'], // 25MB en KB
+        'rules' => ['required', 'file', 'max:51200'], // 50MB en KB
         'directory' => 'livewire-tmp',
     ],
 

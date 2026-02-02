@@ -33,6 +33,8 @@ class PortalPanelProvider extends PanelProvider
             ->colors([
                 'primary' => '#41c0e9',
             ])
+               ->databaseNotifications()
+        ->databaseNotificationsPolling('30s') // opcional, pero útil
             ->login()
             ->passwordReset(\App\Filament\Portal\Pages\Auth\RequestPasswordReset::class)
             ->sidebarCollapsibleOnDesktop()

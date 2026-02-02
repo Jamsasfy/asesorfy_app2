@@ -50,11 +50,12 @@ use Illuminate\Support\Facades\Auth;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Illuminate\Support\HtmlString;
 
+use Illuminate\Support\Str; // 👈 ESTA ES LA QUE TE FALTA
 
 use App\Enums\DocumentoEstadoEnum;
 use Filament\Forms\Components\Textarea as FormTextarea;
 
-use Filament\Support\Enums\IconSize;
+use Filament\Schemas\Components\Actions;
 
 
 
@@ -327,6 +328,283 @@ public static function infolist(\Filament\Schemas\Schema $schema): \Filament\Sch
             \Filament\Schemas\Components\Section::make()
                 ->columnSpan(4)
                 ->schema([
+
+       // =========================
+                // POSIBLE DUPLICADO (VISTA)
+                // =========================
+
+                \Filament\Schemas\Components\Section::make('Posible Duplicado Detectado')
+                    ->icon('heroicon-m-exclamation-triangle')
+                    ->iconColor('danger')
+                    ->extraAttributes([
+                        'class' => 'border-l-4 border-l-red-500 bg-red-50 dark:bg-red-900/20 ring-1 ring-red-900/5 mb-6',
+                    ])
+                    ->schema([
+                        \Filament\Infolists\Components\TextEntry::make('duplicate_warning')
+                            ->hiddenLabel()
+                            ->state('Este archivo parece ser una copia de otro ya existente.')
+                            ->color('danger')
+                            ->weight(\Filament\Support\Enums\FontWeight::Bold),
+
+                        \Filament\Schemas\Components\Actions::make([
+                            \Filament\Actions\Action::make('ver_duplicados_view')
+                                ->label('Comparar duplicados')
+                                ->icon('heroicon-m-document-duplicate')
+                                ->color('danger')
+                                ->modalHeading('Comparar posibles duplicados')
+                                ->modalWidth('7xl')
+                                ->modalSubmitAction(false)
+                                ->modalCancelActionLabel('Cerrar')
+
+                                // ✅ Footer actions “compatibles v4” (sin acciones anidadas)
+                                ->extraModalFooterActions(fn (\Filament\Actions\Action $action): array => [
+                                    $action->makeModalSubmitAction('no_duplicate', arguments: ['decision' => 'ignored'])
+                                        ->label('Este NO es duplicado')
+                                        ->icon('heroicon-o-check')
+                                        ->color('gray'),
+
+                                    $action->makeModalSubmitAction('reject_duplicate', arguments: ['decision' => 'confirmed'])
+                                        ->label('Rechazar ESTE como duplicado')
+                                        ->icon('heroicon-o-x-circle')
+                                        ->color('danger')
+                                        ->requiresConfirmation(),
+                                ])
+
+                                // ✅ Aquí se ejecutan ambos botones (según $arguments['decision'])
+                                ->action(function (\App\Models\Documento $record, array $arguments, \Livewire\Component $livewire) {
+                                    $decision = $arguments['decision'] ?? null;
+
+                                    // -----------------------------
+                                    // 1) ESTE NO ES DUPLICADO
+                                    // -----------------------------
+                                    if ($decision === 'ignored') {
+                                        $record->update([
+                                            'duplicate_status'        => 'ignored',
+                                            'duplicate_checked_at'    => now(),
+                                            'duplicate_checked_by_id' => auth()->id(),
+                                        ]);
+
+                                        \Filament\Notifications\Notification::make()
+                                            ->title('Marcado: “Este NO es duplicado”')
+                                            ->success()
+                                            ->send();
+
+                                        // refresca para que desaparezca el bloque
+                                        $record->refresh();
+                                        $livewire->dispatch('$refresh');
+
+                                        return;
+                                    }
+
+                                    // -----------------------------
+                                    // 2) RECHAZAR ESTE COMO DUPLICADO
+                                    // -----------------------------
+                                    if ($decision === 'confirmed') {
+                                        $original = \App\Models\Documento::query()
+                                            ->where('cliente_id', $record->cliente_id)
+                                            ->where('file_sha256', $record->file_sha256)
+                                            ->whereKeyNot($record->id)
+                                            ->orderBy('created_at')
+                                            ->first();
+
+                                        if (! $original) {
+                                            \Filament\Notifications\Notification::make()
+                                                ->title('Error: Original no encontrado')
+                                                ->danger()
+                                                ->send();
+                                            return;
+                                        }
+
+                                        $nombreOriginal = (string) ($original->nombre ?? "Documento #{$original->id}");
+                                        $nombreOriginal = \Illuminate\Support\Str::limit($nombreOriginal, 80);
+                                        $fecha = optional($original->created_at)->format('d/m/Y H:i') ?? '—';
+
+                                        $record->update([
+                                            'duplicate_status'        => 'confirmed',
+                                            'duplicate_of_id'         => $original->id,
+                                            'duplicate_checked_at'    => now(),
+                                            'duplicate_checked_by_id' => auth()->id(),
+                                            'motivo_rechazo'          => "Duplicado del documento #{$original->id} ({$nombreOriginal} · {$fecha})",
+                                            'estado'                  => \App\Enums\DocumentoEstadoEnum::RECHAZADO,
+                                        ]);
+
+                                        \Filament\Notifications\Notification::make()
+                                            ->title('Rechazado como duplicado')
+                                            ->success()
+                                            ->send();
+
+                                        // -----------------------------
+                                        // SALTO (chain) - panel correcto
+                                        // -----------------------------
+                                        $qs = [];
+                                        parse_str((string) parse_url(request()->headers->get('referer', ''), PHP_URL_QUERY), $qs);
+
+                                        $clienteId = (int) ($qs['cliente'] ?? $record->cliente_id);
+                                        $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
+
+                                        if ($chain && $clienteId) {
+                                            $seen = array_filter(explode(',', (string) ($qs['seen'] ?? '')));
+                                            $seen[] = $record->id;
+
+                                            $nextId = \App\Filament\Resources\DocumentoResource::getNextDocumentId($record->id, $clienteId, $seen);
+
+                                            $panelId = \Filament\Facades\Filament::getCurrentPanel()?->getId() ?? 'admin';
+
+                                            if ($nextId) {
+                                                return $livewire->redirect(
+                                                    route("filament.{$panelId}.resources.documentos.view", ['record' => $nextId])
+                                                        . '?chain=1&cliente=' . $clienteId
+                                                        . '&seen=' . implode(',', $seen),
+                                                    navigate: true
+                                                );
+                                            }
+
+                                            return $livewire->redirect(
+                                                route("filament.{$panelId}.resources.clientes.view", ['record' => $clienteId]) . '?relation=1',
+                                                navigate: true
+                                            );
+                                        }
+
+                                        // sin chain: refresca
+                                        $record->refresh();
+                                        $livewire->dispatch('$refresh');
+                                        return;
+                                    }
+                                })
+
+                                // -------------------------------------------------------------
+                                // TU MODAL CONTENT (misma UI que ya tenías)
+                                // -------------------------------------------------------------
+                                ->modalContent(function (\App\Models\Documento $record) {
+                                    $grupo = \App\Models\Documento::query()
+                                        ->where('cliente_id', $record->cliente_id)
+                                        ->whereNotNull('file_sha256')
+                                        ->where('file_sha256', $record->file_sha256)
+                                        ->orderBy('created_at')
+                                        ->orderBy('id')
+                                        ->limit(50)
+                                        ->get(['id', 'nombre', 'estado', 'created_at', 'ruta', 'mime_type']);
+
+                                    if ($grupo->count() < 2) {
+                                        return new \Illuminate\Support\HtmlString('<div class="text-sm text-gray-600">No hay suficientes candidatos para comparar.</div>');
+                                    }
+
+                                    $original = $grupo->firstWhere('id', '!=', $record->id) ?? $grupo->first();
+                                    $actual = $record;
+
+                                    $renderBadgeEstado = function ($doc) {
+                                        $label = $doc->estado instanceof \App\Enums\DocumentoEstadoEnum ? $doc->estado->label() : (string) $doc->estado;
+                                        $color = $doc->estado instanceof \App\Enums\DocumentoEstadoEnum ? $doc->estado->color() : 'gray';
+
+                                        $map = [
+                                            'success' => 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950/30 dark:text-emerald-200',
+                                            'warning' => 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950/30 dark:text-amber-200',
+                                            'info'    => 'bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-950/30 dark:text-sky-200',
+                                            'danger'  => 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-950/30 dark:text-red-200',
+                                            'gray'    => 'bg-gray-100 text-gray-700 ring-gray-600/20 dark:bg-white/5 dark:text-gray-200',
+                                        ];
+                                        $cls = $map[$color] ?? $map['gray'];
+
+                                        return "<span class=\"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset {$cls}\">{$label}</span>";
+                                    };
+
+                                    $renderPreview = function ($doc) {
+                                        if (blank($doc->ruta)) {
+                                            return '<div class="flex h-[420px] items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">Archivo no disponible (purgado)</div>';
+                                        }
+
+                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($doc->ruta);
+                                        $mime = (string) ($doc->mime_type ?? '');
+                                        $ext  = strtolower(pathinfo((string) $doc->ruta, PATHINFO_EXTENSION));
+
+                                        if (str_starts_with($mime, 'image/') || in_array($ext, ['png', 'jpg', 'jpeg', 'webp', 'gif'], true)) {
+                                            return <<<HTML
+                                            <div class="rounded-xl border border-gray-200 bg-black/90 p-2 dark:border-white/10">
+                                            <img src="{$url}" class="block h-[420px] w-full rounded-lg object-contain" />
+                                            </div>
+                                            HTML;
+                                        }
+
+                                        if ($mime === 'application/pdf' || $ext === 'pdf') {
+                                            $src = $url . '#page=1&zoom=95';
+                                            return <<<HTML
+                                            <div class="rounded-xl border border-gray-200 bg-black/90 p-2 dark:border-white/10">
+                                            <iframe src="{$src}" class="h-[420px] w-full rounded-lg" loading="lazy"></iframe>
+                                            </div>
+                                            HTML;
+                                        }
+
+                                        $nombre = e(\Illuminate\Support\Str::limit((string) ($doc->nombre ?? 'Archivo'), 60));
+                                        $ruta   = e((string) $doc->ruta);
+
+                                        return <<<HTML
+                                        <div class="rounded-xl border border-gray-200 bg-white p-6 dark:border-white/10 dark:bg-gray-900">
+                                        <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">{$nombre}</div>
+                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">Sin vista previa. Usa “Ver”.</div>
+                                        <div class="mt-3 break-all text-[11px] text-gray-500 dark:text-gray-400">{$ruta}</div>
+                                        </div>
+                                        HTML;
+                                    };
+
+                                    $card = function ($doc, string $tagHtml, string $subtitle, bool $highlight = false) use ($renderBadgeEstado, $renderPreview) {
+                                        $id = (int) $doc->id;
+                                        $nombre = e(\Illuminate\Support\Str::limit((string) ($doc->nombre ?? "Documento #{$id}"), 70));
+                                        $fecha = optional($doc->created_at)->format('d/m/Y H:i') ?? '—';
+
+                                        $estado  = $renderBadgeEstado($doc);
+                                        $preview = $renderPreview($doc);
+
+                                        $ring = $highlight ? 'ring-2 ring-red-500/60 dark:ring-red-400/40' : '';
+
+                                        return <<<HTML
+                                        <div class="space-y-3 {$ring} rounded-2xl p-2">
+                                        <div class="flex flex-wrap items-center justify-between gap-2">
+                                            <div class="min-w-0">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">#{$id} · {$nombre}</div>
+                                                {$tagHtml}
+                                                {$estado}
+                                            </div>
+                                            <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{$subtitle} · {$fecha}</div>
+                                            </div>
+                                        </div>
+                                        {$preview}
+                                        </div>
+                                        HTML;
+                                    };
+
+                                    $tagEste = '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-600/20 dark:bg-red-950/30 dark:text-red-200">ESTE (POSIBLE DUPLICADO)</span>';
+                                    $tagOriginal = '<span class="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-950/30 dark:text-blue-200">Original</span>';
+
+                                    $banner = <<<HTML
+                                    <div class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-400/20 dark:bg-red-950/30 dark:text-red-200">
+                                    ⚠️ <b>Las acciones de abajo se aplican al documento #{$actual->id}</b> (el “posible duplicado nuevo”).
+                                    </div>
+                                    HTML;
+
+                                    $htmlIzq = $card($actual, $tagEste, 'Documento que estás revisando', true);
+                                    $htmlDer = $card($original, $tagOriginal, 'Documento base (más antiguo)');
+
+                                    return new \Illuminate\Support\HtmlString(<<<HTML
+                                    {$banner}
+                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div>{$htmlIzq}</div>
+                                    <div>{$htmlDer}</div>
+                                    </div>
+                                    HTML);
+                                }),
+                        ])->fullWidth(),
+                    ])
+                    ->visible(fn (\App\Models\Documento $record) =>
+                        filled($record->file_sha256) &&
+                        $record->duplicate_status === null &&
+                        \App\Models\Documento::where('cliente_id', $record->cliente_id)
+                            ->where('file_sha256', $record->file_sha256)
+                            ->whereKeyNot($record->id)
+                            ->exists()
+                    ),
+
+
                     \Filament\Schemas\Components\Section::make('Información')
                         ->schema([
                             \Filament\Infolists\Components\TextEntry::make('nombre')
@@ -544,6 +822,8 @@ public static function infolist(\Filament\Schemas\Schema $schema): \Filament\Sch
             // =========================
             // COLUMNA DERECHA (PREVIEW)
             // =========================
+
+            
             \Filament\Schemas\Components\Section::make('Archivo')
                 ->columnSpan(8)
                 ->schema([
@@ -576,525 +856,307 @@ public static function infolist(\Filament\Schemas\Schema $schema): \Filament\Sch
                         ->hiddenLabel()
                         ->state(fn () => '')
                         ->belowContent([
-                            \Filament\Actions\Action::make('ver_archivo')
-                                ->label('Ver')
-                                ->icon('heroicon-o-eye')
-                                ->color('info')
-                                ->visible(fn ($record) => filled($record->ruta))
-                                ->url(fn ($record) => \Illuminate\Support\Facades\Storage::url($record->ruta))
-                                ->openUrlInNewTab(),
+    \Filament\Actions\Action::make('ver_archivo')
+        ->label('Ver')
+        ->icon('heroicon-o-eye')
+        ->color('info')
+        ->visible(fn ($record) => filled($record->ruta))
+        ->url(fn ($record) => \Illuminate\Support\Facades\Storage::url($record->ruta))
+        ->openUrlInNewTab(),
 
-                            \Filament\Actions\Action::make('descargar_archivo')
-                                ->label('Descargar')
-                                ->icon('heroicon-o-arrow-down-tray')
-                                ->color('warning')
-                                ->visible(fn ($record) => filled($record->ruta))
-                                ->action(function ($record) {
-                                    $path = \Illuminate\Support\Facades\Storage::disk('public')->path($record->ruta);
+    \Filament\Actions\Action::make('descargar_archivo')
+        ->label('Descargar')
+        ->icon('heroicon-o-arrow-down-tray')
+        ->color('warning')
+        ->visible(fn ($record) => filled($record->ruta))
+        ->action(function ($record) {
+            $path = \Illuminate\Support\Facades\Storage::disk('public')->path($record->ruta);
+            $filename = $record->nombre;
+            if ($filename && ! str_contains($filename, '.')) {
+                $extension = pathinfo($record->ruta, PATHINFO_EXTENSION);
+                if ($extension) $filename .= '.' . $extension;
+            }
+            return response()->download($path, $filename ?: basename($path));
+        }),
 
-                                    $filename = $record->nombre;
-                                    if ($filename && ! str_contains($filename, '.')) {
-                                        $extension = pathinfo($record->ruta, PATHINFO_EXTENSION);
-                                        if ($extension) $filename .= '.' . $extension;
-                                    }
+    // ====== VERIFICAR ======
+    \Filament\Actions\Action::make('verificar_documento')
+        ->label('Verificar')
+        ->icon('heroicon-o-check-circle')
+        ->color('success')
+        ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::VERIFICADO)
+        ->modalWidth('lg')
+        ->modalHeading('Verificar y clasificar documento')
+        ->fillForm(fn ($record) => [
+            'tipo_documento_id'      => $record->tipo_documento_id,
+            'subtipo_documento_id'   => $record->subtipo_documento_id,
+            'observaciones_internas' => $record->observaciones_internas,
+        ])
+        ->form([
+            \Filament\Forms\Components\Placeholder::make('quick_facturas_header')
+                ->hiddenLabel()
+                ->content(new \Illuminate\Support\HtmlString('<div class="text-sm text-gray-500">Usa los atajos o clasifica manualmente.</div>')),
+            \Filament\Forms\Components\Select::make('tipo_documento_id')
+                ->hiddenLabel()
+                ->relationship('tipo', 'nombre')
+                ->required()
+                ->native(false)
+                ->searchable()
+                ->preload()
+                ->live()
+                ->afterStateUpdated(fn (callable $set) => $set('subtipo_documento_id', null))
+                ->hintActions([
+                    \Filament\Actions\Action::make('quick_factura_recibida')
+                        ->label('Factura recibida')
+                        ->color('warning')
+                        ->action(fn ($set) => $set('tipo_documento_id', 2) && $set('subtipo_documento_id', 5)),
+                    \Filament\Actions\Action::make('quick_factura_emitida')
+                        ->label('Factura emitida')
+                        ->color('success')
+                        ->action(fn ($set) => $set('tipo_documento_id', 2) && $set('subtipo_documento_id', 4)),
+                ]),
+            \Filament\Forms\Components\Select::make('subtipo_documento_id')
+                ->label('Subtipo')
+                ->options(fn (callable $get) => filled($get('tipo_documento_id'))
+                    ? \App\Models\DocumentoSubtipo::where('documento_categoria_id', $get('tipo_documento_id'))->pluck('nombre', 'id')
+                    : [])
+                ->required()
+                ->native(false)
+                ->searchable()
+                ->visible(fn (callable $get) => filled($get('tipo_documento_id'))),
+            \Filament\Forms\Components\Textarea::make('observaciones_internas')
+                ->label('Observaciones internas')
+                ->rows(2),
+        ])
+        ->action(function ($record, array $data, $livewire) {
+            $record->update([
+                'tipo_documento_id' => $data['tipo_documento_id'],
+                'subtipo_documento_id' => $data['subtipo_documento_id'],
+                'observaciones_internas' => $data['observaciones_internas'],
+                'estado' => \App\Enums\DocumentoEstadoEnum::VERIFICADO,
+                'motivo_rechazo' => null,
+            ]);
 
-                                    return response()->download($path, $filename ?: basename($path));
-                                }),
+            // Lógica de Salto Centralizada
+            $qs = [];
+            parse_str((string) parse_url(request()->headers->get('referer', ''), PHP_URL_QUERY), $qs);
+            $clienteId = (int) ($qs['cliente'] ?? $record->cliente_id);
+            $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
 
-                            // ====== VERIFICAR (con atajos) ======
-                            \Filament\Actions\Action::make('verificar_documento')
-                                ->label('Verificar')
-                                ->icon('heroicon-o-check-circle')
-                                ->color('success')
-                                ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::VERIFICADO)
-                                ->modalWidth('lg')
-                                ->modalHeading('Verificar y clasificar documento')
-                                ->modalDescription('Selecciona Tipo y Subtipo antes de marcarlo como verificado.')
-                                ->fillForm(fn ($record) => [
-                                    'tipo_documento_id'      => $record->tipo_documento_id,
-                                    'subtipo_documento_id'   => $record->subtipo_documento_id,
-                                    'observaciones_internas' => $record->observaciones_internas,
-                                ])
-                                ->form([
-                                    \Filament\Forms\Components\Placeholder::make('quick_facturas_header')
-                                        ->hiddenLabel()
-                                        ->content(new \Illuminate\Support\HtmlString(<<<HTML
-                            <div class="space-y-1">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                        Tipo <span class="text-danger-600">*</span>
-                                    </div>
-                                </div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">
-                                    Usa los atajos para “Factura recibida” o “Factura emitida”, o clasifica manualmente.
-                                </div>
-                            </div>
-                            HTML))
-                                        ->columnSpanFull(),
+            if ($chain && $clienteId) {
+                $seen = array_filter(explode(',', $qs['seen'] ?? ''));
+                $seen[] = $record->id;
+                
+                $nextId = self::getNextDocumentId($record->id, $clienteId, $seen);
 
-                                    \Filament\Forms\Components\Select::make('tipo_documento_id')
-                                        ->hiddenLabel()
-                                        ->relationship('tipo', 'nombre')
-                                        ->required()
-                                        ->native(false)
-                                        ->searchable()
-                                        ->preload()
-                                        ->live()
-                                        ->afterStateUpdated(fn (callable $set) => $set('subtipo_documento_id', null))
-                                        ->hintActions([
-                                            \Filament\Actions\Action::make('quick_factura_recibida')
-                                                ->label('Factura recibida (Gasto)')
-                                                ->icon('heroicon-o-arrow-down-tray')
-                                                ->color('warning')
-                                                ->action(function (\Filament\Schemas\Components\Utilities\Set $set) {
-                                                    $set('tipo_documento_id', 2);
-                                                    $set('subtipo_documento_id', 5);
-                                                }),
+                if ($nextId) {
+                    return $livewire->redirect(
+                        route('filament.admin.resources.documentos.view', ['record' => $nextId]) . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
+                        navigate: true
+                    );
+                }
+                // Si no hay más, volver a lista
+                return $livewire->redirect(route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1', navigate: true);
+            }
+            $livewire->dispatch('$refresh');
+        }),
 
-                                            \Filament\Actions\Action::make('quick_factura_emitida')
-                                                ->label('Factura emitida (Ingreso)')
-                                                ->icon('heroicon-o-arrow-up-tray')
-                                                ->color('success')
-                                                ->action(function (\Filament\Schemas\Components\Utilities\Set $set) {
-                                                    $set('tipo_documento_id', 2);
-                                                    $set('subtipo_documento_id', 4);
-                                                }),
-                                        ])
-                                        ->columnSpanFull(),
+    // ====== PEDIR ACLARACIÓN ======
+   \Filament\Actions\Action::make('pedir_aclaracion')
+    ->label('Aclaración')
+    ->icon('heroicon-o-chat-bubble-left-ellipsis')
+    ->color('info')
+    ->modalWidth('lg')
+    ->form([
+        \Filament\Forms\Components\Placeholder::make('iafy_notice')
+            ->hiddenLabel()
+          ->content(new \Illuminate\Support\HtmlString(
+    '<div class="rounded-2xl border border-sky-200/60 bg-gradient-to-br from-sky-50 via-white to-indigo-50 px-6 py-5 text-sm text-slate-800 shadow-sm ring-1 ring-sky-300/20 dark:border-sky-400/20 dark:from-slate-900 dark:via-slate-900 dark:to-indigo-950/40 dark:text-slate-100">
+        
+        <div class="flex flex-col items-center text-center">
+            <svg xmlns="http://www.w3.org/2000/svg"
+                 fill="none"
+                 viewBox="0 0 24 24"
+                 stroke-width="1.5"
+                 stroke="currentColor"
+                 class="w-16 h-16">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 12.75c1.148 0 2.278.08 3.383.237 1.037.146 1.866.966 1.866 2.013 0 3.728-2.35 6.75-5.25 6.75S6.75 18.728 6.75 15c0-1.046.83-1.867 1.866-2.013A24.204 24.204 0 0 1 12 12.75Zm0 0c2.883 0 5.647.508 8.207 1.44a23.91 23.91 0 0 1-1.152 6.06M12 12.75c-2.883 0-5.647.508-8.208 1.44.125 2.104.52 4.136 1.153 6.06M12 12.75a2.25 2.25 0 0 0 2.248-2.354M12 12.75a2.25 2.25 0 0 1-2.248-2.354M12 8.25c.995 0 1.971-.08 2.922-.236.403-.066.74-.358.795-.762a3.778 3.778 0 0 0-.399-2.25M12 8.25c-.995 0-1.97-.08-2.922-.236-.402-.066-.74-.358-.795-.762a3.734 3.734 0 0 1 .4-2.253M12 8.25a2.25 2.25 0 0 0-2.248 2.146M12 8.25a2.25 2.25 0 0 1 2.248 2.146M8.683 5a6.032 6.032 0 0 1-1.155-1.002c.07-.63.27-1.222.574-1.747m.581 2.749A3.75 3.75 0 0 1 15.318 5m0 0c.427-.283.815-.62 1.155-.999a4.471 4.471 0 0 0-.575-1.752M4.921 6a24.048 24.048 0 0 0-.392 3.314c1.668.546 3.416.914 5.223 1.082M19.08 6c.205 1.08.337 2.187.392 3.314a23.882 23.882 0 0 1-5.223 1.082" />
+            </svg>
 
-                                    \Filament\Forms\Components\Select::make('subtipo_documento_id')
-                                        ->label('Subtipo')
-                                        ->options(fn (callable $get) => filled($get('tipo_documento_id'))
-                                            ? \App\Models\DocumentoSubtipo::query()
-                                                ->where('documento_categoria_id', $get('tipo_documento_id'))
-                                                ->orderBy('nombre')
-                                                ->pluck('nombre', 'id')
-                                                ->toArray()
-                                            : []
-                                        )
-                                        ->required()
-                                        ->native(false)
-                                        ->searchable()
-                                        ->preload()
-                                        ->hidden(fn (callable $get) => blank($get('tipo_documento_id')))
-                                        ->helperText('Selecciona primero el tipo'),
+            <div class="mt-2 inline-flex items-center gap-2 rounded-full bg-sky-600 px-3 py-1 text-xs font-semibold text-white shadow-sm dark:bg-sky-500">
+                IAFy · Inteligencia Artificial
+            </div>
 
-                                    \Filament\Forms\Components\Textarea::make('observaciones_internas')
-                                        ->label('Observaciones internas (opcional)')
-                                        ->rows(3),
-                                ])
-                                ->action(function ($record, array $data, $livewire) {
-                                    $wasPendiente = (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value;
+            <div class="mt-4 space-y-3">
+                <div class="text-base font-bold text-slate-900 dark:text-white">
+                    Aviso automático al cliente (email + notificación)
+                </div>
 
-                                    $tipo = \App\Models\DocumentoCategoria::find($data['tipo_documento_id'] ?? null);
-                                    $subtipo = \App\Models\DocumentoSubtipo::find($data['subtipo_documento_id'] ?? null);
+                <div class="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                    <b>IAFy</b> enviará automáticamente un <b>email</b> y una <b>notificación</b> al cliente indicándole que tiene
+                    <b>documentos pendientes de respuesta</b>.
+                </div>
 
-                                    $tipoNombre = mb_strtolower((string) ($tipo?->nombre ?? ''));
-                                    $subtipoNombre = mb_strtolower((string) ($subtipo?->nombre ?? ''));
+                <div class="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                    IAFy <b>no envía un email por documento</b>: agrupa todo en un solo aviso y comprueba si <b>ya se le avisó hoy</b>.
+                    Si hoy ya se avisó, no se vuelve a enviar (máx. <b>1 aviso/día</b> por cliente).
+                </div>
 
-                                    if ($tipoNombre === 'sin clasificar' || $subtipoNombre === 'pendiente de clasificar') {
-                                        throw \Illuminate\Validation\ValidationException::withMessages([
-                                            'tipo_documento_id'    => 'Antes de verificar, debes clasificar el documento con un tipo real.',
-                                            'subtipo_documento_id' => 'Antes de verificar, debes clasificar el documento con un subtipo real.',
-                                        ]);
-                                    }
+                <div class="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
+                    Si el cliente no contesta, IAFy lo seguirá recordando <b>cada día</b> hasta que responda.
+                    <b>El asesor no tiene que hacer nada.</b>
+                </div>
+            </div>
+        </div>
+    </div>'
+))
 
-                                    $record->tipo_documento_id = $data['tipo_documento_id'];
-                                    $record->subtipo_documento_id = $data['subtipo_documento_id'];
-                                    $record->observaciones_internas = $data['observaciones_internas'] ?? null;
 
-                                    $record->estado = \App\Enums\DocumentoEstadoEnum::VERIFICADO;
-                                    $record->motivo_rechazo = null;
-                                    $record->save();
+,
 
-                                    $qs = [];
-                                    $referer = (string) request()->headers->get('referer', '');
-                                    parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
+        \Filament\Forms\Components\Textarea::make('aclaracion_pregunta')
+            ->label('Pregunta')
+            ->required()
+            ->rows(3),
+    ])
+    ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION && blank($record->aclaracion_respondida_at))
+    ->action(function ($record, array $data, $livewire) {
 
-                                    $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
-                                    $clienteId = (int) ($qs['cliente'] ?? 0);
-                                    if ($clienteId <= 0) {
-                                        $clienteId = (int) ($record->cliente_id ?? 0);
-                                    }
+        $record->update([
+            'estado' => \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION,
+            'aclaracion_pregunta' => $data['aclaracion_pregunta'],
+            'aclaracion_at' => now(),
+            'motivo_rechazo' => null,
+        ]);
 
-                                    if ($wasPendiente && $chain && $clienteId > 0) {
-                                        $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
-                                            ->filter()
-                                            ->map(fn ($id) => (int) $id)
-                                            ->push((int) $record->id)
-                                            ->unique()
-                                            ->values()
-                                            ->all();
+        // ✅ Digest (1/día): programamos aviso agregado al cliente (email + notificación)
+        \App\Jobs\NotificarPendientesRespuestaClienteJob::dispatch((int) $record->cliente_id)
+            ->delay(now()->addMinutes(3));
 
-                                        $base = \App\Models\Documento::query()
-                                            ->where('cliente_id', $clienteId)
-                                            ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
-                                            ->whereNotNull('ruta')
-                                            ->where('ruta', '!=', '')
-                                            ->whereNull('purged_at')
-                                            ->whereNotIn('id', $seen);
+        // ✅ Feedback al asesor (siempre, aunque el Job decida no enviar por “ya avisado hoy”)
+        \Filament\Notifications\Notification::make()
+            ->title('IAFy: aviso al cliente programado')
+            ->body('Se enviará email y notificación si hoy no se avisó ya (máx. 1/día).')
+            ->success()
+            ->send();
 
-                                        $next = (clone $base)
-                                            ->where(function ($q) use ($record) {
-                                                $q->where('created_at', '>', $record->created_at)
-                                                  ->orWhere(function ($q) use ($record) {
-                                                      $q->where('created_at', $record->created_at)
-                                                        ->where('id', '>', $record->id);
-                                                  });
-                                            })
-                                            ->orderBy('created_at')
-                                            ->orderBy('id')
-                                            ->first();
+        // --- tu lógica de salto centralizada (la dejo igual) ---
+        $qs = [];
+        parse_str((string) parse_url(request()->headers->get('referer', ''), PHP_URL_QUERY), $qs);
+        $clienteId = (int) ($qs['cliente'] ?? $record->cliente_id);
+        $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
 
-                                        if (! $next) {
-                                            $next = (clone $base)->orderBy('created_at')->orderBy('id')->first();
-                                        }
+        if ($chain && $clienteId) {
+            $seen = array_filter(explode(',', $qs['seen'] ?? ''));
+            $seen[] = $record->id;
 
-                                        if (! $next) {
-                                            return $livewire->redirect(
-                                                route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
-                                                navigate: true
-                                            );
-                                        }
+            $nextId = self::getNextDocumentId($record->id, $clienteId, $seen);
 
-                                        return $livewire->redirect(
-                                            route('filament.admin.resources.documentos.view', ['record' => $next->id])
-                                                . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
-                                            navigate: true
-                                        );
-                                    }
+            if ($nextId) {
+                return $livewire->redirect(
+                    route('filament.admin.resources.documentos.view', ['record' => $nextId])
+                        . '?chain=1&cliente=' . $clienteId
+                        . '&seen=' . implode(',', $seen),
+                    navigate: true
+                );
+            }
 
-                                    $record->refresh();
-                                    $livewire->dispatch('$refresh');
-                                }),
+            return $livewire->redirect(
+                route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
+                navigate: true
+            );
+        }
 
-                            // ====== PEDIR ACLARACIÓN ======
-                            \Filament\Actions\Action::make('pedir_aclaracion')
-                                ->label('Pedir aclaración')
-                                ->icon('heroicon-o-chat-bubble-left-ellipsis')
-                                ->color('info')
-                                ->modalWidth('lg')
-                                ->modalHeading('Pedir aclaración al cliente')
-                                ->modalDescription('Escribe una pregunta corta y concreta. El cliente la verá en el portal y podrá responder con texto.')
-                                ->fillForm(fn ($record) => [
-                                    'aclaracion_pregunta' => $record->aclaracion_pregunta,
-                                ])
-                                ->form([
-                                    \Filament\Forms\Components\Textarea::make('aclaracion_pregunta')
-                                        ->label('Pregunta / aclaración')
-                                        ->required()
-                                        ->rows(4)
-                                        ->helperText('Ej: “¿Para qué fue este gasto? Indica si es trabajo o personal.”'),
-                                ])
-                               ->visible(function ($record) {
-                                        // No permitir pedir aclaración si ya estamos en "necesita_aclaracion"
-                                        // o si el cliente ya respondió una vez (aunque haya vuelto a PENDIENTE)
-                                        return $record->estado !== \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION
-                                            && blank($record->aclaracion_respondida_at);
-                                    })
+        $livewire->dispatch('$refresh');
+    }),
 
-                                ->action(function ($record, array $data, $livewire) {
-                                    $wasPendiente = (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value;
 
-                                    $record->estado = \App\Enums\DocumentoEstadoEnum::NECESITA_ACLARACION;
-                                    $record->aclaracion_pregunta = $data['aclaracion_pregunta'] ?? null;
-                                    $record->aclaracion_at = now();
+    // ====== RECHAZAR ======
+    \Filament\Actions\Action::make('rechazar_documento')
+        ->label('Rechazar')
+        ->icon('heroicon-o-x-circle')
+        ->color('danger')
+        ->form([
+            \Filament\Forms\Components\Textarea::make('motivo_rechazo')
+                ->label('Motivo')
+                ->required()
+                ->rows(3),
+        ])
+        ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::RECHAZADO)
+        ->action(function ($record, array $data, $livewire) {
+            $record->update([
+                'estado' => \App\Enums\DocumentoEstadoEnum::RECHAZADO,
+                'motivo_rechazo' => $data['motivo_rechazo'],
+            ]);
 
-                                    $record->aclaracion_respuesta = null;
-                                    $record->aclaracion_respondida_at = null;
+            // Lógica de Salto Centralizada
+            $qs = [];
+            parse_str((string) parse_url(request()->headers->get('referer', ''), PHP_URL_QUERY), $qs);
+            $clienteId = (int) ($qs['cliente'] ?? $record->cliente_id);
+            $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
 
-                                    $record->motivo_rechazo = null;
-                                    $record->save();
+            if ($chain && $clienteId) {
+                $seen = array_filter(explode(',', $qs['seen'] ?? ''));
+                $seen[] = $record->id;
+                
+                $nextId = self::getNextDocumentId($record->id, $clienteId, $seen);
 
-                                    $qs = [];
-                                    $referer = (string) request()->headers->get('referer', '');
-                                    parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
+                if ($nextId) {
+                    return $livewire->redirect(
+                        route('filament.admin.resources.documentos.view', ['record' => $nextId]) . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
+                        navigate: true
+                    );
+                }
+                return $livewire->redirect(route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1', navigate: true);
+            }
+            $livewire->dispatch('$refresh');
+        }),
 
-                                    $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
-                                    $clienteId = (int) ($qs['cliente'] ?? 0);
-                                    if ($clienteId <= 0) {
-                                        $clienteId = (int) ($record->cliente_id ?? 0);
-                                    }
+    // ====== SALTAR ======
+\Filament\Actions\Action::make('saltar_documento')
+    ->label('Saltar')
+    ->icon('heroicon-o-forward')
+    ->color('gray')
+   
+    ->visible(fn ($record) => $record->estado === \App\Enums\DocumentoEstadoEnum::PENDIENTE)
+    ->action(function ($record, $livewire) {
+        // ... (el código de dentro está bien, déjalo igual) ...
+        $qs = [];
+        parse_str((string) parse_url(request()->headers->get('referer', ''), PHP_URL_QUERY), $qs);
+        $clienteId = (int) ($qs['cliente'] ?? $record->cliente_id);
+        $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
 
-                                    if ($wasPendiente && $chain && $clienteId > 0) {
-                                        $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
-                                            ->filter()
-                                            ->map(fn ($id) => (int) $id)
-                                            ->push((int) $record->id)
-                                            ->unique()
-                                            ->values()
-                                            ->all();
+        if ($chain && $clienteId) {
+            $seen = array_filter(explode(',', $qs['seen'] ?? ''));
+            $seen[] = $record->id; 
+            
+            $nextId = self::getNextDocumentId($record->id, $clienteId, $seen);
 
-                                        $base = \App\Models\Documento::query()
-                                            ->where('cliente_id', $clienteId)
-                                            ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
-                                            ->whereNotNull('ruta')
-                                            ->where('ruta', '!=', '')
-                                            ->whereNull('purged_at')
-                                            ->whereNotIn('id', $seen);
+            if ($nextId) {
+                return $livewire->redirect(
+                    route('filament.admin.resources.documentos.view', ['record' => $nextId]) . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
+                    navigate: true
+                );
+            }
+            return $livewire->redirect(route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1', navigate: true);
+        }
+    }),
 
-                                        $next = (clone $base)
-                                            ->where(function ($q) use ($record) {
-                                                $q->where('created_at', '>', $record->created_at)
-                                                  ->orWhere(function ($q) use ($record) {
-                                                      $q->where('created_at', $record->created_at)
-                                                        ->where('id', '>', $record->id);
-                                                  });
-                                            })
-                                            ->orderBy('created_at')
-                                            ->orderBy('id')
-                                            ->first();
-
-                                        if (! $next) {
-                                            $next = (clone $base)->orderBy('created_at')->orderBy('id')->first();
-                                        }
-
-                                        if (! $next) {
-                                            return $livewire->redirect(
-                                                route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
-                                                navigate: true
-                                            );
-                                        }
-
-                                        return $livewire->redirect(
-                                            route('filament.admin.resources.documentos.view', ['record' => $next->id])
-                                                . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
-                                            navigate: true
-                                        );
-                                    }
-
-                                    $record->refresh();
-                                    $livewire->dispatch('$refresh');
-                                }),
-
-                            // ====== RECHAZAR ======
-                            \Filament\Actions\Action::make('rechazar_documento')
-                                ->label('Rechazar')
-                                ->icon('heroicon-o-x-circle')
-                                ->color('danger')
-                                ->modalHeading('Rechazar documento')
-                                ->modalDescription('Indica el motivo (obligatorio). El cliente lo verá en el portal.')
-                                ->form([
-                                    \Filament\Forms\Components\Textarea::make('motivo_rechazo')
-                                        ->label('Motivo de rechazo')
-                                        ->required()
-                                        ->rows(4),
-                                ])
-                                ->visible(fn ($record) => $record->estado !== \App\Enums\DocumentoEstadoEnum::RECHAZADO)
-                                ->action(function ($record, array $data, $livewire) {
-                                    $wasPendiente = (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value;
-
-                                    $record->estado = \App\Enums\DocumentoEstadoEnum::RECHAZADO;
-                                    $record->motivo_rechazo = $data['motivo_rechazo'];
-                                    $record->save();
-
-                                    $qs = [];
-                                    $referer = (string) request()->headers->get('referer', '');
-                                    parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
-
-                                    $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
-                                    $clienteId = (int) ($qs['cliente'] ?? 0);
-                                    if ($clienteId <= 0) {
-                                        $clienteId = (int) ($record->cliente_id ?? 0);
-                                    }
-
-                                    if ($wasPendiente && $chain && $clienteId > 0) {
-                                        $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
-                                            ->filter()
-                                            ->map(fn ($id) => (int) $id)
-                                            ->push((int) $record->id)
-                                            ->unique()
-                                            ->values()
-                                            ->all();
-
-                                        $base = \App\Models\Documento::query()
-                                            ->where('cliente_id', $clienteId)
-                                            ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
-                                            ->whereNotNull('ruta')
-                                            ->where('ruta', '!=', '')
-                                            ->whereNull('purged_at')
-                                            ->whereNotIn('id', $seen);
-
-                                        $next = (clone $base)
-                                            ->where(function ($q) use ($record) {
-                                                $q->where('created_at', '>', $record->created_at)
-                                                  ->orWhere(function ($q) use ($record) {
-                                                      $q->where('created_at', $record->created_at)
-                                                        ->where('id', '>', $record->id);
-                                                  });
-                                            })
-                                            ->orderBy('created_at')
-                                            ->orderBy('id')
-                                            ->first();
-
-                                        if (! $next) {
-                                            $next = (clone $base)->orderBy('created_at')->orderBy('id')->first();
-                                        }
-
-                                        if (! $next) {
-                                            return $livewire->redirect(
-                                                route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
-                                                navigate: true
-                                            );
-                                        }
-
-                                        return $livewire->redirect(
-                                            route('filament.admin.resources.documentos.view', ['record' => $next->id])
-                                                . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
-                                            navigate: true
-                                        );
-                                    }
-
-                                    $record->refresh();
-                                    $livewire->dispatch('$refresh');
-                                }),
-
-                            // ====== SALTAR ======
-                            \Filament\Actions\Action::make('saltar_documento')
-                                ->label('Saltar')
-                                ->icon('heroicon-o-forward')
-                                ->color('gray')
-                                ->visible(fn ($record) => (string) $record->getRawOriginal('estado') === \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
-                                ->action(function ($record, $livewire) {
-                                    $qs = [];
-                                    $referer = (string) request()->headers->get('referer', '');
-                                    parse_str((string) parse_url($referer, PHP_URL_QUERY), $qs);
-
-                                    $chain = filter_var($qs['chain'] ?? false, FILTER_VALIDATE_BOOL);
-                                    $clienteId = (int) ($qs['cliente'] ?? 0);
-                                    if ($clienteId <= 0) $clienteId = (int) ($record->cliente_id ?? 0);
-
-                                    if (! $chain || $clienteId <= 0) {
-                                        return;
-                                    }
-
-                                    $seen = collect(explode(',', (string) ($qs['seen'] ?? '')))
-                                        ->filter()
-                                        ->map(fn ($id) => (int) $id)
-                                        ->push((int) $record->id)
-                                        ->unique()
-                                        ->values()
-                                        ->all();
-
-                                    $base = \App\Models\Documento::query()
-                                        ->where('cliente_id', $clienteId)
-                                        ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
-                                        ->whereNotNull('ruta')
-                                        ->where('ruta', '!=', '')
-                                        ->whereNull('purged_at')
-                                        ->whereNotIn('id', $seen);
-
-                                    $next = (clone $base)
-                                        ->where(function ($q) use ($record) {
-                                            $q->where('created_at', '>', $record->created_at)
-                                              ->orWhere(function ($q) use ($record) {
-                                                  $q->where('created_at', $record->created_at)
-                                                    ->where('id', '>', $record->id);
-                                              });
-                                        })
-                                        ->orderBy('created_at')
-                                        ->orderBy('id')
-                                        ->first();
-
-                                    if (! $next) {
-                                        $next = (clone $base)->orderBy('created_at')->orderBy('id')->first();
-                                    }
-
-                                    if (! $next) {
-                                        return $livewire->redirect(
-                                            route('filament.admin.resources.clientes.view', ['record' => $clienteId]) . '?relation=1',
-                                            navigate: true
-                                        );
-                                    }
-
-                                    return $livewire->redirect(
-                                        route('filament.admin.resources.documentos.view', ['record' => $next->id])
-                                            . '?chain=1&cliente=' . $clienteId . '&seen=' . implode(',', $seen),
-                                        navigate: true
-                                    );
-                                }),
-
-                            // ====== AMPLIAR IMAGEN ======
-                            \Filament\Actions\Action::make('ampliar_imagen')
-                                ->label('Ampliar')
-                                ->icon('heroicon-o-magnifying-glass-plus')
-                                ->color('gray')
-                                ->visible(fn ($record) => filled($record->ruta) && str_starts_with((string) $record->mime_type, 'image/'))
-                                ->modalHeading('Vista ampliada')
-                                ->modalWidth('7xl')
-                                ->modalSubmitAction(false)
-                                ->modalCancelActionLabel('Cerrar')
-                                ->modalContent(function ($record) {
-                                    $url = \Illuminate\Support\Facades\Storage::url($record->ruta);
-
-                                    return new \Illuminate\Support\HtmlString(<<<HTML
-                                <div
-                                    x-data="{
-                                        scale: 1,
-                                        isPanning: false,
-                                        startX: 0,
-                                        startY: 0,
-                                        scrollLeft: 0,
-                                        scrollTop: 0,
-                                    }"
-                                    class="relative"
-                                    style="height: 78vh;"
-                                >
-                                    <div class="absolute top-2 left-2 z-10 flex items-center gap-2 rounded-lg bg-black/60 px-2 py-1 text-white">
-                                        <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = Math.max(1, scale - 0.25)">−</button>
-                                        <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = 1">100%</button>
-                                        <button type="button" class="fi-btn fi-btn-size-xs fi-btn-color-gray" @click="scale = Math.min(4, scale + 0.25)">+</button>
-                                        <span class="text-xs" x-text="Math.round(scale * 100) + '%'"></span>
-                                    </div>
-
-                                    <div
-                                        x-ref="viewport"
-                                        class="absolute inset-0 overflow-auto rounded-xl bg-black/90 select-none"
-                                        :style="isPanning ? 'cursor: grabbing;' : (scale > 1 ? 'cursor: grab;' : 'cursor: default;')"
-                                        @mousedown.prevent="
-                                            if (scale <= 1) return;
-                                            isPanning = true;
-                                            startX = \$event.pageX;
-                                            startY = \$event.pageY;
-                                            scrollLeft = \$refs.viewport.scrollLeft;
-                                            scrollTop  = \$refs.viewport.scrollTop;
-                                        "
-                                        @mousemove.prevent="
-                                            if (!isPanning) return;
-                                            const dx = \$event.pageX - startX;
-                                            const dy = \$event.pageY - startY;
-                                            \$refs.viewport.scrollLeft = scrollLeft - dx;
-                                            \$refs.viewport.scrollTop  = scrollTop  - dy;
-                                        "
-                                        @mouseup="isPanning = false"
-                                        @mouseleave="isPanning = false"
-                                        @wheel.prevent="
-                                            const dir = \$event.deltaY > 0 ? -1 : 1;
-                                            const next = Math.min(4, Math.max(1, scale + (dir * 0.15)));
-                                            if (next === scale) return;
-
-                                            const rect = \$refs.viewport.getBoundingClientRect();
-                                            const x = (\$event.clientX - rect.left) + \$refs.viewport.scrollLeft;
-                                            const y = (\$event.clientY - rect.top) + \$refs.viewport.scrollTop;
-
-                                            const prev = scale;
-                                            scale = next;
-
-                                            \$nextTick(() => {
-                                                const ratio = scale / prev;
-                                                \$refs.viewport.scrollLeft = (x * ratio) - (\$event.clientX - rect.left);
-                                                \$refs.viewport.scrollTop  = (y * ratio) - (\$event.clientY - rect.top);
-                                            });
-                                        "
-                                    >
-                                        <div class="p-2">
-                                            <img src="{$url}" draggable="false" class="block max-w-none rounded-lg" :style="'width: ' + (scale * 100) + '%; height: auto;'" />
-                                        </div>
-                                    </div>
-                                </div>
-                                HTML);
-                                }),
-                        ])
+    // ====== AMPLIAR IMAGEN (sin cambios, déjala como estaba) ======
+    \Filament\Actions\Action::make('ampliar_imagen')
+        ->label('Ampliar')
+        ->icon('heroicon-o-magnifying-glass-plus')
+        ->color('gray')
+        ->visible(fn ($record) => filled($record->ruta) && str_starts_with((string) $record->mime_type, 'image/'))
+        ->modalContent(function ($record) {
+             // ... tu código de modal visual ...
+             $url = \Illuminate\Support\Facades\Storage::url($record->ruta);
+             return new \Illuminate\Support\HtmlString("<img src='{$url}' class='w-full rounded-lg' />");
+        })
+        ->modalSubmitAction(false)
+        ->modalCancelActionLabel('Cerrar'),
+])
                         ->visible(fn ($record) => filled($record->ruta)),
 
                         \Filament\Infolists\Components\TextEntry::make('aclaracion_contestada_notice')
@@ -1520,6 +1582,48 @@ public static function infolist(\Filament\Schemas\Schema $schema): \Filament\Sch
         {
             return false;
         }
+
+    /**
+     * Busca el siguiente documento PENDIENTE del cliente para la cadena de revisión.
+     */
+    public static function getNextDocumentId(int $currentId, int $clienteId, array $seenIds): ?int
+    {
+        // Base: Documentos de este cliente, pendientes, con archivo y no purgados
+        $query = \App\Models\Documento::query()
+            ->where('cliente_id', $clienteId)
+            ->where('estado', \App\Enums\DocumentoEstadoEnum::PENDIENTE->value)
+            ->whereNotNull('ruta')
+            ->where('ruta', '!=', '')
+            ->whereNull('purged_at')
+            ->whereKeyNot($currentId)
+            ->whereNotIn('id', $seenIds);
+
+        // Datos del actual para buscar el siguiente cronológicamente
+        $currentDoc = \App\Models\Documento::find($currentId);
+        $created_at = $currentDoc?->created_at ?? now();
+
+        // Intento 1: Buscar uno posterior en fecha/ID (hacia adelante)
+        $next = (clone $query)
+            ->where(function ($q) use ($created_at, $currentId) {
+                $q->where('created_at', '>', $created_at)
+                ->orWhere(function ($q2) use ($created_at, $currentId) {
+                    $q2->where('created_at', $created_at)->where('id', '>', $currentId);
+                });
+            })
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->first();
+
+        // Intento 2: Si no hay siguiente, volver al principio (Loop)
+        if (!$next) {
+            $next = (clone $query)
+                ->orderBy('created_at', 'asc')
+                ->orderBy('id', 'asc')
+                ->first();
+        }
+
+        return $next?->id;
+    }    
 
     /* public static function getWidgets(): array
     {

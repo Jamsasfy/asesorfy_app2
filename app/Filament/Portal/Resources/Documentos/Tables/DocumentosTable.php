@@ -37,6 +37,7 @@ class DocumentosTable
         return $table
             ->recordUrl(null)
             ->poll(10)
+             ->deferFilters(false)
             ->modifyQueryUsing(fn ($query) => $query->where('hidden_in_portal', false))
             ->columns([
                 // 🔁 Subido por (icono tipo “llamadas”)
@@ -339,32 +340,67 @@ class DocumentosTable
                             ->visible($tieneVarios)
                             ->columnSpanFull(),
 
-                       FileUpload::make('rutas')
-                        ->label('Archivos')
-                        ->disk('public')
-                        ->directory('documentos')
-                        ->maxSize(32768)
-                        ->required()
-                        ->multiple()
-                        ->previewable(false) // ✅ fuera miniaturas/previews (compacto y seguro)
-                        ->maxFiles(20)       // ✅ evita modal infinito por cantidad
-                        ->helperText('Puedes subir varios a la vez (máx. 20 por tanda). Si tienes más, repite el proceso.')
-                        ->uploadingMessage('Subiendo archivos… espera a que termine para enviar')
-                        ->acceptedFileTypes([
-                            'application/pdf',
-                            'image/jpeg',
-                            'image/png',
-                            'image/webp',
-                            'image/gif',
-                            'application/msword',
-                            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                            'application/vnd.ms-excel',
-                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                        ])
-                        ->visibility('public')
-                        ->columnSpanFull(),
+                        FileUpload::make('rutas')
+                            ->label('Archivos')
+                            ->disk('public')
+                            ->directory('documentos')
+                            ->maxSize(51200) // 50MB
+                            ->validationAttribute('Archivos')
+                            ->validationMessages([
+                                'uploaded' => 'El archivo no se pudo subir. Asegúrate de que no supera el tamaño máximo permitido.',
+                                'max'      => 'El archivo supera el tamaño máximo permitido (50 MB).',
+                            ])
+                            ->required()
+                            ->multiple()
+                            ->previewable(false) // ✅ fuera miniaturas/previews (compacto y seguro)
+                            ->maxFiles(20)       // ✅ evita modal infinito por cantidad
+                            ->helperText('Puedes subir varios a la vez (máx. 20 por tanda). Si tienes más, repite el proceso.')
+                            ->hint(function () {
+                                $maxKb = 51200; // tu maxSize() (KB)
 
+                                $toBytes = function (?string $val): int {
+                                    $val = trim((string) $val);
+                                    if ($val === '') return 0;
+                                    $last = strtolower($val[strlen($val) - 1]);
+                                    $num = (int) $val;
 
+                                    return match ($last) {
+                                        'g' => $num * 1024 * 1024 * 1024,
+                                        'm' => $num * 1024 * 1024,
+                                        'k' => $num * 1024,
+                                        default => (int) $val,
+                                    };
+                                };
+
+                                $phpUpload = $toBytes(ini_get('upload_max_filesize'));
+                                $phpPost   = $toBytes(ini_get('post_max_size'));
+
+                                $phpLimitBytes = 0;
+                                if ($phpUpload > 0 && $phpPost > 0) $phpLimitBytes = min($phpUpload, $phpPost);
+                                elseif ($phpUpload > 0) $phpLimitBytes = $phpUpload;
+                                elseif ($phpPost > 0) $phpLimitBytes = $phpPost;
+
+                                $filamentBytes = $maxKb * 1024;
+                                $effectiveBytes = $phpLimitBytes > 0 ? min($phpLimitBytes, $filamentBytes) : $filamentBytes;
+
+                                $effectiveMb = max(1, (int) floor($effectiveBytes / 1024 / 1024));
+
+                                return "Tamaño máximo por archivo: {$effectiveMb} MB";
+                            })
+                            ->uploadingMessage('Subiendo archivos… espera a que termine para enviar')
+                            ->acceptedFileTypes([
+                                'application/pdf',
+                                'image/jpeg',
+                                'image/png',
+                                'image/webp',
+                                'image/gif',
+                                'application/msword',
+                                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                'application/vnd.ms-excel',
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            ])
+                            ->visibility('public')
+                            ->columnSpanFull(),
 
                         Textarea::make('observaciones')
                             ->label('Observaciones')
@@ -408,15 +444,15 @@ class DocumentosTable
                 $nombre = 'cliente_documento_' . $random . ($extension ? ".{$extension}" : '');
 
                 $payload = [
-                    'cliente_id'           => $clienteId,
-                    'user_id'              => $user->id,
-                    'ruta'                 => $ruta,
-                    'mime_type'            => $mime,
-                    'observaciones'        => $observaciones,
+                    'cliente_id'             => $clienteId,
+                    'user_id'                => $user->id,
+                    'ruta'                   => $ruta,
+                    'mime_type'              => $mime,
+                    'observaciones'          => $observaciones,
                     'observaciones_internas' => null,
-                    'estado'               => \App\Enums\DocumentoEstadoEnum::PENDIENTE->value,
-                    'verificado'           => false,
-                    'nombre'               => $nombre,
+                    'estado'                 => \App\Enums\DocumentoEstadoEnum::PENDIENTE->value,
+                    'verificado'             => false,
+                    'nombre'                 => $nombre,
                 ];
 
                 if ($categoria && $subtipo) {
@@ -433,6 +469,7 @@ class DocumentosTable
             }
         }),
 ])
+
 
 
             ->recordActions([

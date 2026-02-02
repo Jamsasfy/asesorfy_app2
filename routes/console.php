@@ -17,5 +17,8 @@ Schedule::command('leads:enviar-recordatorios')->dailyAt('08:00');
 Schedule::command('leads:enviar-informe-emails-diario')->dailyAt('09:00');
 Schedule::command('documentos:purge-rechazados --days=30')->dailyAt('03:10');
 
+Schedule::command('asesorfy:recordatorio-pendientes-respuesta')
+    ->dailyAt('10:00')
+    ->timezone('Europe/Madrid');
 
 

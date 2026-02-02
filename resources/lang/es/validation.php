@@ -114,7 +114,7 @@ return [
     'string'               => 'El campo :attribute debe ser una cadena de caracteres.',
     'timezone'             => 'El campo :attribute debe ser una zona horaria válida.',
     'unique'               => 'El valor del campo :attribute ya está en uso.',
-    'uploaded'             => 'El campo :attribute no se pudo subir.',
+    'uploaded' => 'No se pudo subir el archivo. Probablemente supera el tamaño máximo permitido.',
     'url'                  => 'El formato del campo :attribute es inválido.',
     'uuid'                 => 'El campo :attribute debe ser un UUID válido.',
 
@@ -129,11 +129,20 @@ return [
     |
     */
 
-    'custom' => [
+   'custom' => [
         'attribute-name' => [
             'rule-name' => 'custom-message',
         ],
+
+        // ✅ Filament/Livewire (uploads dentro de Action modal)
+        'mountedActions.*.data.rutas.*' => [
+            'uploaded' => 'No se pudieron subir los Archivos. El archivo supera el tamaño máximo permitido.',
+        ],
+        'mountedActions.*.data.ruta' => [
+            'uploaded' => 'No se pudo subir el Archivo. El archivo supera el tamaño máximo permitido.',
+        ],
     ],
+
 
     /*
     |--------------------------------------------------------------------------
@@ -146,6 +155,11 @@ return [
     |
     */
 
-    'attributes' => [],
+        'attributes' => [
+        // ... lo tuyo ...
+        'mountedActions.*.data.rutas'   => 'Archivos',
+        'mountedActions.*.data.rutas.*' => 'Archivos',
+        'mountedActions.*.data.ruta'    => 'Archivo',
+    ],
 
 ];
