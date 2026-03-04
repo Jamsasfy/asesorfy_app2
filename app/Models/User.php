@@ -49,27 +49,24 @@ class User extends Authenticatable implements FilamentUser
             'password'          => 'hashed',
         ];
     }
-        
-
 
     // bootIAFy no puede acceder al panel protegido
-        public function canAccessPanel(Panel $panel): bool
-        {
-            if ($this->id === 9999) {
-                return false;
-            }
-
-            if ($panel->getId() === 'admin') {
-                return $this->hasRole('super_admin') || (bool) $this->trabajador;
-            }
-
-            if ($panel->getId() === 'portal') {
-                return $this->clientes()->exists();
-            }
-
+    public function canAccessPanel(Panel $panel): bool
+    {
+        if ($this->id === 9999) {
             return false;
         }
 
+        if ($panel->getId() === 'admin') {
+            return $this->hasRole('super_admin') || (bool) $this->trabajador;
+        }
+
+        if ($panel->getId() === 'portal') {
+            return $this->clientes()->exists();
+        }
+
+        return false;
+    }
 
     // ⛔ Override notify() para que el bot no reciba notificaciones
     public function notify($notification): void

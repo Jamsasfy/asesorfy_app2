@@ -261,6 +261,7 @@ return [
         // ✅ MisChats / Telegram
         'Chats:MarkRead'        => 'Chats · Marcar chat como leído',
         'Chats:ReLinkTelegram'  => 'Chats · Re-vincular Telegram',
+        'Chats:UnlinkTelegram'  => 'Chats · Desvincular Telegram',
 
         // ✅ NUEVOS: visibilidad por rol
         'Chats:ViewAll'         => 'Chats · Ver todos los chats (Admin)',

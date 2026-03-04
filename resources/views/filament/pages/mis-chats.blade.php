@@ -403,9 +403,25 @@
 
 
                             <div class="text-[12px] text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                                <span class="inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
-                                Canal oficial · Telegram
-                            </div>
+    @if($this->selectedChat && $this->selectedChat->telegram_chat_id)
+        <span class="inline-flex h-2 w-2 rounded-full bg-emerald-400" title="Vinculado"></span>
+        <span>Telegram</span>
+        
+        @if($this->selectedChat->telegram_first_name || $this->selectedChat->telegram_username)
+            <span class="opacity-50 text-[10px]">•</span>
+            <span class="font-medium text-gray-700 dark:text-gray-300">
+                <x-heroicon-m-user class="h-3 w-3 inline-block -mt-0.5 opacity-70" />
+                {{ $this->selectedChat->telegram_first_name }} 
+                @if($this->selectedChat->telegram_username)
+                    <span class="opacity-75">({{ '@' . $this->selectedChat->telegram_username }})</span>
+                @endif
+            </span>
+        @endif
+    @else
+        <span class="inline-flex h-2 w-2 rounded-full bg-amber-400" title="Sin vincular"></span>
+        <span>Sin vincular</span>
+    @endif
+</div>
                         </div>
                     </div>
 

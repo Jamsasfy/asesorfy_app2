@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "28d400ba28a9024cc87e24ad1c102035",
+    "content-hash": "10042baee301664b90592e50d436b39c",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -1775,6 +1775,84 @@
                 }
             ],
             "time": "2025-03-06T22:45:56+00:00"
+        },
+        {
+            "name": "elemind/filament-echarts",
+            "version": "1.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/elemind/filament-echarts.git",
+                "reference": "c2e266a7a80956d79a01898c7dd8b67812b0d1bb"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/elemind/filament-echarts/zipball/c2e266a7a80956d79a01898c7dd8b67812b0d1bb",
+                "reference": "c2e266a7a80956d79a01898c7dd8b67812b0d1bb",
+                "shasum": ""
+            },
+            "require": {
+                "filament/filament": "^4.0|^5.0",
+                "php": "^8.2",
+                "spatie/laravel-package-tools": "^1.15.0"
+            },
+            "require-dev": {
+                "larastan/larastan": "^3.0",
+                "laravel/pint": "^1.0",
+                "nunomaduro/collision": "^8.0",
+                "orchestra/testbench": "^9.0|^10.0",
+                "pestphp/pest": "^3.0",
+                "pestphp/pest-plugin-arch": "^3.0",
+                "pestphp/pest-plugin-laravel": "^3.0",
+                "pestphp/pest-plugin-livewire": "^3.0",
+                "rector/rector": "^2.0",
+                "spatie/laravel-ray": "^1.26"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "aliases": {
+                        "FilamentECharts": "Elemind\\FilamentECharts\\Facades\\FilamentECharts"
+                    },
+                    "providers": [
+                        "Elemind\\FilamentECharts\\FilamentEChartsServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Elemind\\FilamentECharts\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "elemind",
+                    "email": "info@elemind.com",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Apache ECharts integration for Filament",
+            "homepage": "https://github.com/elemind/filament-echarts",
+            "keywords": [
+                "elemind",
+                "filament-echarts",
+                "filamentphp",
+                "laravel"
+            ],
+            "support": {
+                "issues": "https://github.com/elemind/filament-echarts/issues",
+                "source": "https://github.com/elemind/filament-echarts"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/elemind",
+                    "type": "github"
+                }
+            ],
+            "time": "2026-01-19T07:59:22+00:00"
         },
         {
             "name": "ezyang/htmlpurifier",
@@ -4703,20 +4781,20 @@
         },
         {
             "name": "malzariey/filament-daterangepicker-filter",
-            "version": "4.0.6",
+            "version": "4.0.8",
             "source": {
                 "type": "git",
                 "url": "https://github.com/malzariey/filament-daterangepicker-filter.git",
-                "reference": "da819c35b603f991697a3a84806bb76d954d6479"
+                "reference": "d2ba041c4ecebbc1445bea94b0323c7ae5bb10c9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/malzariey/filament-daterangepicker-filter/zipball/da819c35b603f991697a3a84806bb76d954d6479",
-                "reference": "da819c35b603f991697a3a84806bb76d954d6479",
+                "url": "https://api.github.com/repos/malzariey/filament-daterangepicker-filter/zipball/d2ba041c4ecebbc1445bea94b0323c7ae5bb10c9",
+                "reference": "d2ba041c4ecebbc1445bea94b0323c7ae5bb10c9",
                 "shasum": ""
             },
             "require": {
-                "filament/filament": "^4.0",
+                "filament/filament": "^4.0|^5.0",
                 "illuminate/contracts": "^8.0|^9.0|^10.0|^11.0|^11.0|^12.0",
                 "spatie/laravel-package-tools": "^1.16.4"
             },
@@ -4756,7 +4834,7 @@
             ],
             "support": {
                 "issues": "https://github.com/malzariey/filament-daterangepicker-filter/issues",
-                "source": "https://github.com/malzariey/filament-daterangepicker-filter/tree/4.0.6"
+                "source": "https://github.com/malzariey/filament-daterangepicker-filter/tree/4.0.8"
             },
             "funding": [
                 {
@@ -4764,7 +4842,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2025-08-14T13:55:34+00:00"
+            "time": "2026-01-24T09:01:10+00:00"
         },
         {
             "name": "markbaker/complex",

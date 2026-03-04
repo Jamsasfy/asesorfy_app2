@@ -40,12 +40,17 @@ class TelegramWebhookController extends Controller
         $telegramChatId = (int) data_get($message, 'chat.id');
         $telegramMessageId = (int) data_get($message, 'message_id');
 
+        // ✅ TOPICS: extraer message_thread_id del update
+        $incomingThreadId = data_get($message, 'message_thread_id');
+        $incomingThreadId = $incomingThreadId !== null ? (int) $incomingThreadId : null;
+
         $text = trim((string) data_get($message, 'text', ''));
         $caption = trim((string) data_get($message, 'caption', ''));
 
-        // (Opcional útil para futuro)
+        // Extracción de datos del usuario
         $telegramUserId = (int) data_get($message, 'from.id');
         $telegramUsername = (string) data_get($message, 'from.username', '');
+        $telegramFirstName = (string) data_get($message, 'from.first_name', '');
 
         // Textos estándar
         $txtAudioBlocked = "🛡️ Por motivos de protección de datos, seguridad y trazabilidad, este canal no admite mensajes de audio. Por favor, envía tu consulta por texto o adjunta la documentación necesaria. Si necesitas tratarlo por voz, solicita una llamada con tu asesor de AsesorFy. 🔒";
@@ -59,11 +64,10 @@ class TelegramWebhookController extends Controller
         $hasAudio = (bool) data_get($message, 'audio');
 
         if ($hasVoice || $hasAudio) {
-
-            // Auditoría (opcional): si el chat existe, guardamos mensaje sistema
-            $chat = ChatConversacion::query()
-                ->where('telegram_chat_id', $telegramChatId)
-                ->first();
+            [$chat, $alreadyHandled] = $this->findConversacion($telegramChatId, $incomingThreadId);
+            if ($alreadyHandled) {
+                return response()->json(['ok' => true]);
+            }
 
             if ($chat) {
                 ChatMensaje::create([
@@ -77,28 +81,23 @@ class TelegramWebhookController extends Controller
                     'leido'               => true,
                 ]);
 
-                DB::table('chat_conversaciones')->where('id', $chat->id)->update([
-                    'last_message_at' => now(),
-                    'updated_at'      => now(),
-                ]);
+                $this->bumpChatCounters((int) $chat->id, $telegramUsername, $telegramFirstName);
             }
 
-            $this->replyTelegram($telegramChatId, $txtAudioBlocked);
-
+            $this->replyTelegram($telegramChatId, $txtAudioBlocked, $incomingThreadId);
             return response()->json(['ok' => true]);
         }
 
         // 3.6) Bloqueo: NO aceptamos vídeos (video / video_note / animation)
         $hasVideo = (bool) data_get($message, 'video');
         $hasVideoNote = (bool) data_get($message, 'video_note');
-        $hasAnimation = (bool) data_get($message, 'animation'); // GIF también entra aquí
+        $hasAnimation = (bool) data_get($message, 'animation');
 
         if ($hasVideo || $hasVideoNote || $hasAnimation) {
-
-            // Auditoría (opcional)
-            $chat = ChatConversacion::query()
-                ->where('telegram_chat_id', $telegramChatId)
-                ->first();
+            [$chat, $alreadyHandled] = $this->findConversacion($telegramChatId, $incomingThreadId);
+            if ($alreadyHandled) {
+                return response()->json(['ok' => true]);
+            }
 
             if ($chat) {
                 ChatMensaje::create([
@@ -112,22 +111,16 @@ class TelegramWebhookController extends Controller
                     'leido'               => true,
                 ]);
 
-                DB::table('chat_conversaciones')->where('id', $chat->id)->update([
-                    'last_message_at' => now(),
-                    'updated_at'      => now(),
-                ]);
+                $this->bumpChatCounters((int) $chat->id, $telegramUsername, $telegramFirstName);
             }
 
-            // Si es animation (GIF), usamos el texto de animaciones; si no, el de vídeo
-            $this->replyTelegram($telegramChatId, $hasAnimation ? $txtAnimBlocked : $txtVideoBlocked);
-
+            $this->replyTelegram($telegramChatId, $hasAnimation ? $txtAnimBlocked : $txtVideoBlocked, $incomingThreadId);
             return response()->json(['ok' => true]);
         }
 
-        // 3.7) Bloqueo: GIFs / stickers / animaciones (y emojis animados tipo Telegram Premium)
+        // 3.7) Bloqueo: GIFs / stickers / animaciones
         $hasSticker = (bool) data_get($message, 'sticker');
         $hasDice = (bool) data_get($message, 'dice');
-
         $entities = (array) data_get($message, 'entities', []);
         $captionEntities = (array) data_get($message, 'caption_entities', []);
 
@@ -135,7 +128,7 @@ class TelegramWebhookController extends Controller
             ->contains(fn ($e) => (string) data_get($e, 'type') === 'custom_emoji');
 
         if ($hasSticker || $hasDice || $hasCustomEmoji) {
-            $this->replyTelegram($telegramChatId, $txtAnimBlocked);
+            $this->replyTelegram($telegramChatId, $txtAnimBlocked, $incomingThreadId);
             return response()->json(['ok' => true]);
         }
 
@@ -153,25 +146,26 @@ class TelegramWebhookController extends Controller
                     update: $update,
                     telegramUserId: $telegramUserId,
                     telegramUsername: $telegramUsername,
+                    telegramFirstName: $telegramFirstName
                 );
             } else {
-                $this->replyTelegram($telegramChatId, 'Enlace inválido. Pide uno nuevo a tu asesor.');
+                $this->replyTelegram($telegramChatId, '❌ Enlace inválido. Pide uno nuevo a tu asesor.', $incomingThreadId);
             }
 
             return response()->json(['ok' => true]);
         }
 
-        // 5) Localizar conversación por telegram_chat_id
-        $chat = ChatConversacion::query()
-            ->where('telegram_chat_id', $telegramChatId)
-            ->first();
+        // 5) Localizar conversación por telegram_chat_id + thread_id
+        [$chat, $alreadyHandled] = $this->findConversacion($telegramChatId, $incomingThreadId);
 
         if (! $chat) {
-            $this->replyTelegram(
-                $telegramChatId,
-                'Esta cuenta de Telegram no está vinculada a AsesorFy. Usa el enlace más reciente o pide uno nuevo a tu asesor.'
-            );
-
+            if (! $alreadyHandled) {
+                $this->replyTelegram(
+                    $telegramChatId,
+                    '⚠️ Esta cuenta de Telegram no está vinculada a AsesorFy. Usa el enlace más reciente o pide uno nuevo a tu asesor.',
+                    $incomingThreadId
+                );
+            }
             return response()->json(['ok' => true]);
         }
 
@@ -183,29 +177,26 @@ class TelegramWebhookController extends Controller
             $fileSize = (int) data_get($document, 'file_size', 0);
             $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
 
-            // Si el "documento" realmente es un vídeo, lo bloqueamos SIEMPRE con el mensaje de vídeos
             $videoExt = ['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v'];
             $isVideoDoc = str_starts_with($mime, 'video/')
                 || in_array($ext, $videoExt, true)
                 || in_array($mime, ['application/x-matroska'], true);
 
             if ($isVideoDoc) {
-                $this->replyTelegram($telegramChatId, $txtVideoBlocked);
+                $this->replyTelegram($telegramChatId, $txtVideoBlocked, $incomingThreadId);
                 return response()->json(['ok' => true]);
             }
 
-            // Máximo 25 MB
             $maxBytes = 25 * 1024 * 1024;
-
             if ($fileSize > $maxBytes) {
                 $this->replyTelegram(
                     $telegramChatId,
-                    "🔒 Archivo demasiado grande. El tamaño máximo permitido es 25 MB.\n\nPor favor, envía un archivo más ligero o divídelo en varios."
+                    "🔒 Archivo demasiado grande. El tamaño máximo permitido es 25 MB.\n\nPor favor, envía un archivo más ligero o divídelo en varios.",
+                    $incomingThreadId
                 );
                 return response()->json(['ok' => true]);
             }
 
-            // Allowlist MIME (sin ZIP)
             $allowedMimes = [
                 'application/pdf',
                 'application/msword',
@@ -218,7 +209,6 @@ class TelegramWebhookController extends Controller
                 'image/webp',
             ];
 
-            // Allowlist por extensión (por si Telegram no manda mime)
             $allowedExt = [
                 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt',
                 'jpg', 'jpeg', 'png', 'webp',
@@ -230,7 +220,8 @@ class TelegramWebhookController extends Controller
             if (! $mimeOk && ! $extOk) {
                 $this->replyTelegram(
                     $telegramChatId,
-                    "🔒 Formato no admitido por motivos de seguridad.\n\nFormatos permitidos: PDF, Word (DOC/DOCX), Excel (XLS/XLSX), TXT e imágenes (JPG/PNG/WEBP).\nTamaño máximo: 25 MB."
+                    "🔒 Formato no admitido por motivos de seguridad.\n\nFormatos permitidos: PDF, Word (DOC/DOCX), Excel (XLS/XLSX), TXT e imágenes (JPG/PNG/WEBP).\nTamaño máximo: 25 MB.",
+                    $incomingThreadId
                 );
                 return response()->json(['ok' => true]);
             }
@@ -255,11 +246,11 @@ class TelegramWebhookController extends Controller
                 update: $update
             );
 
-            $this->bumpChatCounters((int) $chat->id);
+            $this->bumpChatCounters((int) $chat->id, $telegramUsername, $telegramFirstName);
             return response()->json(['ok' => true]);
         }
 
-        // --- B) FOTO (array de tamaños -> cogemos el último, suele ser el mayor) ---
+        // --- B) FOTO ---
         if (is_array($photos) && count($photos) > 0) {
             $best = end($photos);
             $fileId = (string) data_get($best, 'file_id', '');
@@ -281,7 +272,7 @@ class TelegramWebhookController extends Controller
                     update: $update
                 );
 
-                $this->bumpChatCounters((int) $chat->id);
+                $this->bumpChatCounters((int) $chat->id, $telegramUsername, $telegramFirstName);
                 return response()->json(['ok' => true]);
             }
         }
@@ -302,23 +293,134 @@ class TelegramWebhookController extends Controller
             'leido'               => false,
         ]);
 
-        $this->bumpChatCounters((int) $chat->id);
+        $this->bumpChatCounters((int) $chat->id, $telegramUsername, $telegramFirstName);
 
         return response()->json(['ok' => true]);
     }
 
-    private function bumpChatCounters(int $chatId): void
+    // =========================================================================
+    //  Búsqueda de Conversación Unificada (ENRUTAMIENTO ESTRICTO)
+    // =========================================================================
+
+    private function findConversacion(int $telegramChatId, ?int $threadId): array
     {
-        DB::table('chat_conversaciones')->where('id', $chatId)->update([
+        $convs = ChatConversacion::query()
+            ->where('telegram_chat_id', $telegramChatId)
+            ->get();
+
+        if ($convs->count() === 0) {
+            return [null, false];
+        }
+
+        $isGeneral = ($threadId === null) || ($threadId === 1);
+
+        // ==========================================
+        // REGLA 1 y REGLA 3: UN SOLO CLIENTE ACTIVO
+        // ==========================================
+        if ($convs->count() === 1) {
+            $conv = $convs->first();
+            $nombreEmpresa = $conv->cliente?->razon_social ?? trim(($conv->cliente?->nombre ?? '') . ' ' . ($conv->cliente?->apellidos ?? '')) ?: 'tu empresa';
+
+            // REGLA 1: Tubo único puro (nunca tuvo carpetas)
+            if (empty($conv->telegram_thread_id)) {
+                if ($isGeneral) {
+                    return [$conv, false]; // Todo OK
+                } else {
+                    // Escribió en una carpeta fantasma (glitch o chat residual muy raro)
+                    $this->replyTelegram(
+                        $telegramChatId, 
+                        "🔒 <b>Chat inactivo (Histórico)</b>\n\nPor favor, sal de esta carpeta y escríbenos desde el chat principal de <b>{$nombreEmpresa}</b>.", 
+                        $threadId
+                    );
+                    return [null, true];
+                }
+            }
+
+            // REGLA 3: Fue multi-empresa, ahora solo tiene una activa (Tiene carpeta en BD)
+            $goodThread = (int) $conv->telegram_thread_id;
+
+            if ($isGeneral) {
+                $this->replyTelegram(
+                    $telegramChatId,
+                    "👋 <b>Hola. Este espacio General es solo para avisos del sistema.</b>\n\nPor favor, entra directamente en la carpeta de <b>{$nombreEmpresa}</b> y escríbenos por ahí para poder atenderte.",
+                    $threadId
+                );
+                return [null, true];
+            }
+
+            if ($threadId === $goodThread) {
+                return [$conv, false]; // Escribió en la carpeta correcta
+            }
+
+            // Escribió en una carpeta desvinculada (Histórico)
+            $this->replyTelegram(
+                $telegramChatId,
+                "🔒 <b>Chat inactivo (Histórico)</b>\n\nEste chat corresponde a una vinculación antigua y se mantiene en tu móvil por seguridad para que tengas acceso a tus mensajes.\n\nPara hablar con tu asesor, ve a la carpeta activa de <b>{$nombreEmpresa}</b>.",
+                $threadId
+            );
+            return [null, true];
+        }
+
+        // ==========================================
+        // REGLA 2: MULTI-EMPRESA (>1 clientes activos)
+        // ==========================================
+        $listaEmpresas = $convs->map(fn ($c) => "• <b>" . ($c->cliente->razon_social ?? $c->cliente->nombre ?? "Cliente #{$c->cliente_id}") . "</b>")->implode("\n");
+
+        if ($isGeneral) {
+            $this->replyTelegram(
+                $telegramChatId,
+                "👋 <b>Hola. Este espacio General es solo para avisos del sistema.</b>\n\nTienes varias empresas vinculadas. Por favor, entra y escribe directamente dentro de la carpeta correspondiente a la consulta:\n\n{$listaEmpresas}",
+                $threadId
+            );
+            return [null, true];
+        }
+
+        $chat = $convs->firstWhere('telegram_thread_id', $threadId);
+        if ($chat) {
+            return [$chat, false]; // Escribió en una de las carpetas activas correctas
+        }
+
+        // Escribió en una carpeta que ya no está en BD (Desvinculada)
+        $this->replyTelegram(
+            $telegramChatId,
+            "🔒 <b>Chat inactivo (Histórico)</b>\n\nEste chat corresponde a una vinculación antigua y se mantiene en tu móvil por seguridad para que tengas acceso a tus mensajes.\n\nPor favor, usa las carpetas activas de tus empresas:\n\n{$listaEmpresas}",
+            $threadId
+        );
+
+        return [null, true];
+    }
+
+    // =========================================================================
+    //  Helpers
+    // =========================================================================
+
+    private function bumpChatCounters(int $chatId, string $username = '', string $firstName = ''): void
+    {
+        $updateData = [
             'unread_count'    => DB::raw('unread_count + 1'),
             'last_message_at' => now(),
             'updated_at'      => now(),
-        ]);
+        ];
+
+        // Autoguardado silencioso de información de Telegram si ha cambiado
+        if ($username !== '' || $firstName !== '') {
+            $chat = DB::table('chat_conversaciones')->where('id', $chatId)->first();
+            if ($chat) {
+                if ($username !== '' && $chat->telegram_username !== $username) {
+                    $updateData['telegram_username'] = ltrim($username, '@');
+                }
+                if ($firstName !== '' && $chat->telegram_first_name !== $firstName) {
+                    $updateData['telegram_first_name'] = $firstName;
+                }
+            }
+        }
+
+        DB::table('chat_conversaciones')->where('id', $chatId)->update($updateData);
     }
 
     private function storeIncomingAttachment(
         int $chatId,
-        string $tipo, // photo|document
+        string $tipo,
         string $fileId,
         string $fileUniqueId,
         string $originalName,
@@ -331,19 +433,16 @@ class TelegramWebhookController extends Controller
     ): void {
         $tg = app(TelegramService::class);
 
-        // 1) Preguntar a Telegram el file_path real
         $fileInfo = $tg->getFile($fileId);
         $filePathOnTelegram = (string) data_get($fileInfo, 'result.file_path', '');
 
         if ($filePathOnTelegram === '') {
-            // Si Telegram no devuelve file_path, no rompemos webhook
             return;
         }
 
         $ext = pathinfo($filePathOnTelegram, PATHINFO_EXTENSION);
         $ext = $ext !== '' ? $ext : ($tipo === 'photo' ? 'jpg' : 'bin');
 
-        // 2) Inferir mime si no viene
         if ($mime === '') {
             $mime = match (strtolower($ext)) {
                 'jpg', 'jpeg' => 'image/jpeg',
@@ -354,19 +453,14 @@ class TelegramWebhookController extends Controller
             };
         }
 
-        // 3) Tamaño real (si Telegram lo da)
         $sizeFromTg = (int) data_get($fileInfo, 'result.file_size', 0);
         if ($sizeFromTg > 0) {
             $size = $sizeFromTg;
         }
 
-        // 4) Guardar en storage/app/documentos/telegram/chats/{chatId}/YYYY/MM/{uuid}.{ext}
         $rel = 'documentos/telegram/chats/' . $chatId . '/' . now()->format('Y/m') . '/' . Str::uuid()->toString() . '.' . $ext;
-
-        // Descarga binario
         $tg->downloadFileToStorage($filePathOnTelegram, $rel);
 
-        // 5) Guardar mensaje (nota: contenido se usa para preview en sidebar)
         $preview = trim($caption) !== ''
             ? trim($caption)
             : ($tipo === 'photo' ? '📷 Foto' : ('📎 ' . ($originalName ?: 'Documento')));
@@ -377,21 +471,22 @@ class TelegramWebhookController extends Controller
             'tipo'                      => $tipo,
             'contenido'                 => $preview,
             'caption'                   => $caption !== '' ? $caption : null,
-
             'file_path'                 => $rel,
             'file_original_name'        => $originalName !== '' ? $originalName : null,
             'file_mime'                 => $mime !== '' ? $mime : null,
             'file_size'                 => $size > 0 ? $size : null,
-
             'telegram_message_id'       => $telegramMessageId ?: null,
             'telegram_update_id'        => $updateId ?: null,
             'telegram_file_id'          => $fileId ?: null,
             'telegram_file_unique_id'   => $fileUniqueId ?: null,
-
             'payload'                   => json_encode($update),
             'leido'                     => false,
         ]);
     }
+
+    // =========================================================================
+    //  Vinculación
+    // =========================================================================
 
     private function handleStartToken(
         string $token,
@@ -400,124 +495,181 @@ class TelegramWebhookController extends Controller
         int $telegramMessageId,
         array $update,
         int $telegramUserId = 0,
-        string $telegramUsername = ''
+        string $telegramUsername = '',
+        string $telegramFirstName = ''
     ): void {
-        // ✅ RE-LINK: token especial permite sobrescribir SOLO si alguien con permisos lo envió
+        \Illuminate\Support\Facades\Log::info('Webhook ejecutado: Buscando token', [
+            'token_recibido' => $token,
+            'bd_activa'      => \Illuminate\Support\Facades\DB::connection()->getDatabaseName()
+        ]);
+
         $isRelink = str_starts_with($token, 'relink_');
 
-        /** @var TelegramLink|null $link */
         $link = TelegramLink::where('token', $token)->first();
         if (! $link) {
-            $this->replyTelegram($telegramChatId, 'Enlace inválido o caducado. Pide uno nuevo a tu asesor.');
+            $this->replyTelegram($telegramChatId, '❌ Enlace inválido o caducado. Pide uno nuevo a tu asesor.');
             return;
         }
 
         if ($link->expires_at && $link->expires_at->isPast()) {
-            $this->replyTelegram($telegramChatId, 'Este enlace ha caducado. Pide uno nuevo a tu asesor.');
+            $this->replyTelegram($telegramChatId, '❌ Este enlace ha caducado. Pide uno nuevo a tu asesor.');
             return;
         }
 
-        /** @var Cliente|null $cliente */
         $cliente = Cliente::find($link->cliente_id);
         if (! $cliente) {
-            $this->replyTelegram($telegramChatId, 'Este enlace no es válido. Pide uno nuevo a tu asesor.');
+            $this->replyTelegram($telegramChatId, '❌ Este enlace no es válido. Pide uno nuevo a tu asesor.');
             return;
         }
 
-        DB::transaction(function () use (
+        if (! $cliente->asesor_id) {
+            $this->replyTelegram(
+                $telegramChatId,
+                '⚠️ Aún no tienes un asesor asignado en AsesorFy. Contacta con atención al cliente para que te asignen uno antes de vincular Telegram.'
+            );
+            return;
+        }
+
+        // ESCUDO DE SEGURIDAD CROSS-IDENTITY
+        $existingOtherCompanies = ChatConversacion::query()
+            ->where('telegram_chat_id', $telegramChatId)
+            ->where('tipo', 'cliente')
+            ->where('cliente_id', '!=', $cliente->id)
+            ->with('cliente.usuarios')
+            ->get();
+
+        if ($existingOtherCompanies->isNotEmpty()) {
+            $newUserIds = $cliente->usuarios->pluck('id')->push($cliente->user_id)->filter()->unique()->toArray();
+
+            $sharesIdentity = false;
+            foreach ($existingOtherCompanies as $otherChat) {
+                $otherClient = $otherChat->cliente;
+                if ($otherClient) {
+                    $otherUserIds = $otherClient->usuarios->pluck('id')->push($otherClient->user_id)->filter()->unique()->toArray();
+                    
+                    if (!empty(array_intersect($newUserIds, $otherUserIds))) {
+                        $sharesIdentity = true;
+                        break;
+                    }
+                }
+            }
+
+            if (! $sharesIdentity) {
+                $this->replyTelegram(
+                    $telegramChatId,
+                    "🛑 <b>Alerta de Seguridad</b>\n\nTu Telegram ya está vinculado a otra cuenta y nuestros sistemas no detectan que seas el titular de esta nueva empresa.\n\nPor normativa de Protección de Datos, no se permite vincular empresas de distintos titulares en un mismo dispositivo.\n\nSi crees que es un error, contacta con tu asesor."
+                );
+                return;
+            }
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use (
             $link,
             $cliente,
             $telegramChatId,
             $updateId,
             $telegramMessageId,
             $update,
-            $isRelink
+            $isRelink,
+            $telegramUsername,
+            $telegramFirstName
         ) {
-            // A) Chat ya vinculado por ESTE telegram_chat_id
-            $boundByTelegram = DB::table('chat_conversaciones')
+            // PREPARAMOS MENSAJES CON NOMBRE DE EMPRESA Y ETIQUETAS HTML <b>
+            $nombreAsesor = $cliente->asesor ? $cliente->asesor->name : 'nuestro equipo';
+            $nombreEmpresa = $cliente->razon_social ?? trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+            
+            $mensajeBienvenida = "🎉 <b>¡Vinculación completada con éxito!</b>\n\n"
+                . "🏢 <b>Empresa:</b> {$nombreEmpresa}\n"
+                . "👤 <b>Tu Asesor:</b> {$nombreAsesor}\n\n"
+                . "A partir de ahora, este será nuestro canal directo para hablar y resolver cualquier duda o consulta que tengas de forma ágil.\n\n"
+                . "📎 <b>IMPORTANTE:</b> Por motivos de seguridad y para que no se pierda nada, <b>el envío de facturas y documentos debe hacerse exclusivamente desde tu área privada</b>.\n\n"
+                . "💻 Puedes acceder a tu portal siguiendo las instrucciones que recibiste por email para el acceso. Si tienes dudas o problemas, dímelo por aquí y te ayudaré.\n\n"
+                . "¿En qué te puedo ayudar hoy?";
+
+            // A) Ya existe
+            $existingForCliente = ChatConversacion::query()
                 ->where('tipo', 'cliente')
+                ->where('cliente_id', $cliente->id)
                 ->where('telegram_chat_id', $telegramChatId)
                 ->first();
 
-            if ($boundByTelegram) {
-                if ((int) $boundByTelegram->cliente_id === (int) $cliente->id) {
-                    if (! $link->used_at) {
-                        $link->used_at = now();
-                        $link->save();
-                    }
-
-                    DB::table('chat_conversaciones')->where('id', $boundByTelegram->id)->update([
-                        'estado'     => 'abierta',
-                        'updated_at' => now(),
-                    ]);
-
-                    $this->insertSystemMessage(
-                        chatId: (int) $boundByTelegram->id,
-                        contenido: 'Ya estabas vinculado ✅',
-                        telegramMessageId: $telegramMessageId,
-                        updateId: null,
-                        update: $update
-                    );
-
-                    $this->replyTelegram($telegramChatId, 'Ya estabas vinculado ✅');
-                    return;
+            if ($existingForCliente) {
+                if (! $link->used_at) {
+                    $link->used_at = now();
+                    $link->save();
                 }
 
+                $existingForCliente->update([
+                    'estado'              => 'abierta',
+                    'asesor_id'           => $cliente->asesor_id,
+                    'telegram_username'   => ltrim($telegramUsername, '@'),
+                    'telegram_first_name' => $telegramFirstName,
+                    'updated_at'          => now(),
+                ]);
+
+                $this->ensureTopicsIfMultiEmpresa($telegramChatId);
+                $this->closeGeneralBestEffort($telegramChatId);
+                
+                $threadId = $existingForCliente->fresh()->telegram_thread_id;
+
                 $this->insertSystemMessage(
-                    chatId: (int) $boundByTelegram->id,
-                    contenido: 'Intento de vinculación ignorado: este Telegram ya está vinculado a otro cliente.',
+                    chatId: (int) $existingForCliente->id,
+                    contenido: 'El cliente ha vuelto a pinchar el enlace de vinculación.',
                     telegramMessageId: $telegramMessageId,
                     updateId: null,
                     update: $update
                 );
 
-                $this->replyTelegram(
-                    $telegramChatId,
-                    'Este Telegram ya está vinculado a otro cliente. Ignoro este enlace. Si necesitas cambiar la cuenta, avisa a tu asesor.'
-                );
-
+                $this->replyTelegram($telegramChatId, "✅ Ya estabas vinculado a <b>{$nombreEmpresa}</b>. ¡Seguimos por aquí!", $threadId);
                 return;
             }
 
-            // B) Chat del cliente
-            $existing = DB::table('chat_conversaciones')
-                ->where('cliente_id', $cliente->id)
+            // B) Relink
+            $existingOtherTelegram = ChatConversacion::query()
                 ->where('tipo', 'cliente')
+                ->where('cliente_id', $cliente->id)
+                ->whereNotNull('telegram_chat_id')
+                ->where('telegram_chat_id', '!=', $telegramChatId)
                 ->first();
 
-            if ($existing && ! empty($existing->telegram_chat_id) && (int) $existing->telegram_chat_id !== $telegramChatId) {
+            if ($existingOtherTelegram && ! $isRelink) {
+                $this->insertSystemMessage(
+                    chatId: (int) $existingOtherTelegram->id,
+                    contenido: 'Vinculación NO aplicada: este cliente ya está vinculado a otro Telegram.',
+                    telegramMessageId: $telegramMessageId,
+                    updateId: null,
+                    update: $update
+                );
 
-                if (! $isRelink) {
-                    $this->insertSystemMessage(
-                        chatId: (int) $existing->id,
-                        contenido: 'Vinculación NO aplicada: este cliente ya está vinculado a otro Telegram. (Evito sobrescribir).',
-                        telegramMessageId: $telegramMessageId,
-                        updateId: null,
-                        update: $update
-                    );
+                $this->replyTelegram($telegramChatId, '❌ Este cliente ya está vinculado a otro Telegram. Ignoro este enlace.');
+                return;
+            }
 
-                    $this->replyTelegram($telegramChatId, 'Este cliente ya está vinculado a otro Telegram. Ignoro este enlace.');
-                    return;
-                }
-
-                $oldTelegramChatId = (int) $existing->telegram_chat_id;
+            if ($existingOtherTelegram && $isRelink) {
+                $oldTelegramChatId = (int) $existingOtherTelegram->telegram_chat_id;
                 if ($oldTelegramChatId > 0 && $oldTelegramChatId !== $telegramChatId) {
                     $this->replyTelegram(
                         $oldTelegramChatId,
-                        'Tu cuenta se ha desvinculado de AsesorFy. Si necesitas volver a vincular, pide un nuevo enlace a tu asesor.'
+                        "🔌 Tu cuenta de <b>{$nombreEmpresa}</b> se ha desvinculado de AsesorFy. Si necesitas volver a vincular, pide un nuevo enlace a tu asesor."
                     );
                 }
 
-                DB::table('chat_conversaciones')->where('id', $existing->id)->update([
-                    'telegram_chat_id' => $telegramChatId,
-                    'asesor_id'        => $cliente->asesor_id,
-                    'estado'           => 'abierta',
-                    'last_message_at'  => now(),
-                    'updated_at'       => now(),
+                $existingOtherTelegram->update([
+                    'telegram_chat_id'    => $telegramChatId,
+                    'telegram_username'   => ltrim($telegramUsername, '@'),
+                    'telegram_first_name' => $telegramFirstName,
+                    'asesor_id'           => $cliente->asesor_id,
+                    'estado'              => 'abierta',
+                    'last_message_at'     => now(),
                 ]);
 
+                $this->ensureTopicsIfMultiEmpresa($telegramChatId);
+                $this->closeGeneralBestEffort($telegramChatId);
+
+                $threadId = $existingOtherTelegram->fresh()->telegram_thread_id;
+
                 $this->insertSystemMessage(
-                    chatId: (int) $existing->id,
+                    chatId: (int) $existingOtherTelegram->id,
                     contenido: 'Re-vinculación aplicada ✅ (se actualizó el Telegram del cliente).',
                     telegramMessageId: $telegramMessageId,
                     updateId: null,
@@ -527,51 +679,56 @@ class TelegramWebhookController extends Controller
                 $link->used_at = now();
                 $link->save();
 
-                $this->replyTelegram($telegramChatId, 'Re-vinculado correctamente ✅ Ya puedes escribir aquí.');
+                $this->replyTelegram($telegramChatId, $mensajeBienvenida, $threadId);
                 return;
             }
 
             if ($link->used_at) {
-                if ($existing) {
-                    $this->insertSystemMessage(
-                        chatId: (int) $existing->id,
-                        contenido: 'Enlace ya usado. No se aplicó ninguna vinculación nueva.',
-                        telegramMessageId: $telegramMessageId,
-                        updateId: null,
-                        update: $update
-                    );
-                }
-
-                $this->replyTelegram($telegramChatId, 'Este enlace ya fue usado. Pide uno nuevo a tu asesor.');
+                $this->replyTelegram($telegramChatId, '❌ Este enlace ya fue usado. Pide uno nuevo a tu asesor.');
                 return;
             }
 
-            if ($existing) {
-                DB::table('chat_conversaciones')->where('id', $existing->id)->update([
-                    'telegram_chat_id' => $telegramChatId,
-                    'asesor_id'        => $cliente->asesor_id,
-                    'estado'           => 'abierta',
-                    'last_message_at'  => now(),
-                    'updated_at'       => now(),
+            // D) Primera vinculación
+            $existingNoTelegram = ChatConversacion::query()
+                ->where('tipo', 'cliente')
+                ->where('cliente_id', $cliente->id)
+                ->whereNull('telegram_chat_id')
+                ->first();
+
+            if ($existingNoTelegram) {
+                $existingNoTelegram->update([
+                    'telegram_chat_id'    => $telegramChatId,
+                    'telegram_username'   => ltrim($telegramUsername, '@'),
+                    'telegram_first_name' => $telegramFirstName,
+                    'asesor_id'           => $cliente->asesor_id,
+                    'estado'              => 'abierta',
+                    'last_message_at'     => now(),
                 ]);
 
-                $chatId = (int) $existing->id;
+                $conv = $existingNoTelegram;
             } else {
-                $chatId = (int) DB::table('chat_conversaciones')->insertGetId([
-                    'tipo'             => 'cliente',
-                    'cliente_id'       => $cliente->id,
-                    'asesor_id'        => $cliente->asesor_id,
-                    'telegram_chat_id' => $telegramChatId,
-                    'estado'           => 'abierta',
-                    'unread_count'     => 0,
-                    'last_message_at'  => now(),
-                    'created_at'       => now(),
-                    'updated_at'       => now(),
+                // E) Crear nueva conversación
+                $conv = ChatConversacion::create([
+                    'tipo'                => 'cliente',
+                    'cliente_id'          => $cliente->id,
+                    'asesor_id'           => $cliente->asesor_id,
+                    'telegram_chat_id'    => $telegramChatId,
+                    'telegram_username'   => ltrim($telegramUsername, '@'),
+                    'telegram_first_name' => $telegramFirstName,
+                    'estado'              => 'abierta',
+                    'unread_count'        => 0,
+                    'last_message_at'     => now(),
                 ]);
             }
 
+            // F) Asegurar topics SOLO si toca
+            $this->ensureTopicsIfMultiEmpresa($telegramChatId);
+            $this->closeGeneralBestEffort($telegramChatId);
+
+            $threadId = $conv->fresh()->telegram_thread_id;
+
             $this->insertSystemMessage(
-                chatId: $chatId,
+                chatId: (int) $conv->id,
                 contenido: 'Conversación vinculada correctamente ✅',
                 telegramMessageId: $telegramMessageId,
                 updateId: $updateId,
@@ -581,7 +738,7 @@ class TelegramWebhookController extends Controller
             $link->used_at = now();
             $link->save();
 
-            $this->replyTelegram($telegramChatId, 'Vinculado correctamente ✅ Ya puedes escribir aquí.');
+            $this->replyTelegram($telegramChatId, $mensajeBienvenida, $threadId);
         });
     }
 
@@ -604,12 +761,35 @@ class TelegramWebhookController extends Controller
         ]);
     }
 
-    private function replyTelegram(int $telegramChatId, string $text): void
+    private function replyTelegram(int $telegramChatId, string $text, ?int $messageThreadId = null): void
     {
         try {
-            app(TelegramService::class)->sendMessage($telegramChatId, $text);
+            // Aseguramos de que el servicio mande HTML en el formato
+            app(TelegramService::class)->sendMessage($telegramChatId, $text, $messageThreadId);
         } catch (\Throwable $e) {
-            // silent fail (webhook no debe petar por esto)
+            // silent fail
+        }
+    }
+
+    private function closeGeneralBestEffort(int $telegramChatId): void
+    {
+        try {
+            app(TelegramService::class)->closeGeneralForumTopic($telegramChatId);
+        } catch (\Throwable $e) {
+            // silent
+        }
+    }
+
+    private function ensureTopicsIfMultiEmpresa(int $telegramChatId): void
+    {
+        $convs = ChatConversacion::query()
+            ->where('telegram_chat_id', $telegramChatId)
+            ->get();
+
+        if ($convs->count() > 1) {
+            foreach ($convs as $conv) {
+                $conv->ensureTopicForCliente();
+            }
         }
     }
 }

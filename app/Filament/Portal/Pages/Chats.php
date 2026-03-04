@@ -24,6 +24,9 @@ class Chats extends Page
     public ?TelegramLink $telegramLink = null;
     public bool $isLinked = false;
 
+    // ✅ NUEVO: Indica si el cliente tiene asesor asignado
+    public bool $hasAsesor = false;
+
     // linked | pendiente | expirado | no_iniciado
     public string $telegramState = 'no_iniciado';
 
@@ -44,7 +47,15 @@ class Chats extends Page
             return;
         }
 
-        // 1) Conversación (fuente de verdad de “vinculado”)
+        // ✅ NUEVO: Verificar que el cliente tiene asesor asignado
+        if (! $this->cliente->asesor_id) {
+            $this->hasAsesor = false;
+            return; // No cargar nada más si no tiene asesor
+        }
+
+        $this->hasAsesor = true;
+
+        // 1) Conversación (fuente de verdad de "vinculado")
         $this->chat = ChatConversacion::query()
             ->where('cliente_id', $this->cliente->id)
             ->latest('id')
@@ -60,21 +71,19 @@ class Chats extends Page
 
         $now = now();
 
+        // ✅ FIX: Validación estricta de token válido
         $hasPendingValidLink =
             $this->telegramLink
             && blank($this->telegramLink->used_at)
-            && (
-                !($this->telegramLink->expires_at instanceof Carbon)
-                || $this->telegramLink->expires_at->isFuture()
-            );
+            && $this->telegramLink->expires_at instanceof Carbon
+            && $this->telegramLink->expires_at->isFuture();
 
+        // ✅ FIX: Validación estricta de token expirado
         $isExpiredLink =
             $this->telegramLink
             && blank($this->telegramLink->used_at)
-            && (
-                ($this->telegramLink->expires_at instanceof Carbon)
-                && $this->telegramLink->expires_at->isPast()
-            );
+            && $this->telegramLink->expires_at instanceof Carbon
+            && $this->telegramLink->expires_at->isPast();
 
         if ($this->isLinked) {
             $this->telegramState = 'linked';
@@ -116,6 +125,11 @@ class Chats extends Page
      */
     public function getTelegramDeepLink(): ?string
     {
+        // ✅ NUEVO: Si no tiene asesor, no devolver nada
+        if (! $this->hasAsesor) {
+            return null;
+        }
+
         // Si NO vinculado -> preferimos "start=token"
         if (! $this->isLinked) {
             $token = $this->telegramLink?->token;
@@ -147,6 +161,11 @@ class Chats extends Page
      */
     public function getTelegramWebUrl(): ?string
     {
+        // ✅ NUEVO: Si no tiene asesor, no devolver nada
+        if (! $this->hasAsesor) {
+            return null;
+        }
+
         if (! $this->isLinked) {
             $token = $this->telegramLink?->token;
 
@@ -172,7 +191,8 @@ class Chats extends Page
      */
     public function regenerateTelegramLink(): void
     {
-        if (! $this->cliente || $this->isLinked) {
+        // ✅ NUEVO: Validar que tiene asesor antes de generar token
+        if (! $this->cliente || $this->isLinked || ! $this->hasAsesor) {
             return;
         }
 

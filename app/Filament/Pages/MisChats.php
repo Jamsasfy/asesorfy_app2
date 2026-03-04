@@ -18,13 +18,14 @@ use Illuminate\Support\Str;
 use Livewire\WithFileUploads;
 use Filament\Actions\Action;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+//use Filament\Support\Enums\MaxWidth;
 
 
 class MisChats extends Page
 {
     use WithFileUploads, HasPageShield;
 
-    protected static string|\BackedEnum|null $navigationIcon = 'heroicon-o-chat-bubble-left-right';
+    protected static string|\BackedEnum|null $navigationIcon = 'icon-telegram';
     protected static ?string $navigationLabel = 'Mis chats';
     protected static ?string $title = 'Mis chats';
     protected static string|\UnitEnum|null $navigationGroup = 'Mi espacio de trabajo';
@@ -71,6 +72,21 @@ class MisChats extends Page
                 ->icon('heroicon-m-arrow-down-tray')
                 ->visible(fn () => (bool) $this->selectedChatId && auth()->user()?->can('Chats:Export'))
                 ->action(fn () => $this->exportSelectedChat()),
+
+            Action::make('unlinkTelegram')
+                ->label('Desvincular total')
+                ->icon('heroicon-o-x-circle')
+                ->color('danger')
+                ->visible(fn () => (bool) $this->selectedChatId
+                    && (bool) ($this->selectedChat?->telegram_chat_id)
+                    && (auth()->user()?->can('Chats:UnlinkTelegram') ?? false)
+                )
+                ->requiresConfirmation()
+                ->modalHeading('Desvincular Telegram (reset total)')
+                ->modalDescription('Esto borra la vinculación actual (chat_id + thread_id) y caduca enlaces pendientes. El cliente tendrá que vincular de nuevo con un enlace nuevo.')
+                ->modalSubmitActionLabel('Sí, desvincular')
+            //    ->modalWidth('md')
+                ->action(fn () => $this->unlinkSelectedTelegram()),    
         ];
     }
 
@@ -611,6 +627,110 @@ class MisChats extends Page
         }
     }
 
+public function unlinkSelectedTelegram(): void
+    {
+        abort_unless(auth()->user()?->can('Chats:UnlinkTelegram') ?? false, 403);
+
+        if (! $this->selectedChatId) {
+            return;
+        }
+
+        // Respetar permisos (admin/coordinador/asesor)
+        $chat = $this->queryChats()
+            ->with('cliente:id,razon_social,nombre,apellidos,email_contacto')
+            ->whereKey($this->selectedChatId)
+            ->first();
+
+        if (! $chat || ! $chat->cliente_id) {
+            Notification::make()->title('Chat no encontrado')->danger()->send();
+            return;
+        }
+
+        if (! $chat->telegram_chat_id) {
+            Notification::make()->title('Este chat ya está desvinculado')->warning()->send();
+            return;
+        }
+
+        $oldTelegramChatId = $chat->telegram_chat_id;
+        $clienteId = (int) $chat->cliente_id;
+        
+        // Sacamos el nombre para decírselo en el mensaje
+        $nombreCliente = $chat->cliente->razon_social 
+            ?? trim(($chat->cliente->nombre ?? '') . ' ' . ($chat->cliente->apellidos ?? '')) 
+            ?: 'esta empresa';
+
+        try {
+            DB::transaction(function () use ($chat, $clienteId) {
+                // 1) Reset vínculo en la conversación seleccionada
+                $chat->update([
+                    'telegram_chat_id'   => null,
+                    'telegram_thread_id' => null,
+                    'estado'             => 'abierta',
+                    'unread_count'       => 0,
+                    'last_message_at'    => $chat->last_message_at, // no tocamos histórico
+                ]);
+
+                // 2) Si por lo que sea existen otras conversaciones para ese cliente (raro), también las reseteamos
+                ChatConversacion::query()
+                    ->where('tipo', 'cliente')
+                    ->where('cliente_id', $clienteId)
+                    ->update([
+                        'telegram_chat_id'   => null,
+                        'telegram_thread_id' => null,
+                    ]);
+
+                // 3) Caducar links pendientes (normales y relink) para forzar enlace NUEVO
+                TelegramLink::query()
+                    ->where('cliente_id', $clienteId)
+                    ->whereNull('used_at')
+                    ->update([
+                        'expires_at' => now(), // lo caducamos
+                    ]);
+
+                // 4) Log sistema
+                ChatMensaje::create([
+                    'chat_id'    => $chat->id,
+                    'origen'     => 'sistema',
+                    'tipo'       => 'text',
+                    'contenido'  => '🔌 Telegram desvinculado (reset total). El cliente debe vincular de nuevo con un enlace nuevo.',
+                    'leido'      => true,
+                ]);
+            });
+
+            // 5) Comprobar si le quedan otras empresas vinculadas a este mismo Telegram
+            $otrasEmpresas = ChatConversacion::query()
+                ->where('telegram_chat_id', $oldTelegramChatId)
+                ->where('id', '!=', $chat->id)
+                ->exists();
+
+            try {
+                // Mensaje en texto plano puro con emojis, sin asteriscos ni HTML
+                $mensajeAviso = $otrasEmpresas
+                    ? "🔌 Tu empresa " . $nombreCliente . " ha sido desvinculada de AsesorFy.\n\nTus otras empresas siguen activas en sus respectivas carpetas."
+                    : "🔌 Tu cuenta de " . $nombreCliente . " ha sido desvinculada completamente de AsesorFy.\n\nPara volver a escribir, solicita o usa un nuevo enlace de vinculación.";
+
+                app(\App\Services\TelegramService::class)->sendMessage($oldTelegramChatId, $mensajeAviso);
+            } catch (\Throwable $e) {
+                // silencioso
+            }
+
+            Notification::make()
+                ->title('Desvinculado')
+                ->body('Vinculación eliminada. Ahora envía una invitación nueva para vincular de cero.')
+                ->success()
+                ->send();
+
+            // refrescar UI
+            $this->dispatch('$refresh');
+
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title('Error al desvincular')
+                ->body(\Illuminate\Support\Str::limit($e->getMessage(), 220))
+                ->danger()
+                ->send();
+        }
+    }
     public function sendAttachment(): void
     {
         // compatibilidad: el botón “Enviar archivo(s)” debe llamar a sendFiles()

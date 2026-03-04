@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Enums\DocumentoEstadoEnum;
 use App\Models\Documento;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -9,6 +10,9 @@ use Filament\Notifications\Notification;
 
 class DocumentoObserver
 {
+    /**
+     * Se ejecuta cuando se CREA un documento nuevo.
+     */
     public function created(Documento $documento): void
     {
         // Solo si está asociado a un cliente
@@ -47,5 +51,37 @@ class DocumentoObserver
                 ])
                 ->sendToDatabase($recipient);
         }
+    }
+
+    /**
+     * ✅ Se ejecuta cuando se ACTUALIZA un documento.
+     */
+    public function updated(Documento $documento): void
+    {
+        // Solo si el estado cambió
+        if (! $documento->wasChanged('estado')) {
+            return;
+        }
+
+        $nuevoEstado = $documento->estado;
+
+        // Convertir a enum si es necesario
+        if (! ($nuevoEstado instanceof DocumentoEstadoEnum)) {
+            $nuevoEstado = DocumentoEstadoEnum::tryFrom((string) $nuevoEstado);
+        }
+
+        // Solo si cambió a NECESITA_ACLARACION
+        if ($nuevoEstado !== DocumentoEstadoEnum::NECESITA_ACLARACION) {
+            return;
+        }
+
+        // Verificar que tiene cliente
+        if (! $documento->cliente_id) {
+            return;
+        }
+
+        // ✅ Disparar el Job agregado (máx 1 aviso/día por cliente)
+        \App\Jobs\NotificarPendientesRespuestaClienteJob::dispatch((int) $documento->cliente_id)
+            ->delay(now()->addMinutes(3));
     }
 }

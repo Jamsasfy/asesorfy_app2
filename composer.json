@@ -14,6 +14,7 @@
         "bezhansalleh/filament-shield": "^4.0",
         "diogogpinto/filament-auth-ui-enhancer": "2.0",
         "doctrine/dbal": "^4.4",
+        "elemind/filament-echarts": "^1.1",
         "filament/filament": "~4.0",
         "filament/infolists": "~4.0",
         "joaopaulolndev/filament-pdf-viewer": "^2.0",

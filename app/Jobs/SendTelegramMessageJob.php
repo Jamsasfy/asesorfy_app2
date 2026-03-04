@@ -51,6 +51,9 @@ class SendTelegramMessageJob implements ShouldQueue
             ]);
         }
 
+        // ✅ TOPICS: obtener thread_id de la conversación (null si no tiene)
+        $threadId = $chat->telegram_thread_id ? (int) $chat->telegram_thread_id : null;
+
         try {
             $tipo = (string) ($msg->tipo ?? 'text');
             $result = null;
@@ -63,8 +66,7 @@ class SendTelegramMessageJob implements ShouldQueue
                     return;
                 }
 
-                // ✅ SIN HTML, SIN ENLACES ESPECIALES: se manda tal cual
-                $result = $telegram->sendMessage($chat->telegram_chat_id, $textToSend);
+                $result = $telegram->sendMessage($chat->telegram_chat_id, $textToSend, $threadId);
 
             } elseif (in_array($tipo, ['photo', 'document'], true)) {
                 $rel = trim((string) ($msg->file_path ?? ''));
@@ -85,14 +87,16 @@ class SendTelegramMessageJob implements ShouldQueue
                     $result = $telegram->sendPhoto(
                         chatId: $chat->telegram_chat_id,
                         absolutePath: $abs,
-                        caption: $msg->caption ? (string) $msg->caption : null
+                        caption: $msg->caption ? (string) $msg->caption : null,
+                        messageThreadId: $threadId
                     );
                 } else {
                     $result = $telegram->sendDocument(
                         chatId: $chat->telegram_chat_id,
                         absolutePath: $abs,
                         filename: (string) ($msg->file_original_name ?? 'documento'),
-                        caption: $msg->caption ? (string) $msg->caption : null
+                        caption: $msg->caption ? (string) $msg->caption : null,
+                        messageThreadId: $threadId
                     );
                 }
 

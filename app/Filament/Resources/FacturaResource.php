@@ -46,7 +46,9 @@ class FacturaResource extends Resource implements HasShieldPermissions
 {
     protected static ?string $model = Factura::class;
 
-    protected static string | \BackedEnum | null $navigationIcon = 'heroicon-o-rectangle-stack';
+    protected static string | \BackedEnum | null $navigationIcon = 'icon-factura1';
+    protected static string | \UnitEnum | null $navigationGroup = 'Gestión Pagos y Facturas';
+
 
      public static function getPermissionPrefixes(): array
     {

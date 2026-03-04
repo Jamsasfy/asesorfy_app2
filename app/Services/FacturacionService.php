@@ -273,7 +273,8 @@ public static function crearFacturaRecurrente(
     Carbon $fechaPago,
     ?string $stripeInvoiceId = null,
     ?string $stripeInvoiceNumber = null,
-    ?string $stripePaymentIntentId = null
+    ?string $stripePaymentIntentId = null,
+    ?Carbon $periodoInicio = null
 ): Factura {
 
     return DB::transaction(function () use (
@@ -283,7 +284,8 @@ public static function crearFacturaRecurrente(
         $fechaPago,
         $stripeInvoiceId,
         $stripeInvoiceNumber,
-        $stripePaymentIntentId
+        $stripePaymentIntentId,
+        $periodoInicio
     ) {
         $datosFactura = self::generarSiguienteNumeroFactura();
 
@@ -295,6 +297,26 @@ public static function crearFacturaRecurrente(
         $iva           = round($totalPagado - $baseImponible, 2);
 
         $numeroRef = $stripeInvoiceNumber ?: $stripeInvoiceId;
+
+        // ✅ Nombre base del servicio (lo que ya venías usando)
+        $nombreBase = $suscripcion->nombre_personalizado ?? ($suscripcion->servicio->nombre ?? 'Suscripción');
+
+        // ✅ Mes/Año (si nos lo pasan)
+        $mesLabel = null;
+        if ($periodoInicio) {
+            $meses = [
+                1 => 'Enero', 2 => 'Febrero', 3 => 'Marzo', 4 => 'Abril',
+                5 => 'Mayo', 6 => 'Junio', 7 => 'Julio', 8 => 'Agosto',
+                9 => 'Septiembre', 10 => 'Octubre', 11 => 'Noviembre', 12 => 'Diciembre',
+            ];
+
+            $m = (int) $periodoInicio->month;
+            $y = (int) $periodoInicio->year;
+
+            $mesLabel = ($meses[$m] ?? $periodoInicio->format('m')) . " {$y}";
+        }
+
+        $descripcionConMes = $mesLabel ? "{$nombreBase} — {$mesLabel}" : $nombreBase;
 
         $factura = Factura::create([
             'cliente_id'              => $cliente->id,
@@ -313,11 +335,15 @@ public static function crearFacturaRecurrente(
             'base_imponible'          => $baseImponible,
             'total_iva'               => $iva,
             'total_factura'           => $totalPagado,
-            'observaciones_publicas'  => $numeroRef ? "Renovación automática Stripe: {$numeroRef}" : 'Renovación automática Stripe',
+
+            // ✅ Mantenemos tu texto, pero añadimos el mes si existe
+            'observaciones_publicas' => $numeroRef
+                ? "Renovación automática Stripe: {$numeroRef}" . ($mesLabel ? " ({$mesLabel})" : '')
+                : ('Renovación automática Stripe' . ($mesLabel ? " ({$mesLabel})" : '')),
         ]);
 
         $factura->items()->create([
-            'descripcion'            => $suscripcion->nombre_personalizado ?? ($suscripcion->servicio->nombre ?? 'Suscripción'),
+            'descripcion'            => $descripcionConMes,
             'cantidad'               => 1,
             'precio_unitario'        => $baseImponible,
             'porcentaje_iva'         => $porcentajeIva,

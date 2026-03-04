@@ -17,14 +17,11 @@ use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
-
 class FacturaResource extends Resource
 {
     protected static ?string $model = Factura::class;
 
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-document-currency-euro';
-
-
 
     protected static string|\UnitEnum|null $navigationGroup = 'Facturación y pagos';
     protected static ?string $recordTitleAttribute = 'numero_factura';
@@ -32,7 +29,9 @@ class FacturaResource extends Resource
     // ✅ Igual que Documentos (portal sin shield/policies)
     protected static bool $shouldSkipAuthorization = true;
 
-    // ✅ Igual que Documentos: usuario portal -> clientes via pivote cliente_user
+    /**
+     * ✅ Portal: usuario -> clientes vía pivote cliente_user
+     */
     public static function getEloquentQuery(): Builder
     {
         $user = auth()->user();
@@ -78,7 +77,7 @@ class FacturaResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => ListFacturas::route('/'),  
+            'index' => ListFacturas::route('/'),
         ];
     }
 }

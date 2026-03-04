@@ -25,7 +25,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Joaopaulolndev\FilamentPdfViewer\Infolists\Components\PdfViewerEntry;
 
-
 class DocumentoResource extends Resource
 {
     protected static ?string $model = Documento::class;
@@ -40,34 +39,33 @@ class DocumentoResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Gestión';
 
-
     public static function getNavigationLabel(): string
     {
         return 'Documentos';
     }
 
     public static function getNavigationBadge(): ?string
-            {
-                $user = auth()->user();
-                if (! $user) return null;
+    {
+        $user = auth()->user();
+        if (! $user) return null;
 
-                $clienteIds = $user->clientes()->pluck('clientes.id');
+        $clienteIds = $user->clientes()->pluck('clientes.id');
 
-                // ✅ Pendientes de respuesta del cliente:
-                // estado NECESITA_ACLARACION + aún NO ha contestado
-                $count = Documento::query()
-                    ->whereIn('cliente_id', $clienteIds)
-                    ->where('estado', DocumentoEstadoEnum::NECESITA_ACLARACION->value)
-                    ->whereNull('aclaracion_respondida_at')
-                    ->count();
+        // ✅ Pendientes de respuesta del cliente:
+        // estado NECESITA_ACLARACION + aún NO ha contestado
+        $count = Documento::query()
+            ->whereIn('cliente_id', $clienteIds)
+            ->where('estado', DocumentoEstadoEnum::NECESITA_ACLARACION->value)
+            ->whereNull('aclaracion_respondida_at')
+            ->count();
 
-                return $count > 0 ? (string) $count : null;
-            }
+        return $count > 0 ? (string) $count : null;
+    }
 
-            public static function getNavigationBadgeColor(): ?string
-            {
-                return 'warning';
-            }
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'warning';
+    }
 
     // ✅ Portal sin Shield / sin Policies
     protected static bool $shouldSkipAuthorization = true;
@@ -350,8 +348,6 @@ HTML;
 
                                     return $livewire->redirect($url, navigate: true);
                                 }),
-
-
                         ]),
                 ])
                 ->columns(1)

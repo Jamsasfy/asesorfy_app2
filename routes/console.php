@@ -4,7 +4,6 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
-
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
@@ -21,4 +20,13 @@ Schedule::command('asesorfy:recordatorio-pendientes-respuesta')
     ->dailyAt('10:00')
     ->timezone('Europe/Madrid');
 
+// ===============================
+// ✅ SINCRONIZACIÓN STRIPE
+// ===============================
 
+Schedule::command('stripe:sync')
+    ->dailyAt('02:00')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->runInBackground()
+    ->timezone('Europe/Madrid');

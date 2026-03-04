@@ -2,7 +2,6 @@
 
 namespace App\Providers\Filament;
 
-use Filament\Pages\Dashboard;
 use Filament\Widgets\AccountWidget;
 use Filament\Widgets\FilamentInfoWidget;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -33,6 +32,12 @@ use Filament\Navigation\NavigationGroup;
 use Filament\Navigation\NavigationItem;
 use Filament\Support\Assets\Css;
 use Filament\Support\Facades\FilamentAsset;
+use App\Filament\Widgets\LeadsKpiOverview;
+use Elemind\FilamentECharts\FilamentEChartsPlugin;
+use App\Filament\Widgets\LeadsPipelineFunnelChart;
+
+
+
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -61,17 +66,24 @@ class AdminPanelProvider extends PanelProvider
         ->favicon(asset('images/favicon.png'))
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
-            ->pages([
-                Dashboard::class,
-                           
-
-            ])
-            ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
+           
+           // ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                AccountWidget::class,
-                FilamentInfoWidget::class,
-               // AnnualSalesChart::class,
-                ClientesPorMesChart::class, 
+               // AccountWidget::class,
+               // FilamentInfoWidget::class,
+               \App\Filament\Widgets\AsesorTotalClientesWidget::class,             
+                LeadsKpiOverview::class,
+              \App\Filament\Widgets\LeadsEstadoPorMesStackedBarChart::class,
+                \App\Filament\Widgets\LeadsEstadoResumenPieChart::class,
+    \App\Filament\Widgets\VentasFacturacionPorMesChart::class,
+    \App\Filament\Widgets\ProyectosEstadoPorMesStackedBarChart::class,
+    \App\Filament\Widgets\ChatControlMensualWidget::class,
+    \App\Filament\Widgets\ChatPendientes24hDiarioBarChart::class,
+    \App\Filament\Widgets\AsesoresClientesAsignadosHorizontalBarChart::class,
+    \App\Filament\Widgets\RecurrenteAcumuladoPorMesChart::class,
+    \App\Filament\Widgets\ClientesNuevosYBajasPorMesChart::class,
+
+               
             ])
 
           ->databaseNotifications() // <-- AÑADE ESTA LÍNEA
@@ -94,6 +106,8 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->plugins([
                 FilamentShieldPlugin::make(),
+                FilamentEChartsPlugin::make(),
+
             ]);
     }
 

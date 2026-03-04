@@ -49,17 +49,23 @@ class TelegramService
         return $http;
     }
 
-    public function sendMessage(int|string $chatId, string $text): array
+    public function sendMessage(int|string $chatId, string $text, ?int $messageThreadId = null): array
     {
          
+        $payload = [
+            'chat_id' => $chatId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+        ];
+
+        if ($messageThreadId !== null) {
+            $payload['message_thread_id'] = $messageThreadId;
+        }
+
         $response = $this->http()
             ->asJson()
-            ->post($this->apiUrl('sendMessage'), [
-                'chat_id' => $chatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-                'disable_web_page_preview' => true,
-            ]);
+            ->post($this->apiUrl('sendMessage'), $payload);
 
         if (! $response->successful()) {
             throw new \RuntimeException(
@@ -74,7 +80,7 @@ class TelegramService
      * Enviar foto (imagen) a Telegram.
      * Recibe RUTA ABSOLUTA del fichero.
      */
-    public function sendPhoto(int|string $chatId, string $absolutePath, ?string $caption = null): array
+    public function sendPhoto(int|string $chatId, string $absolutePath, ?string $caption = null, ?int $messageThreadId = null): array
     {
         $absolutePath = trim($absolutePath);
 
@@ -87,6 +93,10 @@ class TelegramService
         $payload = [
             'chat_id' => $chatId,
         ];
+
+        if ($messageThreadId !== null) {
+            $payload['message_thread_id'] = $messageThreadId;
+        }
 
         if (trim((string) $caption) !== '') {
             $payload['caption'] = $caption;
@@ -111,7 +121,7 @@ class TelegramService
      * Enviar documento (PDF, docx, etc.) a Telegram.
      * Recibe RUTA ABSOLUTA del fichero.
      */
-    public function sendDocument(int|string $chatId, string $absolutePath, string $filename, ?string $caption = null): array
+    public function sendDocument(int|string $chatId, string $absolutePath, string $filename, ?string $caption = null, ?int $messageThreadId = null): array
     {
         $absolutePath = trim($absolutePath);
 
@@ -124,6 +134,10 @@ class TelegramService
         $payload = [
             'chat_id' => $chatId,
         ];
+
+        if ($messageThreadId !== null) {
+            $payload['message_thread_id'] = $messageThreadId;
+        }
 
         if (trim((string) $caption) !== '') {
             $payload['caption'] = $caption;
@@ -142,6 +156,62 @@ class TelegramService
         }
 
         return (array) $response->json();
+    }
+
+    /**
+     * Crear un topic (hilo) en un chat privado con el bot.
+     * Requiere Threaded Mode activado en @BotFather.
+     *
+     * @param int|string $chatId  ID del chat privado
+     * @param string     $name    Nombre del topic (ej: "📋 MiSL S.L.")
+     * @return int                El message_thread_id del topic creado
+     */
+    public function createForumTopic(int|string $chatId, string $name): int
+    {
+        $response = $this->http()
+            ->asJson()
+            ->post($this->apiUrl('createForumTopic'), [
+                'chat_id' => $chatId,
+                'name'    => $name,
+            ]);
+
+        if (! $response->successful()) {
+            throw new \RuntimeException(
+                "Telegram createForumTopic failed ({$response->status()}): {$response->body()}"
+            );
+        }
+
+        $threadId = data_get($response->json(), 'result.message_thread_id');
+
+        if (! $threadId) {
+            throw new \RuntimeException(
+                "Telegram createForumTopic: no message_thread_id in response: {$response->body()}"
+            );
+        }
+
+        return (int) $threadId;
+    }
+
+    /**
+     * Cerrar el topic "General" (All) de un chat con Topics activado.
+     * Impide que el usuario escriba en él, obligándole a usar los hilos.
+     */
+    public function closeGeneralForumTopic(int|string $chatId): void
+    {
+        $response = $this->http()
+            ->asJson()
+            ->post($this->apiUrl('closeGeneralForumTopic'), [
+                'chat_id' => $chatId,
+            ]);
+
+        // No lanzamos excepción: si falla (ya cerrado, no soportado, etc.) no es crítico
+        if (! $response->successful()) {
+            \Illuminate\Support\Facades\Log::warning('closeGeneralForumTopic failed', [
+                'chat_id' => $chatId,
+                'status'  => $response->status(),
+                'body'    => $response->body(),
+            ]);
+        }
     }
 
     /**

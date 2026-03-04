@@ -534,6 +534,27 @@ public static function infolist(Schema $schema): Schema
             TextColumn::make('email_contacto')
                 ->label('Email')
                 ->searchable(isIndividual: true),
+             // 👇 NUEVA COLUMNA DE TELEGRAM 👇
+            TextColumn::make('chat_telegram')
+                ->label('Telegram')
+                ->getStateUsing(function ($record) {
+                    $chat = \App\Models\ChatConversacion::where('cliente_id', $record->id)
+                        ->where('tipo', 'cliente')
+                        ->first();
+                        
+                    if (!$chat || !$chat->telegram_chat_id) {
+                        return 'Sin vincular';
+                    }
+                    
+                    $nombre = $chat->telegram_first_name ?: 'Vinculado';
+                    $user = $chat->telegram_username ? ' (@' . $chat->telegram_username . ')' : '';
+                    
+                    return $nombre . $user;
+                })
+                ->badge()
+                ->color(fn (string $state): string => $state === 'Sin vincular' ? 'danger' : 'success')
+                ->toggleable(),
+            // 👆 FIN NUEVA COLUMNA 👆   
 
                 TextColumn::make('asesor.name')
                 ->label('Asesor')
@@ -601,7 +622,58 @@ public static function infolist(Schema $schema): Schema
             Filter::make('sin_asesor')
                 ->label('Sin asesor asignado')
                 ->query(fn ($query) => $query->whereNull('asesor_id'))
-                ->toggle(),      
+                ->toggle(),   
+                
+              \Filament\Tables\Filters\TernaryFilter::make('telegram_vinculado')
+                ->label('Estado Telegram')
+                ->placeholder('Todos')
+                ->trueLabel('Vinculado ✅')
+                ->falseLabel('Sin vincular ❌')
+                ->queries(
+                    true: fn ($query) => $query->whereIn('id', \App\Models\ChatConversacion::whereNotNull('telegram_chat_id')->select('cliente_id')),
+                    false: fn ($query) => $query->whereNotIn('id', \App\Models\ChatConversacion::whereNotNull('telegram_chat_id')->select('cliente_id'))
+                ),
+
+            // =========================================================
+            // 🔥 FILTROS RECOMENDADOS SEGÚN TU ARQUITECTURA 🔥
+            // =========================================================
+
+            // 2. TARIFA ACTIVA: Brutal para ver quién te está pagando y quién está de "oyente"
+            \Filament\Tables\Filters\TernaryFilter::make('tarifa_activa')
+                ->label('Tarifa Principal')
+                ->placeholder('Todos')
+                ->trueLabel('Con tarifa activa 💰')
+                ->falseLabel('Sin tarifa (Potencial baja) ⚠️')
+                ->queries(
+                    true: fn ($query) => $query->whereHas('suscripciones', fn ($q) => 
+                        $q->where('es_tarifa_principal', true)->where('estado', \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA)
+                    ),
+                    false: fn ($query) => $query->whereDoesntHave('suscripciones', fn ($q) => 
+                        $q->where('es_tarifa_principal', true)->where('estado', \App\Enums\ClienteSuscripcionEstadoEnum::ACTIVA)
+                    )
+                ),
+
+            // 3. ACCESO A LA APP WEB: Para saber a qué clientes tienes que invitar a la plataforma web
+            \Filament\Tables\Filters\TernaryFilter::make('acceso_app')
+                ->label('Acceso a Plataforma Web')
+                ->placeholder('Todos')
+                ->trueLabel('Con acceso (Usuarios creados) 👤')
+                ->falseLabel('Sin acceso 👻')
+                ->queries(
+                    true: fn ($query) => $query->has('usuarios'),
+                    false: fn ($query) => $query->doesntHave('usuarios')
+                ),
+
+            // 4. METODO DE PAGO (STRIPE): Fundamental para facturación. Evita que te dejen pufos.
+            \Filament\Tables\Filters\TernaryFilter::make('metodo_pago')
+                ->label('Método de Pago (Stripe)')
+                ->placeholder('Todos')
+                ->trueLabel('Configurado 💳')
+                ->falseLabel('Sin método de pago 🚨')
+                ->queries(
+                    true: fn ($query) => $query->whereNotNull('stripe_customer_id'),
+                    false: fn ($query) => $query->whereNull('stripe_customer_id')
+                ),  
 
                 ],layout: FiltersLayout::AboveContent)
                 ->filtersFormColumns(7)
@@ -702,6 +774,79 @@ public static function infolist(Schema $schema): Schema
                         ->success()
                         ->send();
                 }),   
+
+                // 👇 NUEVA ACCIÓN: DESVINCULAR TELEGRAM 👇
+            Action::make('desvincularTelegram')
+                ->label('')
+                ->tooltip('Desvincular cuenta de Telegram')
+                ->icon('icon-telegram')
+                ->color('danger')
+                ->visible(fn ($record) => 
+                    auth()->user()?->can('Chats:UnlinkTelegram') && 
+                    \App\Models\ChatConversacion::where('cliente_id', $record->id)
+                        ->whereNotNull('telegram_chat_id')
+                        ->exists()
+                )
+                ->requiresConfirmation()
+                ->modalHeading('¿Desvincular Telegram del cliente?')
+                ->modalDescription('Esto cortará la conexión con la cuenta de Telegram actual, impidiendo que el usuario envíe o reciba más mensajes, y caducará los enlaces pendientes. Tendrás que generar un enlace nuevo si quieres volver a vincularlo.')
+                ->modalSubmitActionLabel('Sí, desvincular')
+                ->action(function ($record) {
+                    $chats = \App\Models\ChatConversacion::where('cliente_id', $record->id)
+                        ->whereNotNull('telegram_chat_id')
+                        ->get();
+                    
+                    if ($chats->isEmpty()) return;
+
+                    foreach ($chats as $chat) {
+                        $oldTelegramChatId = $chat->telegram_chat_id;
+
+                        \Illuminate\Support\Facades\DB::transaction(function () use ($record, $chat) {
+                            // 1. Limpiamos la conexión en el chat
+                            $chat->update([
+                                'telegram_chat_id'    => null,
+                                'telegram_thread_id'  => null,
+                                'telegram_username'   => null,
+                                'telegram_first_name' => null,
+                            ]);
+
+                            // 2. Caducamos enlaces para que no pueda usar los viejos
+                            \App\Models\TelegramLink::where('cliente_id', $record->id)
+                                ->whereNull('used_at')
+                                ->update(['expires_at' => now()]);
+                                
+                            // 3. Dejamos un log en el chat
+                            \App\Models\ChatMensaje::create([
+                                'chat_id'   => $chat->id,
+                                'origen'    => 'sistema',
+                                'tipo'      => 'text',
+                                'contenido' => '🔌 Telegram desvinculado manualmente por administración.',
+                                'leido'     => true,
+                            ]);
+                        });
+
+                      // Obtenemos el nombre de la empresa para el mensaje
+                        $nombreEmpresa = $record->razon_social ?? trim(($record->nombre ?? '') . ' ' . ($record->apellidos ?? '')) ?: 'tu empresa';
+
+                        // 4. Intentamos avisar al Telegram del cliente que ha sido expulsado
+                        try {
+                            app(\App\Services\TelegramService::class)->sendMessage(
+                                $oldTelegramChatId, 
+                                "🔌 La cuenta de " . $nombreEmpresa . " ha sido desvinculada de AsesorFy por administración.\n\nPara volver a acceder, solicita un nuevo enlace."
+                            );
+                        } catch (\Throwable $e) {
+                            // Ignorar si falla el envío (ej. el cliente bloqueó al bot)
+                        }
+                    }
+
+                    Notification::make()
+                        ->success()
+                        ->title('Telegram desvinculado con éxito')
+                        ->send();
+                }),
+            // 👆 FIN NUEVA ACCIÓN 👆
+
+
               
         ])
         ->toolbarActions([

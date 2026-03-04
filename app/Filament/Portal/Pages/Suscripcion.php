@@ -6,6 +6,7 @@ use App\Models\Cliente;
 use App\Models\ClienteSuscripcion;
 use Filament\Pages\Page;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Stripe\Stripe;
 use Stripe\StripeClient;
 
@@ -25,6 +26,10 @@ class Suscripcion extends Page
     protected string $view = 'filament.portal.pages.suscripcion';
 
     public ?Cliente $cliente = null;
+    
+    // ✅ AÑADIDO: Declarar la propiedad que usas en mount()
+    public ?Collection $suscripciones = null;
+    
     public ?ClienteSuscripcion $suscripcion = null;
 
     /**
@@ -34,82 +39,82 @@ class Suscripcion extends Page
     public ?string $stripeError = null;
 
     public function mount(): void
-{
-    /** @var Cliente|null $cliente */
-    $cliente = auth()->user()?->clientes()->first();
+    {
+        /** @var Cliente|null $cliente */
+        $cliente = auth()->user()?->clientes()->first();
 
-    $this->cliente = $cliente;
+        $this->cliente = $cliente;
 
-    if (! $this->cliente) {
-        // Nada que cargar
-        $this->suscripciones = collect();
-        $this->suscripcion = null;
-        return;
-    }
-
-    /**
-     * ✅ 1) LISTADO COMPLETO (para el portal)
-     * Aquí cargamos TODAS las suscripciones recurrentes del cliente.
-     * (No solo la principal)
-     */
-    $this->suscripciones = $this->cliente->suscripciones()
-        ->with('servicio')
-        ->get();
-
-    /**
-     * ✅ 2) Principal (tu accessor “source of truth”)
-     * La seguimos manteniendo porque tu snapshot Stripe está montado sobre UNA subscription_id.
-     */
-    $this->suscripcion = $this->cliente->tarifa_principal_activa;
-
-    // Si no hay principal, no rompemos nada: el blade seguirá pudiendo pintar el listado ($suscripciones)
-    if (! $this->suscripcion) {
-        return;
-    }
-
-    // Si no hay Stripe IDs, no rompemos nada: seguimos con datos locales
-    if (blank($this->cliente->stripe_customer_id) || blank($this->suscripcion->stripe_subscription_id)) {
-        return;
-    }
-
-    try {
-        $stripe = $this->makeStripeClient();
-
-        $sub = $stripe->subscriptions->retrieve(
-            $this->suscripcion->stripe_subscription_id,
-            []
-        );
-
-        $upcoming = null;
-
-        try {
-            $upcoming = $stripe->invoices->upcoming([
-                'customer'      => $this->cliente->stripe_customer_id,
-                'subscription'  => $this->suscripcion->stripe_subscription_id,
-            ]);
-        } catch (\Throwable $e) {
-            $upcoming = null;
+        if (! $this->cliente) {
+            // ✅ Inicializar ambas
+            $this->suscripciones = collect();
+            $this->suscripcion = null;
+            return;
         }
 
-        $this->stripeSnapshot = [
-            'subscription' => [
-                'status' => (string) ($sub->status ?? ''),
-                'current_period_end' => (int) ($sub->current_period_end ?? 0),
-                'current_period_start' => (int) ($sub->current_period_start ?? 0),
-                'cancel_at_period_end' => (bool) ($sub->cancel_at_period_end ?? false),
-            ],
-            'upcoming_invoice' => $upcoming ? [
-                'total' => (int) ($upcoming->total ?? 0),
-                'next_payment_attempt' => (int) ($upcoming->next_payment_attempt ?? 0),
-                'hosted_invoice_url' => (string) ($upcoming->hosted_invoice_url ?? ''),
-            ] : [],
-        ];
-    } catch (\Throwable $e) {
-        $this->stripeError = $e->getMessage();
-        // No rompemos la página: seguiremos con datos locales
-    }
-}
+        /**
+         * ✅ 1) LISTADO COMPLETO (para el portal)
+         * Aquí cargamos TODAS las suscripciones recurrentes del cliente.
+         */
+        $this->suscripciones = $this->cliente->suscripciones()
+            ->with('servicio')
+            ->get();
 
+        /**
+         * ✅ 2) Principal (tu accessor "source of truth")
+         * La seguimos manteniendo porque tu snapshot Stripe está montado sobre UNA subscription_id.
+         */
+        $this->suscripcion = $this->cliente->tarifa_principal_activa;
+
+        // Si no hay principal, no rompemos nada: el blade seguirá pudiendo pintar el listado ($suscripciones)
+        if (! $this->suscripcion) {
+            // ✅ MEJORADO: Inicializar para evitar errores
+            $this->stripeSnapshot = [];
+            return;
+        }
+
+        // Si no hay Stripe IDs, no rompemos nada: seguimos con datos locales
+        if (blank($this->cliente->stripe_customer_id) || blank($this->suscripcion->stripe_subscription_id)) {
+            return;
+        }
+
+        try {
+            $stripe = $this->makeStripeClient();
+
+            $sub = $stripe->subscriptions->retrieve(
+                $this->suscripcion->stripe_subscription_id,
+                []
+            );
+
+            $upcoming = null;
+
+            try {
+                $upcoming = $stripe->invoices->upcoming([
+                    'customer'      => $this->cliente->stripe_customer_id,
+                    'subscription'  => $this->suscripcion->stripe_subscription_id,
+                ]);
+            } catch (\Throwable $e) {
+                $upcoming = null;
+            }
+
+            $this->stripeSnapshot = [
+                'subscription' => [
+                    'status' => (string) ($sub->status ?? ''),
+                    'current_period_end' => (int) ($sub->current_period_end ?? 0),
+                    'current_period_start' => (int) ($sub->current_period_start ?? 0),
+                    'cancel_at_period_end' => (bool) ($sub->cancel_at_period_end ?? false),
+                ],
+                'upcoming_invoice' => $upcoming ? [
+                    'total' => (int) ($upcoming->total ?? 0),
+                    'next_payment_attempt' => (int) ($upcoming->next_payment_attempt ?? 0),
+                    'hosted_invoice_url' => (string) ($upcoming->hosted_invoice_url ?? ''),
+                ] : [],
+            ];
+        } catch (\Throwable $e) {
+            $this->stripeError = $e->getMessage();
+            // No rompemos la página: seguiremos con datos locales
+        }
+    }
 
     protected function makeStripeClient(): StripeClient
     {
@@ -137,14 +142,13 @@ class Suscripcion extends Page
     {
         if (! $this->suscripcion) return '—';
 
-       $estado = $this->suscripcion->estado;
+        $estado = $this->suscripcion->estado;
 
-$local = match (true) {
-    is_object($estado) && method_exists($estado, 'getLabel') => $estado->getLabel(),
-    is_object($estado) && property_exists($estado, 'value')   => (string) $estado->value,
-    default                                                   => '—',
-};
-
+        $local = match (true) {
+            is_object($estado) && method_exists($estado, 'getLabel') => $estado->getLabel(),
+            is_object($estado) && property_exists($estado, 'value')   => (string) $estado->value,
+            default                                                   => '—',
+        };
 
         $stripe = (string) data_get($this->stripeSnapshot, 'subscription.status', '');
         if ($stripe !== '') {

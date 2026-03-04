@@ -1,30 +1,30 @@
 <?php
 
-namespace App\Filament\Widgets; // Confirma que este es el namespace correcto
+namespace App\Filament\Widgets;
 
+use App\Enums\DocumentoEstadoEnum;
 use App\Models\Cliente;
+use App\Models\Documento;
+use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
 use Filament\Widgets\StatsOverviewWidget as BaseWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
-use BezhanSalleh\FilamentShield\Traits\HasWidgetShield;
-use Illuminate\Support\Facades\Auth;
-
-// No necesitamos Auth ni modelos para esta prueba súper simple
 
 class AsesorTotalClientesWidget extends BaseWidget
 {
-        use HasWidgetShield;
+    use HasWidgetShield;
 
-    // protected static ?int $columns = 1; // Opcional, para forzar una columna si solo hay un stat
+    protected static ?int $sort = 0;
+    protected static bool $isLazy = true;
 
+
+    // ✅ 5 en una fila (desktop)
+protected array|int|null $columns = 5;
 
     protected function getStats(): array
     {
-       /** @var User|null $asesor */ // Hacemos que $asesor pueda ser null inicialmente
-        $asesor = Auth::user();
+        $asesorId = auth()->id();
 
-        // Si no hay un asesor autenticado, devolvemos stats vacíos o de error
-        // para evitar errores al intentar acceder a $asesor->id.
-        if (!$asesor) {
+        if (! $asesorId) {
             return [
                 Stat::make('Error', 'Usuario no autenticado')
                     ->description('No se pudieron cargar las estadísticas.')
@@ -32,43 +32,55 @@ class AsesorTotalClientesWidget extends BaseWidget
             ];
         }
 
-        // Ahora que sabemos que $asesor no es null, podemos usar $asesor->id
-        // 1. Total de clientes del asesor
-        $totalSusClientes = Cliente::where('asesor_id', $asesor->id)->count();
+        // ✅ Clientes (1 query)
+        $row = Cliente::query()
+            ->where('asesor_id', $asesorId)
+            ->selectRaw('COUNT(*) as total')
+            ->selectRaw("SUM(CASE WHEN estado = 'activo' THEN 1 ELSE 0 END) as activos")
+            ->selectRaw("SUM(CASE WHEN estado IN ('requiere_atencion','impagado') THEN 1 ELSE 0 END) as atencion")
+            ->first();
 
-        // 2. Clientes activos del asesor
-        $susClientesActivos = Cliente::where('asesor_id', $asesor->id)
-                                   ->where('estado', 'activo')
-                                   ->count();
+        $total   = (int) ($row->total ?? 0);
+        $activos = (int) ($row->activos ?? 0);
+        $aten    = (int) ($row->atencion ?? 0);
 
-        // 3. Clientes del asesor que requieren atención o tienen impagos
-        $susClientesAtencion = Cliente::where('asesor_id', $asesor->id)
-                                     ->whereIn('estado', ['requiere_atencion', 'impagado'])
-                                     ->count();
+        // ✅ Documentos (2 queries)
+        $docsPendientes = Documento::query()
+            ->whereHas('cliente', fn ($q) => $q->where('asesor_id', $asesorId))
+            ->where('estado', DocumentoEstadoEnum::PENDIENTE->value)
+            ->count();
 
-        // 4. Documentos por verificar (marcador de posición)
-        $documentosPendientes = 0;
+        $docsAclaracionRespondida = Documento::query()
+            ->whereHas('cliente', fn ($q) => $q->where('asesor_id', $asesorId))
+            ->where('estado', DocumentoEstadoEnum::NECESITA_ACLARACION->value)
+            ->whereNotNull('aclaracion_respondida_at')
+            ->count();
 
         return [
-            Stat::make('Mis Clientes Totales', $totalSusClientes)
-                ->description('Clientes actualmente asignados')
+            Stat::make('Mis clientes', $total)
+                ->description('Asignados a mí')
                 ->descriptionIcon('heroicon-m-user-group')
                 ->color('primary'),
 
-            Stat::make('Mis Clientes Activos', $susClientesActivos)
-                ->description('Clientes asignados en estado activo')
+            Stat::make('Activos', $activos)
+                ->description('Estado activo')
                 ->descriptionIcon('heroicon-m-check-circle')
                 ->color('success'),
 
-            Stat::make('Clientes (Atención/Impago)', $susClientesAtencion)
-                ->description('Requieren atención o con impagos')
+            Stat::make('Atención / Impago', $aten)
+                ->description('Requieren atención')
                 ->descriptionIcon('heroicon-m-exclamation-triangle')
-                ->color($susClientesAtencion > 0 ? 'danger' : 'success'),
+                ->color($aten > 0 ? 'danger' : 'success'),
 
-            Stat::make('Documentos por Verificar', $documentosPendientes . ' (Próximamente)')
-                ->description('Facturas, modelos, etc.')
-                ->descriptionIcon('heroicon-m-document-magnifying-glass')
-                ->color('warning'),
+            Stat::make('Docs pendientes', $docsPendientes)
+                ->description('Pendiente de verificar')
+                ->descriptionIcon('heroicon-m-inbox')
+                ->color($docsPendientes > 0 ? 'warning' : 'success'),
+
+            Stat::make('Aclaración respondida', $docsAclaracionRespondida)
+                ->description('Cliente ya contestó')
+                ->descriptionIcon('heroicon-m-chat-bubble-left-right')
+                ->color($docsAclaracionRespondida > 0 ? 'info' : 'success'),
         ];
     }
 }
