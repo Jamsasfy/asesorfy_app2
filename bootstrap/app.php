@@ -17,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
             // ... otros alias de middlewares de ruta
             'conversion.link.valid' => \App\Http\Middleware\EnsureConversionLinkIsValid::class,
             'check.recurrent' => \App\Http\Middleware\CheckRecurrentPaymentSetup::class,
-
+            'portal.acceso' => \App\Http\Middleware\VerificarAccesoPortal::class,
         ]);
         $middleware->validateCsrfTokens(except: [
             'stripe/webhook', // 👈 AÑADE ESTA LÍNEA AQUÍ

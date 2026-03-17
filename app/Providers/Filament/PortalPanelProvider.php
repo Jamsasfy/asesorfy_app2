@@ -4,7 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Portal\Pages\Auth\Login; // 👈 AÑADIR
 use App\Http\Middleware\SetClienteActivoMiddleware; // 👈 AÑADIR
-use DiogoGPinto\AuthUIEnhancer\AuthUIEnhancerPlugin;
+use App\Filament\Portal\Pages\Auth\RequestPasswordReset;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -17,6 +17,7 @@ use Filament\Widgets\FilamentInfoWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use App\Http\Middleware\VerificarAccesoPortal;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
@@ -39,7 +40,10 @@ class PortalPanelProvider extends PanelProvider
             ->databaseNotifications()
             ->databaseNotificationsPolling('30s')
             ->login()
-            ->passwordReset()
+            ->loginRouteSlug('login')
+            ->homeUrl('/portal')  // 👈 AÑADIR ESTA LÍNEA
+            ->authPasswordBroker('portal')
+            ->passwordReset(RequestPasswordReset::class)
             ->sidebarCollapsibleOnDesktop()
             ->maxContentWidth('full')
             ->font('Varela Round')
@@ -125,18 +129,14 @@ class PortalPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
                 SetClienteActivoMiddleware::class, // 👈 AÑADIR al final
+               //VerificarAccesoPortal::class,
             ])
             ->plugins([
-                AuthUIEnhancerPlugin::make()
-                    ->formPanelPosition('right')
-                    ->formPanelWidth('42%')
-                    ->formPanelBackgroundColor(Color::Sky, '100')
-                    ->emptyPanelBackgroundColor(Color::hex('#41c0e9'))
-                    ->emptyPanelBackgroundImageUrl(asset('images/portal/login.png'))
-                    ->emptyPanelBackgroundImageOpacity('68%'),
+                
             ])
             ->authMiddleware([
                 Authenticate::class,
+                    \App\Http\Middleware\VerificarAccesoPortal::class, // 👈 AÑADIR AQUÍ
             ]);
     }
 }

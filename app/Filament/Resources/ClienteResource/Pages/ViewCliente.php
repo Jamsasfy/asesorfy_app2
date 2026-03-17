@@ -17,6 +17,8 @@ use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
+use App\Models\ContratoResponsabilidad;
+use Illuminate\Support\Str;
 
 class ViewCliente extends ViewRecord
 {
@@ -259,9 +261,60 @@ class ViewCliente extends ViewRecord
                 ->body('El cliente ya no tiene asesor asignado.')
                 ->danger()
                 ->send();
-        })
-       ,
+        }),
 
+        Action::make('contrato_responsabilidad')
+            ->label('Doc. de exoneración')
+            ->icon('heroicon-o-shield-exclamation')
+            ->color('danger')
+            ->visible(fn (ViewRecord $livewire): bool =>
+                !is_null($livewire->getRecord()->asesor_id) &&
+                auth()->user()?->hasAnyRole(['asesor', 'super_admin'])
+            )
+            ->schema([
+                \Filament\Forms\Components\TextInput::make('titulo')
+                    ->label('Título del asunto')
+                    ->helperText('Resumen breve de la actuación (aparecerá en el listado).')
+                    ->required(),
+                Textarea::make('descripcion')
+                    ->label('Descripción detallada de la actuación')
+                    ->helperText('Explica con detalle la instrucción expresa del cliente.')
+                    ->rows(6)
+                    ->required(),
+            ])
+            ->action(function ($record, array $data): void {
+                $contrato = ContratoResponsabilidad::create([
+                    'cliente_id'  => $record->id,
+                    'asesor_id'   => auth()->id(),
+                    'titulo'      => $data['titulo'],
+                    'descripcion' => $data['descripcion'],
+                    'token'       => Str::random(48),
+                ]);
+
+                $url = route('responsabilidad.show', $contrato->token);
+
+                // Email al cliente con enlace para firmar
+                try {
+                    \Illuminate\Support\Facades\Mail::to($record->email_contacto)
+                        ->send(new \App\Mail\ContratoResponsabilidadEnviadoMail($contrato, $url));
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('No se pudo enviar email contrato responsabilidad: ' . $e->getMessage());
+                }
+
+                // Comentario envío
+                $record->comentarios()->create([
+                    'user_id'   => auth()->id(),
+                    'contenido' => '📤 Doc. de exoneración enviado por ' . auth()->user()->name . ' — "' . $data['titulo'] . '"',
+                ]);
+
+                Notification::make()
+                    ->title('✅ Contrato enviado')
+                    ->body('El cliente recibirá un email para firmar el documento.')
+                    ->success()
+                    ->send();
+            })
+            ->modalHeading('Nuevo contrato de responsabilidad')
+            ->modalSubmitActionLabel('Generar y enviar'),
 
         ];
     }

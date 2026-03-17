@@ -35,12 +35,12 @@ public function getHeading(): string
         $year = now()->year;
 
         $ventaItemsQuery = VentaItem::query()
-            // <<< CAMBIO AQUI: Sumar subtotal_aplicado para que sea SIN IVA (pero CON descuento)
-            ->selectRaw('MONTH(v.fecha_venta) as month, s.tipo, SUM(vi.subtotal_aplicado) as total')
+            ->selectRaw('MONTH(v.fecha_venta) as month, s.tipo, SUM(vi.subtotal) as total')
             ->from('venta_items as vi')
             ->join('ventas as v', 'vi.venta_id', '=', 'v.id')
             ->join('servicios as s', 'vi.servicio_id', '=', 's.id')
-            ->whereYear('v.fecha_venta', $year);
+            ->whereYear('v.fecha_venta', $year)
+            ->where('v.estado', \App\Enums\VentaEstadoEnum::COMPLETADA->value);
 
         if ($user && $user->hasRole('comercial')) {
             // Si es comercial, añadimos el filtro para que solo vea sus ventas.

@@ -82,38 +82,70 @@ public static function form(Schema $schema): Schema
             // SECTION 1 · ACCESO A LA PLATAFORMA
             // =====================================================
             Section::make('Trabajador con acceso a AsesorFy')
-                ->description('Estos son los datos de acceso a la plataforma de AsesorFy. Una vez creado el trabajador, debe acceder a usuario web y darle los permisos que correspondan.')
+                ->description('Datos de acceso a la plataforma y asignación de roles.')
                 ->schema([
                     Group::make()
                         ->relationship('user')
                         ->schema([
                             TextInput::make('name')
                                 ->label('Nombre')
-                                ->required(),
+                                ->required()
+                                ->columnSpan(2),
 
                             TextInput::make('email')
-                                ->label('Email address')
+                                ->label('Email de acceso')
                                 ->email()
-                                ->required(),
+                                ->required()
+                                ->columnSpan(2),
 
                             TextInput::make('password')
-                                ->label('Password')
+                                ->label('Contraseña')
                                 ->password()
                                 ->revealable()
                                 ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->dehydrateStateUsing(fn ($state) => Hash::make($state))
                                 ->same('password_confirmation')
-                                ->maxLength(191),
+                                ->maxLength(191)
+                                ->columnSpan(2),
 
                             TextInput::make('password_confirmation')
-                                ->label('Confirmar password')
+                                ->label('Confirmar contraseña')
                                 ->password()
                                 ->revealable()
                                 ->dehydrated(false)
                                 ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                                 ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
-                                ->helperText('Repite la contraseña de acceso.'),
+                                ->helperText('Repite la contraseña de acceso.')
+                                ->columnSpan(2),
+                            
+                            Toggle::make('acceso_app')
+                                ->label('Acceso al panel de administración')
+                                ->helperText('Activar para permitir acceso al panel admin.')
+                                ->default(true)
+                                ->inline(false)
+                                ->columnSpan(4),
+                            
+                            // 👇 MOVER AQUÍ DENTRO
+                            Select::make('roles')
+                                ->label('Roles del trabajador')
+                                ->options(fn () => \Spatie\Permission\Models\Role::pluck('name', 'id'))
+                                ->multiple()
+                                ->preload()
+                                ->searchable()
+                                ->required()
+                                ->native(false)
+                                ->suffixIcon('heroicon-m-shield-check')
+                                ->helperText('Asigna uno o varios roles.')
+                                ->saveRelationshipsUsing(function ($component, $state) {
+                                    $component->getRecord()->roles()->sync($state);
+                                })
+                                ->loadStateFromRelationshipsUsing(function ($component) {
+                                    // Cargar roles actuales al editar
+                                    $component->state($component->getRecord()->roles->pluck('id')->toArray());
+                                })
+                                ->dehydrated(false)
+                                ->columnSpan(4),
                         ])
                         ->columns(4),
                 ])
@@ -314,17 +346,9 @@ public static function form(Schema $schema): Schema
                
             ], layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(6)
-            ->recordActions([
+           ->recordActions([
                 EditAction::make()
-                ->label(''),
-                Action::make('ver_usuario')
-                ->label('Accesos')
-                ->icon('heroicon-o-users') // Puedes cambiar el ícono aquí
-                ->iconSize(IconSize::Small)
-                ->color('warning')
-                ->tooltip('Permisos del usuario y contraseña de acceso')
-                ->url(fn (Trabajador $record): string => UserResource::getUrl('edit', ['record' => $record->user_id]))
-                ->openUrlInNewTab(), // Opcional, si quieres abrir en nueva pestaña
+                    ->label(''),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

@@ -11,6 +11,7 @@ enum VentaEstadoEnum: string implements HasLabel, HasColor
     case PENDIENTE  = 'pendiente';
     case COMPLETADA = 'completada';
     case CANCELADA  = 'cancelada';
+    case RECURRENTE_CANCELADO = 'recurrente_cancelado'; // ✅ nuevo
 
     public function getLabel(): ?string
     {
@@ -18,6 +19,7 @@ enum VentaEstadoEnum: string implements HasLabel, HasColor
             self::PENDIENTE  => 'Pendiente de Cierre',
             self::COMPLETADA => 'Venta Cerrada',
             self::CANCELADA  => 'Cancelada',
+            self::RECURRENTE_CANCELADO => 'Recurrente Cancelado',
         };
     }
 
@@ -27,6 +29,7 @@ enum VentaEstadoEnum: string implements HasLabel, HasColor
             self::PENDIENTE  => Color::Amber,
             self::COMPLETADA => Color::Green,
             self::CANCELADA  => Color::Red,
+            self::RECURRENTE_CANCELADO => Color::Orange,
         };
     }
 }

@@ -26,7 +26,7 @@ class CambioMetodoPagoMail extends Mailable
         if ($venta->pago_inicial_metodo === 'transferencia') {
             $this->iban = VariableConfiguracion::where('nombre_variable', 'iban_transferencias')
                 ->value('valor_variable') 
-                ?? VariableConfiguracion::where('nombre_variable', 'empresa_iban')->value('valor_variable');
+                ?? VariableConfiguracion::where('nombre_variable', 'empresa_banco_iban')->value('valor_variable');
 
             // Recalculamos concepto por seguridad
             $dni = $venta->cliente->dni_cif ?? '---';

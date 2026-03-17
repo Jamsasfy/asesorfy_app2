@@ -14,15 +14,26 @@ class ClienteObserver
     /**
      * Se ejecuta ANTES de guardar los cambios en la base de datos.
      */
-    public function saving(Cliente $cliente): void
-    {
-        // Si se está asignando un asesor y el cliente estaba esperando esa asignación...
-        if ($cliente->isDirty('asesor_id') && !is_null($cliente->asesor_id) && $cliente->getOriginal('estado') === ClienteEstadoEnum::PENDIENTE_ASIGNACION) {
-            
-            // ...modificamos el estado en el objeto. Se guardará junto con el asesor_id.
+public function saving(Cliente $cliente): void
+{
+    // Si se está asignando un asesor y el cliente estaba esperando esa asignación...
+    if ($cliente->isDirty('asesor_id') && !is_null($cliente->asesor_id) && $cliente->getOriginal('estado') === ClienteEstadoEnum::PENDIENTE_ASIGNACION) {
+
+        // Verificar si tiene proyectos bloqueantes pendientes
+        $tieneProyectosBloqueantes = $cliente->ventas()
+            ->whereHas('items', fn ($q) => $q->where('bloquea_recurrente', true))
+            ->whereHas('proyectos', fn ($q) => $q->whereNotIn('estado', [
+                \App\Enums\ProyectoEstadoEnum::Finalizado->value,
+                \App\Enums\ProyectoEstadoEnum::Cancelado->value,
+            ]))
+            ->exists();
+
+        // Solo pasa a activo si NO hay proyectos bloqueantes pendientes
+        if (!$tieneProyectosBloqueantes) {
             $cliente->estado = ClienteEstadoEnum::ACTIVO;
         }
     }
+}
 
     /**
      * Se ejecuta DESPUÉS de que los cambios se han guardado.
@@ -48,6 +59,15 @@ class ClienteObserver
                             ->close(),
                     ])
                     ->sendToDatabase($asesorAsignado);
+
+                // Comentario automático
+                $cliente->comentarios()->create([
+                    'user_id'   => 9999,
+                    'contenido' => '👤 Asesor definitivo asignado: ' . $asesorAsignado->name . ' — cliente pasado a Activo.',
+                ]);
+
+                // Pasar cliente a ACTIVO
+                $cliente->updateQuietly(['estado' => ClienteEstadoEnum::ACTIVO]);
             }
         }
     }

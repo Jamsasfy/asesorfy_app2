@@ -159,6 +159,8 @@
             </div>
 
             <div class="btn-wrap">
+                {{-- DEBUG: Ver qué URL llega --}}
+                <!-- URL recibida: {{ $url }} -->
                 <a href="{{ $url }}" class="btn">Restablecer contraseña</a>
             </div>
 

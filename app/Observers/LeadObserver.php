@@ -32,6 +32,12 @@ class LeadObserver
                         ->close(),
                 ])
                 ->sendToDatabase($comercial);
+
+            // Comentario automático
+            $lead->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => '👤 Lead asignado a ' . $comercial->name . '.',
+            ]);
         }
     }
 

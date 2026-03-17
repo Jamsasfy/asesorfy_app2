@@ -57,53 +57,18 @@ class VentasFacturacionPorMesChart extends EChartWidget
         $factUni     = array_fill(1, 12, 0.0);
         $factRec     = array_fill(1, 12, 0.0);
 
-        /**
-         * Subquery: totales por venta separando UNICO vs RECURRENTE (por venta_items + servicios.tipo)
-         *
-         * Asunciones de nombres (los normales en tu app):
-         * - venta_items.venta_id
-         * - venta_items.servicio_id
-         * - venta_items.subtotal_aplicado (si no existe, cambia a subtotal)
-         * - servicios.id
-         * - servicios.tipo con valores: 'unico' | 'recurrente'
-         */
-        $itemsTotalesPorVenta = DB::table('venta_items as vi')
-            ->join('servicios as s', 's.id', '=', 'vi.servicio_id')
-            ->selectRaw('vi.venta_id')
-            ->selectRaw("SUM(CASE WHEN s.tipo = 'unico' THEN COALESCE(vi.subtotal_aplicado, vi.subtotal, 0) ELSE 0 END) as unico_sum")
-            ->selectRaw("SUM(CASE WHEN s.tipo = 'recurrente' THEN COALESCE(vi.subtotal_aplicado, vi.subtotal, 0) ELSE 0 END) as recurrente_sum")
-            ->selectRaw("SUM(COALESCE(vi.subtotal_aplicado, vi.subtotal, 0)) as total_sum")
-            ->groupBy('vi.venta_id');
-
-        /**
-         * Query principal: facturas pagadas por mes
-         * - Ventas: COUNT DISTINCT f.venta_id
-         * - Facturación única: SUM(prorrateo por venta)
-         * - Facturación recurrente: SUM(prorrateo por venta)
-         */
         $rows = DB::table('facturas as f')
-            ->leftJoinSub($itemsTotalesPorVenta, 't', function ($join) {
-                $join->on('t.venta_id', '=', 'f.venta_id');
-            })
+            ->join('venta_items as vi', 'vi.venta_id', '=', 'f.venta_id')
+            ->join('servicios as s', 's.id', '=', 'vi.servicio_id')
             ->whereNotNull('f.fecha_emision')
             ->whereYear('f.fecha_emision', $year)
             ->where('f.estado', FacturaEstadoEnum::PAGADA->value)
+            ->join('ventas as v', 'v.id', '=', 'f.venta_id')
+            ->where('v.estado', '!=', \App\Enums\VentaEstadoEnum::RECURRENTE_CANCELADO->value)
             ->selectRaw('MONTH(f.fecha_emision) as mes')
             ->selectRaw('COUNT(DISTINCT f.venta_id) as ventas_total')
-            ->selectRaw("
-                SUM(
-                    f.total_factura * (
-                        COALESCE(t.unico_sum, 0) / NULLIF(COALESCE(t.total_sum, 0), 0)
-                    )
-                ) as facturacion_unica
-            ")
-            ->selectRaw("
-                SUM(
-                    f.total_factura * (
-                        COALESCE(t.recurrente_sum, 0) / NULLIF(COALESCE(t.total_sum, 0), 0)
-                    )
-                ) as facturacion_recurrente
-            ")
+            ->selectRaw("SUM(CASE WHEN s.tipo = 'unico' THEN vi.subtotal ELSE 0 END) as facturacion_unica")
+            ->selectRaw("SUM(CASE WHEN s.tipo = 'recurrente' THEN vi.subtotal ELSE 0 END) as facturacion_recurrente")
             ->groupByRaw('MONTH(f.fecha_emision)')
             ->get();
 

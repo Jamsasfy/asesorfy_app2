@@ -16,7 +16,7 @@ use App\Http\Controllers\Public\StripeSetupController;
 use App\Http\Controllers\Webhooks\StripeWebhookController;
 use App\Http\Controllers\ChatMensajeFileController;
 use App\Http\Controllers\Portal\PortalFacturaPdfController;
-
+use App\Http\Controllers\Portal\PortalFacturaPdfDownloadController;
 use App\Http\Controllers\Portal\StripeBillingPortalController;
 
 
@@ -26,8 +26,14 @@ use Illuminate\Support\Facades\Mail;
 use App\Mail\CorreoDePrueba;
 
 Route::get('/', function () {
-    return redirect('/admin');
-});
+    if (auth()->check()) {
+        if (auth()->user()->acceso_app) {
+            return redirect('/admin');
+        }
+        return redirect('/portal');
+    }
+    return redirect('/portal/login');
+})->name('home');
 
 Route::view('dashboard', 'dashboard')
     ->middleware(['auth', 'verified'])
@@ -131,25 +137,40 @@ Route::middleware(['web', 'auth'])->group(function () {
 });
 
 //portal
+// Página de acceso bloqueado (ANTES del middleware de verificación)
+Route::get('/portal/bloqueado', function () {
+    return view('portal.bloqueado');
+})->name('portal.bloqueado')->middleware('auth');
 
 
-//facturas ver y descargar
-Route::middleware(['auth'])->group(function () {
-    Route::get('/portal/facturas/{factura}/pdf', \App\Http\Controllers\Portal\PortalFacturaPdfController::class)
-        ->name('portal.facturas.pdf');
 
-    Route::get('/portal/facturas/{factura}/pdf/descargar', \App\Http\Controllers\Portal\PortalFacturaPdfDownloadController::class)
-        ->name('portal.facturas.pdf.download');
+
+// Contrato de responsabilidad
+use App\Http\Controllers\Public\ContratoResponsabilidadController;
+
+Route::prefix('responsabilidad')->name('responsabilidad.')->group(function () {
+    Route::get('{token}', [ContratoResponsabilidadController::class, 'show'])
+        ->name('show');
+    Route::post('{token}/firmar', [ContratoResponsabilidadController::class, 'firmar'])
+        ->name('firmar');
+    Route::get('{token}/firmado', [ContratoResponsabilidadController::class, 'firmado'])
+        ->name('firmado');
 });
-//portal metodo de pago 
 
-Route::middleware(['web', 'auth'])
-    ->prefix('portal')
-    ->name('portal.')
-    ->group(function () {
-        Route::get('/billing-portal', StripeBillingPortalController::class)
-            ->name('stripe.billing-portal');
-    });
+// Activación de cuenta por link mágico
+use App\Http\Controllers\Portal\ActivacionController;
 
+Route::prefix('portal')->name('portal.')->group(function () {
+    Route::get('/activar/{token}', [ActivacionController::class, 'show'])->name('activate');
+    Route::post('/activar', [ActivacionController::class, 'store'])->name('activate.store');
+    Route::get('/enlace-expirado', fn() => view('portal.activacion.expired'))->name('activate.expired');
+});
+
+// Rutas del portal de facturas
+Route::middleware(['auth'])->prefix('portal')->name('portal.')->group(function () {
+    Route::get('/facturas/pdf/{factura}', PortalFacturaPdfController::class)->name('facturas.pdf');
+    Route::get('/facturas/download/{factura}', PortalFacturaPdfDownloadController::class)->name('facturas.download');
+    Route::get('/stripe/billing-portal', StripeBillingPortalController::class)->name('stripe.billing-portal');
+});
 
 require __DIR__.'/auth.php';

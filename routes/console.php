@@ -20,6 +20,8 @@ Schedule::command('asesorfy:recordatorio-pendientes-respuesta')
     ->dailyAt('10:00')
     ->timezone('Europe/Madrid');
 
+Schedule::command('notificaciones:enviar-programadas')->everyMinute();
+
 // ===============================
 // ✅ SINCRONIZACIÓN STRIPE
 // ===============================

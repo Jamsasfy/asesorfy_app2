@@ -17,37 +17,32 @@ class CreateTrabajador extends CreateRecord
     protected static string $resource = TrabajadorResource::class;
 
     protected function getCreatedNotification(): ?Notification
-{
-    return null; // ❌ Anula la notificación por defecto
-}
-
-
-
+    {
+        return null;
+    }
 
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
     }
-   
+
     protected function handleRecordCreation(array $data): Model
     {
-       // 1. Dejamos que Filament haga la magia (esto SÍ funciona)
+        // Extraer roles antes de crear
+        $roles = $data['roles'] ?? [];
+        unset($data['roles']);
+        
         $trabajador = parent::handleRecordCreation($data);
 
-
-
-        // Mostrar toast personalizado
+        // Los roles ya se sincronizan automáticamente con saveRelationshipsUsing
+        // Solo mostramos notificación de éxito
         Notification::make()
-            ->title('⚠️ Trabajador creado sin rol')
-            ->body('Recuerda asignarle un rol desde la sección de trabajadores o usuarios web para que pueda acceder a la plataforma.')
+            ->title('✅ Trabajador creado correctamente')
+            ->body('El trabajador ha sido creado y sus roles asignados.')
             ->icon('icon-f-city-worker')
-            ->color('warning')
-            ->persistent()
-            ->send(); // <- ¡Faltaba esto!
+            ->color('success')
+            ->send();
 
-        return $trabajador; // <- ¡Y esto también!
+        return $trabajador;
     }
-
-   
-    
 }

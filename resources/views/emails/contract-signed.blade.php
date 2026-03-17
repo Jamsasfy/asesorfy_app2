@@ -21,8 +21,8 @@
 <body>
 
 @php
-  $clienteNombre = $venta?->cliente?->razon_social ?: ($lead->nombre ?? 'Hola');
-@endphp
+$clienteNombre = trim(($venta?->cliente?->nombre ?? '') . ' ' . ($venta?->cliente?->apellidos ?? ''));
+if (!$clienteNombre) $clienteNombre = $lead->nombre ?? 'Hola';@endphp
 
 <div class="container">
   <div class="header">

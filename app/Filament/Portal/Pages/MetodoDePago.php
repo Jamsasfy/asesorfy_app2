@@ -35,15 +35,18 @@ class MetodoDePago extends Page
 
     public function mount(): void
     {
-        // 1) Si algún día pasas cliente_id por query o lo guardas en sesión, lo respetamos
-        $this->cliente_id = request()->integer('cliente_id') ?: Session::get('portal_cliente_id');
+        // 1) Priorizamos el cliente activo de la sesión
+        $this->cliente_id = request()->integer('cliente_id') ?: session('cliente_activo_id');
 
         // 2) Cargamos cliente y lo fijamos
         $this->loadClienteFromPortalContext();
         $this->cliente_id = $this->cliente?->id;
 
         if ($this->cliente_id) {
-            Session::put('portal_cliente_id', $this->cliente_id);
+            // Sincronizamos por si acaso
+            if (!session()->has('cliente_activo_id')) {
+                session()->put('cliente_activo_id', $this->cliente_id);
+            }
         }
 
         // 3) Resolvemos método de pago
@@ -73,7 +76,7 @@ class MetodoDePago extends Page
         }
 
         // Fallback: primer cliente del usuario
-        $this->cliente = $user->clientes()->orderBy('clientes.id')->first();
+        $this->cliente = $user->clientes()->first();
     }
 
     /**

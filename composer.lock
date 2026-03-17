@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "10042baee301664b90592e50d436b39c",
+    "content-hash": "dde0c68750d75c4cff4dd4c7b46e57fc",
     "packages": [
         {
             "name": "anourvalar/eloquent-serialize",
@@ -1094,80 +1094,6 @@
                 "source": "https://github.com/dflydev/dflydev-dot-access-data/tree/v3.0.3"
             },
             "time": "2024-07-08T12:26:09+00:00"
-        },
-        {
-            "name": "diogogpinto/filament-auth-ui-enhancer",
-            "version": "v2.0.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/diogogpinto/filament-auth-ui-enhancer.git",
-                "reference": "2dd30803de87532b3f6dc55ca9b38542b2104051"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/diogogpinto/filament-auth-ui-enhancer/zipball/2dd30803de87532b3f6dc55ca9b38542b2104051",
-                "reference": "2dd30803de87532b3f6dc55ca9b38542b2104051",
-                "shasum": ""
-            },
-            "require": {
-                "filament/filament": "^4.0",
-                "php": "^8.2",
-                "spatie/laravel-package-tools": "^1.15"
-            },
-            "require-dev": {
-                "laravel/pint": "^1.0",
-                "orchestra/testbench": "^9.0|^10.0",
-                "pestphp/pest": "^3.7",
-                "pestphp/pest-plugin-laravel": "^3.0",
-                "pestphp/pest-plugin-livewire": "^3.0"
-            },
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "aliases": {
-                        "AuthUIEnhancer": "DiogoGPinto\\AuthUIEnhancer\\Facades\\AuthUIEnhancer"
-                    },
-                    "providers": [
-                        "DiogoGPinto\\AuthUIEnhancer\\AuthUIEnhancerServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "DiogoGPinto\\AuthUIEnhancer\\": "src/",
-                    "DiogoGPinto\\AuthUIEnhancer\\Database\\Factories\\": "database/factories/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Diogo Pinto",
-                    "role": "Developer"
-                }
-            ],
-            "description": "This Filament plugin empowers you to transform your auth pages with ease, allowing you to make them truly stand out. It offers a flexible alternative to the default auth pages in the Filament Panels package.",
-            "homepage": "https://github.com/diogogpinto/filament-auth-ui-enhancer",
-            "keywords": [
-                "diogogpinto",
-                "filament",
-                "filament-auth-ui-enhancer",
-                "filament-plugin",
-                "laravel"
-            ],
-            "support": {
-                "issues": "https://github.com/diogogpinto/filament-auth-ui-enhancer/issues",
-                "source": "https://github.com/diogogpinto/filament-auth-ui-enhancer"
-            },
-            "funding": [
-                {
-                    "url": "https://github.com/diogogpinto",
-                    "type": "github"
-                }
-            ],
-            "time": "2025-08-17T21:39:13+00:00"
         },
         {
             "name": "doctrine/dbal",

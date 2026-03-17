@@ -472,19 +472,43 @@ public static function getNavigationLabel(): string
                 ");
             }),
 
-        /*----------------------------------------------
-        | BOTÓN: ASIGNARME A MÍ MISMO
-        | (NO submit, solo rellena el select)
-        ----------------------------------------------*/
-        Action::make('assign_self')
-            ->label('Asignarme este proyecto')
-            ->icon('heroicon-m-user-circle')
-            ->color('warning')
-            ->outlined()
-            ->visible(fn (Proyecto $record): bool => (bool) $record->cliente->asesor_id)
-            ->action(function (Set $set): void {
-                $set('user_id', auth()->id());
-            }),
+        Placeholder::make('asesor_cliente_info')
+    ->label('')
+    ->content(function (Proyecto $record): HtmlString {
+        $asesorClienteNombre = $record->cliente->asesor->name ?? null;
+        
+        if ($asesorClienteNombre) {
+            return new HtmlString("
+                <div style='
+                    background-color: #854d0e;
+                    color: #fef9c3;
+                    padding: 0.75rem;
+                    border-radius: 0.375rem;
+                    font-size: 0.9rem;
+                    text-align: center;
+                    margin-bottom: 1rem;
+                '>
+                    ⚠️ Este cliente ya tiene asesor asignado: <strong>{$asesorClienteNombre}</strong><br>
+                    <span style='font-size:0.8rem;'>Si quieres asignarle el mismo al proyecto, selecciónalo en el desplegable de abajo.</span>
+                </div>
+            ");
+        }
+
+        return new HtmlString("
+            <div style='
+                background-color: #f59e0b;
+                color: white;
+                padding: 0.75rem;
+                border-radius: 0.375rem;
+                font-size: 0.9rem;
+                text-align: center;
+                margin-bottom: 1rem;
+            '>
+                ⚠️ Este cliente no tiene asesor asignado todavía.
+            </div>
+        ");
+    }),
+
 
         /*----------------------------------------------
         | SELECT DE ASESOR

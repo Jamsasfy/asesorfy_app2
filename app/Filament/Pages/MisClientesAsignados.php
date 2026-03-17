@@ -87,7 +87,7 @@ class MisClientesAsignados extends Page implements HasTable // Para poder usar u
     {
         /** @var User $user */
         $user = Auth::user(); // Obtenemos el usuario autenticado
-        return Cliente::query()->where('asesor_id', $user->id); // Filtramos por su ID
+        return Cliente::query()->where('asesor_id', $user->id)->orderBy('created_at', 'desc');
     }
 
     // 2. DEFINIR LAS COLUMNAS DE LA TABLA

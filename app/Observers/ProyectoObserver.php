@@ -4,21 +4,45 @@ namespace App\Observers;
 
 use Filament\Actions\Action;
 use Throwable;
+use App\Enums\ClienteEstadoEnum;
 use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Enums\ProyectoEstadoEnum;
+use App\Filament\Resources\ClienteResource;
 use App\Filament\Resources\ProyectoResource;
 use App\Models\Proyecto;
 use App\Models\User;
 use Filament\Notifications\Notification;
 use App\Services\StripeSubscriptionService;
-// use App\Services\FacturacionRecurrenteService; // ❌ YA NO SE NECESITA AQUÍ DIRECTAMENTE
 use Illuminate\Support\Facades\Log;
 
 class ProyectoObserver
 {
+    public function created(Proyecto $proyecto): void
+    {
+        try {
+            $cliente = $proyecto->venta?->cliente;
+            if ($cliente && !in_array($cliente->estado, [
+                ClienteEstadoEnum::ACTIVO,
+                ClienteEstadoEnum::EN_PROYECTO,
+            ])) {
+                $cliente->update(['estado' => ClienteEstadoEnum::EN_PROYECTO]);
+                $cliente->comentarios()->create([
+                    'user_id'   => 9999,
+                    'contenido' => '🔧 Cliente pasado a En Proyecto — Lead #' . ($proyecto->venta->lead_id ?? '—') . ' · Venta #' . $proyecto->venta->id . ' · Proyecto #' . $proyecto->id . ' creado: "' . $proyecto->nombre . '".',
+                ]);
+                $proyecto->comentarios()->create([
+                    'user_id'   => 9999,
+                    'contenido' => '📁 Proyecto creado para cliente ' . $cliente->razon_social . ' — Lead #' . ($proyecto->venta->lead_id ?? '—') . ' · Venta #' . $proyecto->venta->id . '.',
+                ]);
+            }
+        } catch (Throwable $e) {
+            Log::warning('[ProyectoObserver] Error en created: ' . $e->getMessage());
+        }
+    }
+
     public function updated(Proyecto $proyecto): void
     {
-        // 1) NOTIFICAR ASIGNACIÓN (Igual que antes)
+        // 1) NOTIFICAR Y COMENTAR ASIGNACIÓN DE ASESOR
         if ($proyecto->wasChanged('user_id') && $proyecto->user_id) {
             if ($asesor = User::find($proyecto->user_id)) {
                 Notification::make()
@@ -34,6 +58,36 @@ class ProyectoObserver
                             ->close(),
                     ])
                     ->sendToDatabase($asesor);
+
+                try {
+                    \Illuminate\Support\Facades\Mail::to($asesor->email)
+                        ->send(new \App\Mail\ProyectoAsignadoMail($asesor, $proyecto));
+                } catch (\Throwable $e) {
+                    Log::warning('No se pudo enviar email asignación proyecto: ' . $e->getMessage());
+                }
+
+                // Comentario en proyecto
+                $proyecto->comentarios()->create([
+                    'user_id'   => 9999,
+                    'contenido' => '👤 Proyecto asignado a ' . $asesor->name . '.',
+                ]);
+
+                // Comentario en cliente + cambio estado
+                try {
+                    $cliente = $proyecto->venta?->cliente;
+                    if ($cliente && !in_array($cliente->estado, [
+                        ClienteEstadoEnum::ACTIVO,
+                        ClienteEstadoEnum::EN_PROYECTO,
+                    ])) {
+                        $cliente->update(['estado' => ClienteEstadoEnum::EN_PROYECTO]);
+                        $cliente->comentarios()->create([
+                            'user_id'   => 9999,
+                            'contenido' => '🔧 Cliente en proyecto — asesor de proyecto asignado: ' . $asesor->name . '.',
+                        ]);
+                    }
+                } catch (Throwable $e) {
+                    Log::warning('[ProyectoObserver] Error al cambiar estado a EN_PROYECTO en updated: ' . $e->getMessage());
+                }
             }
         }
 
@@ -42,10 +96,9 @@ class ProyectoObserver
             return;
         }
 
-        // A) PROYECTO FINALIZADO → INICIO REAL DEL SERVICIO RECURRENTE
+        // A) PROYECTO FINALIZADO
         if ($proyecto->estado === ProyectoEstadoEnum::Finalizado) {
 
-            // ¿Quedan otros proyectos pendientes?
             $quedanProyectosPendientes = $proyecto->venta->proyectos()
                 ->where('id', '!=', $proyecto->id)
                 ->where('estado', '!=', ProyectoEstadoEnum::Finalizado)
@@ -56,32 +109,28 @@ class ProyectoObserver
                 return;
             }
 
+            // Comentario en proyecto
+            $proyecto->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => '🏁 Proyecto finalizado.',
+            ]);
+
             // Activar suscripciones recurrentes diferidas
             $suscripciones = $proyecto->venta->suscripciones()
                 ->where('estado', ClienteSuscripcionEstadoEnum::PENDIENTE_ACTIVACION)
                 ->get();
 
             foreach ($suscripciones as $suscripcion) {
-                // Solo si no tiene ID de Stripe (no está activada ya)
                 if ($suscripcion->stripe_subscription_id) continue;
 
                 try {
                     Log::info('🚀 Inicio real del servicio recurrente tras proyecto', ['suscripcion_id' => $suscripcion->id]);
-
-                    // 🔥 LLAMADA UNIFICADA (Aquí está la magia)
-                    // Este servicio se encarga de:
-                    // 1. Activar suscripción local.
-                    // 2. Crear suscripción Stripe.
-                    // 3. Gestionar Prorrata (Cobro inmediato o diferido).
-                    // 4. Generar Factura Local (Pagada o Pendiente).
                     StripeSubscriptionService::activarSuscripcion($suscripcion);
-
                 } catch (Throwable $e) {
                     Log::error('❌ Error activando suscripción tras proyecto', [
                         'suscripcion_id' => $suscripcion->id,
                         'error'          => $e->getMessage(),
                     ]);
-
                     Notification::make()
                         ->title('Error activando suscripción')
                         ->body("Falló la activación automática de la suscripción #{$suscripcion->id}. Revisa los logs.")
@@ -91,10 +140,77 @@ class ProyectoObserver
                         );
                 }
             }
+
+            // Cambiar estado del cliente
+            try {
+                $cliente = $proyecto->venta->cliente;
+
+                if ($cliente && $cliente->estado === ClienteEstadoEnum::EN_PROYECTO) {
+                    $tieneRecurrente = $proyecto->venta->suscripciones()
+                        ->whereNotNull('stripe_subscription_id')
+                        ->exists();
+
+                    if ($tieneRecurrente) {
+                        $cliente->update(['estado' => ClienteEstadoEnum::PENDIENTE_ASIGNACION]);
+                        $cliente->comentarios()->create([
+                            'user_id'   => 9999,
+                            'contenido' => '🏁 Proyecto finalizado — pendiente de asignar asesor definitivo.',
+                        ]);
+                    } else {
+                        $cliente->update(['estado' => ClienteEstadoEnum::PROYECTO_FINALIZADO]);
+                        $cliente->comentarios()->create([
+                            'user_id'   => 9999,
+                            'contenido' => '🏁 Proyecto finalizado — sin servicio recurrente. Proyecto concluido.',
+                        ]);
+                    }
+
+                    Log::info('[ProyectoObserver] Estado cliente actualizado tras finalizar proyecto', [
+                        'cliente_id'   => $cliente->id,
+                        'nuevo_estado' => $cliente->estado->value,
+                    ]);
+                }
+            } catch (Throwable $e) {
+                Log::warning('[ProyectoObserver] Error al cambiar estado cliente tras finalizar: ' . $e->getMessage());
+            }
+
+            // Notificar admins/coordinadores si tiene recurrente
+            try {
+                $cliente = $proyecto->venta->cliente;
+
+                if ($cliente && $cliente->estado === ClienteEstadoEnum::PENDIENTE_ASIGNACION) {
+                    $adminsYCoords = User::whereHas('roles', fn ($q) =>
+                        $q->whereIn('name', ['super_admin', 'coordinador'])
+                    )->get();
+
+                    Notification::make()
+                        ->title('✅ Proyecto finalizado - Asignar asesor definitivo')
+                        ->body("Todos los proyectos de {$cliente->razon_social} han finalizado y la suscripción está activa. Asigna el asesor definitivo para activar el cliente.")
+                        ->warning()
+                        ->actions([
+                            Action::make('asignar_asesor')
+                                ->label('Ir al cliente')
+                                ->url(ClienteResource::getUrl('view', ['record' => $cliente->id]))
+                                ->markAsRead(),
+                        ])
+                        ->sendToDatabase($adminsYCoords);
+
+                    Log::info('🔔 Notificación enviada a admins para asignar asesor definitivo', [
+                        'cliente_id' => $cliente->id,
+                    ]);
+                }
+            } catch (Throwable $e) {
+                Log::warning('No se pudo notificar asignación asesor definitivo: ' . $e->getMessage());
+            }
         }
 
-        // B) PROYECTO CANCELADO → CANCELAR SUSCRIPCIONES PENDIENTES
+        // B) PROYECTO CANCELADO
         if ($proyecto->estado === ProyectoEstadoEnum::Cancelado) {
+
+            $proyecto->comentarios()->create([
+                'user_id'   => 9999,
+                'contenido' => '❌ Proyecto cancelado.',
+            ]);
+
             $otrosActivos = $proyecto->venta->proyectos()
                 ->where('id', '!=', $proyecto->id)
                 ->whereNotIn('estado', [

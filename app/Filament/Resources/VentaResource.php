@@ -1068,13 +1068,14 @@ public static function form(Schema $schema): Schema
                         ->requiresConfirmation()
                         ->modalHeading('Enviar Contrato')
                         ->modalDescription('Se generará un enlace único basado en esta venta. El cliente recibirá un email para firmar.')
-                    ->visible(fn (Venta $record) => 
-                                $record->lead_id && 
-                                $record->lead && 
-                                is_null($record->lead->contract_signed_at) && // Que no haya firmado
-                                $record->estado !== VentaEstadoEnum::CANCELADA && // Que no esté cancelada
-                                $record->items()->exists() // Que tenga servicios (evita errores)
-                            )
+                   ->visible(fn (Venta $record) => 
+                        $record->lead_id && 
+                        $record->lead && 
+                        is_null($record->lead->contract_signed_at) &&
+                        is_null($record->signed_at) && // ✅ Ocultar si ya está firmado
+                        $record->estado !== VentaEstadoEnum::CANCELADA &&
+                        $record->items()->exists()
+                    )
                         ->action(function (Venta $record) {
                             Log::info('🔥 ENVIAR CONTRATO MANUAL EJECUTADO');
 
@@ -1326,7 +1327,7 @@ public static function form(Schema $schema): Schema
                                             ->heading('Fecha de venta')
                                             ->formatStateUsing(fn ($state) => Carbon::parse($state)->format('d/m/Y H:i')), // Formato para Excel
                                         
-                                    // IMPORTE RECURRENTE (USANDO LA LÓGICA DE LA COLUMNA DE LA TABLA)
+                                        // IMPORTE RECURRENTE (USANDO LA LÓGICA DE LA COLUMNA DE LA TABLA)
                                             Column::make('importe_recurrente')
                                                 ->heading('Importe Recurrente')
                                                 // <<< CAMBIO AQUI: Usar la cadena literal 'recurrente'
@@ -1334,7 +1335,7 @@ public static function form(Schema $schema): Schema
                                                     $totalRec = VentaItem::query()
                                                         ->where('venta_id', $record->id)
                                                         ->whereHas('servicio', fn (Builder $q) => $q->where('tipo', 'recurrente'))
-                                                        ->sum('subtotal_aplicado'); // Suma subtotal_aplicado para el valor con descuento
+                                                        ->sum('subtotal'); // Suma subtotal_aplicado para el valor con descuento
                                                     return (float) $totalRec;
                                                 })
                                                 ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €'),
@@ -1347,7 +1348,7 @@ public static function form(Schema $schema): Schema
                                                     $totalUnico = VentaItem::query()
                                                         ->where('venta_id', $record->id)
                                                         ->whereHas('servicio', fn (Builder $q) => $q->where('tipo', 'unico'))
-                                                        ->sum('subtotal_aplicado'); // Suma subtotal_aplicado para el valor con descuento
+                                                        ->sum('subtotal'); // Suma subtotal_aplicado para el valor con descuento
                                                     return (float) $totalUnico;
                                                 })
                                                 ->formatStateUsing(fn ($state) => number_format($state, 2, ',', '.') . ' €'),
@@ -1584,36 +1585,42 @@ public static function infolist(Schema $schema): Schema
                         )
                         ->color(fn ($state) => ((float)$state > 0) ? 'danger' : 'gray'),
 
-                    TextEntry::make('dto_recurrente_mensual')
-                        ->label('Dto. rec. mensual')
-                        ->badge()
-                        ->columnSpan(1)
-                        ->state(function (Venta $record) {
-                            $record->loadMissing('items.servicio');
-                            $dto = $record->items
-                                ->filter(fn ($i) => $i->servicio?->tipo === ServicioTipoEnum::RECURRENTE)
-                                ->sum(function (VentaItem $i) {
-                                    $base = (float) ($i->cantidad ?? 1) * (float) ($i->precio_unitario ?? 0);
-                                    $aplicado = (float) ($i->subtotal_aplicado ?? $base);
-                                    return max(0, $base - $aplicado);
-                                });
+                   TextEntry::make('dto_recurrente_mensual')
+    ->label('Dto. rec. mensual')
+    ->badge()
+    ->columnSpan(1)
+    ->state(function (Venta $record) {
+        $record->loadMissing('items.servicio');
 
-                            return round($dto, 2);
-                        })
-                        ->formatStateUsing(function ($state, Venta $record) {
-                            $state = (float) $state;
-                            if ($state <= 0) return 'Sin Dto.';
+        $dto = $record->items
+            ->filter(fn ($i) => $i->servicio?->tipo === ServicioTipoEnum::RECURRENTE)
+            ->sum(function (VentaItem $i) {
+                $base = (float) ($i->cantidad ?? 1) * (float) ($i->precio_unitario ?? 0);
+                $aplicado = (float) ($i->subtotal_aplicado ?? $base);
+                return max(0, $base - $aplicado);
+            });
 
-                            $record->loadMissing('items.servicio');
-                            $dur = $record->items
-                                ->first(fn ($i) => $i->servicio?->tipo === ServicioTipoEnum::RECURRENTE && !empty($i->descuento_duracion_meses))
-                                ?->descuento_duracion_meses;
+        $tieneMesGratis = \App\Models\ClienteSuscripcion::where('venta_origen_id', $record->id)
+            ->where('no_cobrar_primer_periodo', true)
+            ->exists();
 
-                            $durTxt = $dur ? " ({$dur} meses)" : '';
+        $partes = [];
 
-                            return '-' . number_format($state, 2, ',', '.') . ' €/mes' . $durTxt;
-                        })
-                        ->color(fn ($state) => ((float)$state > 0) ? 'danger' : 'gray'),
+        if (round($dto, 2) > 0) {
+            $dur = $record->items
+                ->first(fn ($i) => $i->servicio?->tipo === ServicioTipoEnum::RECURRENTE && !empty($i->descuento_duracion_meses))
+                ?->descuento_duracion_meses;
+            $durTxt = $dur ? " ({$dur} meses)" : '';
+            $partes[] = '-' . number_format($dto, 2, ',', '.') . ' €/mes' . $durTxt;
+        }
+
+        if ($tieneMesGratis) {
+            $partes[] = '1er mes gratis';
+        }
+
+        return !empty($partes) ? implode(' + ', $partes) : 'Sin Dto.';
+    })
+    ->color(fn ($state) => $state !== 'Sin Dto.' ? 'danger' : 'gray'),
                 ]),
 
             // =========================
@@ -1651,24 +1658,33 @@ public static function infolist(Schema $schema): Schema
                                 }),
 
                             TextEntry::make('descuento_vista')
-                                ->label('Dto.')
-                                ->columnSpan(2)
-                                ->badge()
-                                ->state(function (VentaItem $record) {
-                                    if (empty($record->descuento_tipo) || (float) $record->descuento_valor <= 0) {
-                                        return 'Sin Dto.';
-                                    }
+    ->label('Dto.')
+    ->columnSpan(2)
+    ->badge()
+    ->state(function (VentaItem $record) {
+        $partes = [];
 
-                                    $v = number_format((float) $record->descuento_valor, 2, ',', '.');
-                                    $txt = $record->descuento_tipo === 'porcentaje' ? "-{$v}%" : "-{$v} €";
+        // Descuento porcentaje/importe
+        if (!empty($record->descuento_tipo) && (float) $record->descuento_valor > 0) {
+            $v = number_format((float) $record->descuento_valor, 2, ',', '.');
+            $txt = $record->descuento_tipo === 'porcentaje' ? "-{$v}%" : "-{$v} €";
 
-                                    if (!empty($record->descuento_duracion_meses) && (int)$record->descuento_duracion_meses > 0) {
-                                        $txt .= " ({$record->descuento_duracion_meses}m)";
-                                    }
+            if (!empty($record->descuento_duracion_meses) && (int)$record->descuento_duracion_meses > 0) {
+                $txt .= " ({$record->descuento_duracion_meses}m)";
+            }
 
-                                    return $txt;
-                                })
-                                ->color(fn ($state) => $state === 'Sin Dto.' ? 'gray' : 'danger'),
+            $partes[] = $txt;
+        }
+
+        // Primer mes gratis
+        $suscripcion = $record->suscripcion;
+        if ($suscripcion && $suscripcion->no_cobrar_primer_periodo) {
+            $partes[] = '1er mes gratis';
+        }
+
+        return !empty($partes) ? implode(' + ', $partes) : 'Sin Dto.';
+    })
+    ->color(fn ($state) => $state === 'Sin Dto.' ? 'gray' : 'danger'),
 
                             TextEntry::make('subtotal_aplicado')
                                 ->label('Subtotal')

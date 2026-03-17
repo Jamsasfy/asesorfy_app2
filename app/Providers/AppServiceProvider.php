@@ -20,8 +20,14 @@ use App\Models\ChatMensaje;
 use App\Observers\ChatMensajeObserver;
 use App\Models\Documento;
 use App\Observers\DocumentoObserver;
+use App\Models\User;
+use App\Observers\UserObserver;
 
 use Illuminate\Support\ServiceProvider;
+
+
+use App\Http\Responses\Portal\LoginResponse as PortalLoginResponse;
+use Filament\Http\Responses\Auth\Contracts\LoginResponse as LoginResponseContract;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -34,7 +40,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Solo aplicar para el panel 'portal'
+        $this->app->resolving(LoginResponseContract::class, function ($response, $app) {
+            if (filament()->getCurrentPanel()?->getId() === 'portal') {
+                return $app->make(PortalLoginResponse::class);
+            }
+            return $response;
+        });
     }
 
     /**
@@ -52,5 +64,6 @@ class AppServiceProvider extends ServiceProvider
          Servicio::observe(ServicioObserver::class);
          ChatMensaje::observe(ChatMensajeObserver::class);
          Documento::observe(DocumentoObserver::class);
+         User::observe(UserObserver::class);
     }
 }

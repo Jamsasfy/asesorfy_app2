@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
@@ -35,6 +36,11 @@ class User extends Authenticatable implements FilamentUser
         'email',
         'password',
         'acceso_app',
+        'portal_activo',
+        'cuenta_activada_at',
+        'activation_token',
+        'activation_token_expires_at',
+        'email_bienvenida_enviado',
     ];
 
     protected $hidden = [
@@ -47,6 +53,8 @@ class User extends Authenticatable implements FilamentUser
         return [
             'email_verified_at' => 'datetime',
             'password'          => 'hashed',
+            'cuenta_activada_at' => 'datetime',
+            'activation_token_expires_at' => 'datetime',
         ];
     }
 
@@ -129,4 +137,5 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->hasMany(Venta::class);
     }
+
 }

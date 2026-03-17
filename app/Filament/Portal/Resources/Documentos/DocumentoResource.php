@@ -46,15 +46,13 @@ class DocumentoResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $user = auth()->user();
-        if (! $user) return null;
-
-        $clienteIds = $user->clientes()->pluck('clientes.id');
+        $clienteActivoId = session('cliente_activo_id');
+        if (! $clienteActivoId) return null;
 
         // ✅ Pendientes de respuesta del cliente:
         // estado NECESITA_ACLARACION + aún NO ha contestado
         $count = Documento::query()
-            ->whereIn('cliente_id', $clienteIds)
+            ->where('cliente_id', $clienteActivoId)
             ->where('estado', DocumentoEstadoEnum::NECESITA_ACLARACION->value)
             ->whereNull('aclaracion_respondida_at')
             ->count();
@@ -72,13 +70,15 @@ class DocumentoResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $user = auth()->user();
-
-        // usuario portal -> clientes via cliente_user
-        $clienteIds = $user->clientes()->pluck('clientes.id')->all();
+        $clienteActivoId = session('cliente_activo_id');
+        
+        if (!$clienteActivoId) {
+            // Si no hay cliente activo, no mostrar nada
+            return parent::getEloquentQuery()->whereRaw('1 = 0');
+        }
 
         return parent::getEloquentQuery()
-            ->whereIn('cliente_id', $clienteIds);
+            ->where('cliente_id', $clienteActivoId);
     }
 
     public static function form(Schema $schema): Schema

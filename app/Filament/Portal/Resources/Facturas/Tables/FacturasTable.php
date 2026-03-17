@@ -166,7 +166,7 @@ class FacturasTable
                     ->tooltip('Descargar PDF')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
-                    ->url(fn (Factura $record) => route('portal.facturas.pdf.download', $record))
+                    ->url(fn (Factura $record) => route('portal.facturas.download', $record))
                     ->openUrlInNewTab(),    
             ])
             ->toolbarActions([

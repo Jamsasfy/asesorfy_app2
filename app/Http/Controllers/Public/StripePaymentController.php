@@ -242,6 +242,27 @@ $customerOptions = [];
                         $session->payment_intent->id,
                         $extraData
                     );
+
+                    // ✅ ClienteActivado — creación usuario portal + email
+                    try {
+                        $ventaFresh = $venta->fresh(['cliente']);
+                        if ($ventaFresh->cliente) {
+                            // Activar cliente y crear usuario portal
+                            $activacionService = app(\App\Services\ClienteActivacionService::class);
+                            $resultado = $activacionService->activarCliente(
+                                $ventaFresh->cliente, 
+                                'stripe_payment_completado'
+                            );
+                            
+                            if (!$resultado['success']) {
+                                \Illuminate\Support\Facades\Log::warning('Cliente no activado (ya tenía usuario)', [
+                                    'cliente_id' => $ventaFresh->cliente->id,
+                                ]);
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('Error en activación de cliente: ' . $e->getMessage());
+                    }
                 }
 
                 // ✅ NUEVO: que viewSuccess decida el siguiente paso (pago recurrente / setup / finished)
@@ -333,9 +354,13 @@ private function viewSuccess(Venta $venta)
             ->latest()
             ->first();
 
+        $iban = \App\Models\VariableConfiguracion::where('nombre_variable', 'empresa_banco_iban')
+            ->value('valor_variable') ?? 'ES00 0000 0000 0000 0000 0000';
+
         return view('public.payment.cancel', [
             'venta'   => $venta,
             'factura' => $facturaPendiente,
+            'iban'    => $iban,
         ]);
     }
 }

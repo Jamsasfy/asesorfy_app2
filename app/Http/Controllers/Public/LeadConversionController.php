@@ -515,8 +515,17 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                 return redirect()->route('conversion.pago-inicial', ['token' => $link->token]);
             }
 
-            // ✅ Si el pago inicial ya está hecho (o no existe) y hay recurrente -> método recurrente
+           // ✅ Si el pago inicial ya está hecho (o no existe) y hay recurrente -> método recurrente
             if ($itemsRecurrentes->isNotEmpty()) {
+                $recurrenteMetodo = data_get($link->meta, 'recurrente_metodo');
+                $tieneSuscripcionStripe = $venta->suscripciones
+                    ->contains(fn ($s) => !empty($s->stripe_subscription_id));
+
+                // Si ya tiene método configurado Y suscripción activa en Stripe -> finished
+                if ($recurrenteMetodo && $tieneSuscripcionStripe) {
+                    return redirect()->route('conversion.finished', ['token' => $link->token]);
+                }
+
                 return redirect()->route('conversion.pago-recurrente', ['token' => $link->token]);
             }
 
@@ -555,10 +564,13 @@ private function procesarTextosLegales($blueprint, $lead, $form)
             'apellidos' => 'required|string|max:255',
             'dni' => 'nullable|string|max:50',
             'cif' => 'nullable|string|max:50',
+            'estado_sociedad' => 'nullable|string|in:constituida,en_constitucion',
+            'nombre_representante' => 'nullable|string|max:255',
+            'apellidos_representante' => 'nullable|string|max:255',
             'nombre_comercial' => 'nullable|string|max:255',
             'email' => 'required|email|max:255',
             'telefono' => 'required|string|max:50',
-            'razon_social' => 'required|string|max:255',
+            'razon_social' => 'nullable|string|max:255',
             'direccion' => 'required|string|max:255',
             'cp' => 'required|string|max:10',
             'localidad' => 'required|string|max:255',
@@ -688,8 +700,19 @@ private function procesarTextosLegales($blueprint, $lead, $form)
             $cliente = $existingClienteId ? Cliente::find($existingClienteId) : null;
 
             // Extraemos datos básicos
-            $nombre    = trim($formData['nombre'] ?? '');
-            $apellidos = trim($formData['apellidos'] ?? '');
+            $estadoSociedad = $formData['estado_sociedad'] ?? null;
+            $esSociedadConstituida = ($estadoSociedad === 'constituida');
+
+            // Si es sociedad constituida Y tiene nombre_representante, usar esos
+            // Si no, usar nombre y apellidos del paso 1
+            if ($esSociedadConstituida && !empty($formData['nombre_representante'])) {
+                $nombre = trim($formData['nombre_representante'] ?? '');
+                $apellidos = trim($formData['apellidos_representante'] ?? '');
+            } else {
+                $nombre = trim($formData['nombre'] ?? '');
+                $apellidos = trim($formData['apellidos'] ?? '');
+            }
+
             $nombreCompletoContacto = trim("$nombre $apellidos") ?: ($lead->nombre ?? '');
 
             $esEmpresa = ! empty($formData['cif']);
@@ -720,6 +743,7 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                 'preferencia_pago_recurrente' => $recurrenteMetodo ?? ($cliente?->preferencia_pago_recurrente ?? 'tarjeta'),
                 'email_contacto'     => $formData['email']    ?? $lead->email,
                 'telefono_contacto'  => $formData['telefono'] ?? $lead->tfn,
+                'observaciones'      => $this->construirObservaciones($formData),
             ];
 
             if ($cliente) {
@@ -727,7 +751,7 @@ private function procesarTextosLegales($blueprint, $lead, $form)
             } else {
                 $dataCliente['tipo_cliente_id'] = $formData['tipo_cliente_id'] ?? 1;
                 $dataCliente['comercial_id']    = $lead->asignado_id;
-                $dataCliente['estado']          = 'activo';
+                $dataCliente['estado']          = 'pendiente';
                 $dataCliente['fecha_alta']      = $signedAt;
 
                 $cliente = Cliente::create($dataCliente);
@@ -986,9 +1010,30 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                     paymentIntentId: null,
                     extraData: $formData
                 );
+
+                // ✅ ClienteActivado — creación usuario portal + email
+                try {
+                    $ventaFresh = $venta->fresh(['cliente']);
+                    if ($ventaFresh->cliente) {
+                        // Activar cliente y crear usuario portal
+                        $activacionService = app(\App\Services\ClienteActivacionService::class);
+                        $resultado = $activacionService->activarCliente(
+                            $ventaFresh->cliente, 
+                            'pago_online_completado'
+                        );
+                        
+                        if (!$resultado['success']) {
+                            \Illuminate\Support\Facades\Log::warning('Cliente no activado (ya tenía usuario)', [
+                                'cliente_id' => $ventaFresh->cliente->id,
+                            ]);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('Error en activación de cliente: ' . $e->getMessage());
+                }
             }
 
-            // 4) PDF
+            // 4) PDF — Primera generación sin hash
             $pdf = Pdf::loadView('public.conversion.contract.master', [
                 'lead'             => $lead,
                 'form'             => $formData,
@@ -1000,20 +1045,45 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                 'signatureDataUri' => $request->input('signature'),
                 'clientIp'         => $request->ip(),
                 'isPdf'            => true,
+                'hashFirma'        => null,
             ])->setPaper('a4');
 
             $fileName = 'contracts/contrato_' . $link->token . '_' . $signedAt->format('Ymd_His') . '.pdf';
             Storage::disk('public')->put($fileName, $pdf->output());
 
+            // Calcular hash del PDF
+            $hashFirma = hash_file('sha256', storage_path('app/public/' . $fileName));
+
+            // Segunda generación con hash incluido
+            $pdfFinal = Pdf::loadView('public.conversion.contract.master', [
+                'lead'             => $lead,
+                'form'             => $formData,
+                'blueprint'        => $blueprint,
+                'link'             => $link,
+                'textos'           => $textos,
+                'servicesSummary'  => $services,
+                'signedAt'         => $signedAt,
+                'signatureDataUri' => $request->input('signature'),
+                'clientIp'         => $request->ip(),
+                'isPdf'            => true,
+                'hashFirma'        => $hashFirma,
+            ])->setPaper('a4');
+
+            Storage::disk('public')->put($fileName, $pdfFinal->output());
+
             $meta = $link->meta ?? [];
-            $meta['pdf'] = $fileName;
+            $meta['pdf']       = $fileName;
+            $meta['hash_firma'] = $hashFirma;
             $link->meta  = $meta;
             $link->save();
 
             // 5) Email
             try {
                 $absolutePdfPath = storage_path('app/public/' . $fileName);
-                $resumeUrl = route('conversion.show', ['token' => $link->token]);
+
+                // Determinar URL inteligente según estado
+                $resumeUrl = $this->determinarResumeUrl($link, $venta);
+
                 Mail::to($cliente->email_contacto)->send(
                     new ContractSignedMail($lead, $absolutePdfPath, $resumeUrl, $venta->fresh(['items.servicio', 'cliente']))
                 );
@@ -1022,6 +1092,22 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                     'subject' => 'Contrato firmado', 'scheduled_at' => now(), 'sent_at' => now(), 'status' => 'sent',
                     'triggered_by_user_id' => 9999, 'trigger_source' => 'firma_contrato'
                 ]);
+
+                // ✅ Notificación al comercial cuando cliente firma
+                try {
+                    if ($lead->asignado_id) {
+                        $comercial = \App\Models\User::find($lead->asignado_id);
+                        if ($comercial) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('✍️ Contrato firmado')
+                                ->body("El cliente {$cliente->razon_social} ha firmado el contrato.")
+                                ->success()
+                                ->sendToDatabase($comercial);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('No se pudo notificar al comercial por firma: ' . $e->getMessage());
+                }
             } catch (Throwable $e) {
                 Log::error("ERROR enviando ContractSignedMail: " . $e->getMessage());
             }
@@ -1258,7 +1344,7 @@ private function procesarTextosLegales($blueprint, $lead, $form)
 
                     // IBAN empresa
                     $ibanEmpresa = null;
-                    foreach (['empresa_iban_transferencias', 'iban_transferencias', 'empresa_iban', 'iban_empresa', 'empresa_cuenta_bancaria'] as $k) {
+                    foreach (['empresa_banco_iban', 'empresa_iban_transferencias', 'iban_transferencias', 'iban_empresa', 'empresa_cuenta_bancaria'] as $k) {
                         $ibanEmpresa = DB::table('variables_configuracion')->where('nombre_variable', $k)->value('valor_variable');
                         if ($ibanEmpresa) break;
                     }
@@ -1882,9 +1968,9 @@ public function finished(string $token, Request $request)
                 };
 
                 $iban = $pick([
+                    'empresa_banco_iban',
                     'empresa_iban_transferencias',
                     'iban_transferencias',
-                    'empresa_iban',
                     'iban',
                     'cuenta_bancaria_iban',
                 ]);
@@ -1938,8 +2024,10 @@ public function finished(string $token, Request $request)
                     'swift' => $swift,
                     'concepto' => $concepto,
                 ];
-            }
-
+                }
+                    if ($cliente && $cliente->estado === \App\Enums\ClienteEstadoEnum::PENDIENTE) {
+                        $cliente->update(['estado' => \App\Enums\ClienteEstadoEnum::PENDIENTE_ASIGNACION]);
+                    }
 
     return view('public.conversion.finished', [
         'lead' => $lead,
@@ -2077,4 +2165,78 @@ private function mapDescuentoColumns(array $s): array
 
 
 
+    /**
+     * Determina la URL correcta para "Retomar mi alta" según el estado actual
+     */
+    private function determinarResumeUrl(LeadConversionLink $link, ?Venta $venta): string
+    {
+        $meta = $link->meta ?? [];
+        $formData = $meta['form_data'] ?? [];
+        
+        // 1. Si no hay venta, volver al inicio
+        if (!$venta) {
+            return route('conversion.show', ['token' => $link->token]);
+        }
+        
+        // 2. Verificar si tiene pago inicial pendiente
+        $tienePagoInicialReal = $this->tienePagoInicialReal($venta, $formData);
+        
+        if ($tienePagoInicialReal && !$venta->tienePagoInicialCompletado()) {
+            return route('conversion.pago-inicial', ['token' => $link->token]);
+        }
+        
+        // 3. Verificar si tiene recurrentes sin configurar
+        $venta->loadMissing('items.suscripcion', 'items.servicio');
+        $itemsRecurrentes = $venta->items->filter(fn ($i) => $i->servicio && $i->servicio->tipo->value === 'recurrente');
+        
+        if ($itemsRecurrentes->isNotEmpty()) {
+            // Revisar si TODOS los recurrentes tienen suscripción CREADA
+            $todosTienenSuscripcion = $itemsRecurrentes->every(function ($item) {
+                return $item->suscripcion !== null; // ✅ Verifica si el objeto existe
+            });
+            
+            if (!$todosTienenSuscripcion) {
+                return route('conversion.pago-recurrente', ['token' => $link->token]);
+            }
+        }
+        
+        // 4. Todo completado → finished
+        return route('conversion.finished', ['token' => $link->token]);
+    }
+
+    /**
+     * Construir observaciones incluyendo datos del representante y estado sociedad
+     */
+    private function construirObservaciones(array $formData): ?string
+    {
+        $observaciones = [];
+        
+        // Observaciones del formulario
+        if (!empty($formData['observaciones'])) {
+            $observaciones[] = $formData['observaciones'];
+        }
+        
+        // Estado de la sociedad
+        if (!empty($formData['estado_sociedad'])) {
+            $estadoTexto = $formData['estado_sociedad'] === 'constituida' 
+                ? 'Sociedad constituida (con CIF)' 
+                : 'Sociedad en constitución (sin CIF)';
+            $observaciones[] = "Estado: {$estadoTexto}";
+        }
+        
+        // Datos del representante (si son diferentes de los del contacto principal)
+        $nombreRep = trim($formData['nombre_representante'] ?? '');
+        $apellidosRep = trim($formData['apellidos_representante'] ?? '');
+        $nombreContacto = trim($formData['nombre'] ?? '');
+        $apellidosContacto = trim($formData['apellidos'] ?? '');
+        
+        if ($nombreRep && $apellidosRep) {
+            // Si el representante es diferente al contacto principal
+            if ($nombreRep !== $nombreContacto || $apellidosRep !== $apellidosContacto) {
+                $observaciones[] = "Representante legal: {$nombreRep} {$apellidosRep}";
+            }
+        }
+        
+        return !empty($observaciones) ? implode(' | ', $observaciones) : null;
+    }
 }

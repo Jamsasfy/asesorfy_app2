@@ -421,6 +421,30 @@ public function processSaleAfterCreation(array $extraData = []): void
             'descripcion'   => $descripcion,
             'user_id'       => null,
         ]);
+
+         // ✅ CAMBIO 5: Notificar a admins/coordinadores de nuevo proyecto sin asignar
+        try {
+            $adminsYCoords = \App\Models\User::whereHas('roles', fn ($q) =>
+                $q->whereIn('name', ['super_admin', 'coordinador'])
+            )->get();
+
+            \Filament\Notifications\Notification::make()
+                ->title('📋 Nuevo proyecto sin asignar')
+                ->body("Se ha creado el proyecto '{$nombreProyecto}' para {$this->cliente->razon_social}. Pendiente de asignar asesor.")
+                ->warning()
+                ->actions([
+                    \Filament\Actions\Action::make('ver_proyectos')
+                        ->label('Ver proyectos')
+                        ->url(\App\Filament\Resources\ProyectoResource::getUrl('index'))
+                        ->markAsRead(),
+                ])
+                ->sendToDatabase($adminsYCoords);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('No se pudo notificar proyecto nuevo: ' . $e->getMessage());
+        }
+
+
+        
     }
 
     // ---------------------------------------------------------
@@ -750,6 +774,28 @@ public function procesarCobroInicial(
         ]);
         Log::info("✅ Venta #{$this->id} marcada como COMPLETADA ({$metodoPago})");
 
+        // ✅ Notificación + email al comercial cuando pago completado
+        try {
+            $comercialId = $this->comercial_id ?? $this->lead?->asignado_id ?? null;
+            if ($comercialId) {
+                $comercial = \App\Models\User::find($comercialId);
+                if ($comercial) {
+                    // Notificación en campana
+                    \Filament\Notifications\Notification::make()
+                        ->title('💰 Pago completado')
+                        ->body("El cliente {$this->cliente->razon_social} ha completado el pago de la venta #{$this->id}.")
+                        ->success()
+                        ->sendToDatabase($comercial);
+
+                    // Email
+                    \Illuminate\Support\Facades\Mail::to($comercial->email)
+                        ->send(new \App\Mail\PagoCompletadoComercialMail($comercial, $this));
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('No se pudo notificar al comercial por pago: ' . $e->getMessage());
+        }
+
         // =========================================================
         // 6️⃣ Activar suscripciones Stripe si procede
         // - Venta COMPLETADA
@@ -989,50 +1035,29 @@ public function enviarBienvenidaSiProcede(string $triggerSource = 'conversion_fi
     }
 
     try {
-Mail::to($cliente->email_contacto)->send(new \App\Mail\WelcomeClientMail($cliente, $this));
+        // Activar cliente y crear usuario portal
+        $activacionService = app(\App\Services\ClienteActivacionService::class);
+        $resultado = $activacionService->activarCliente($cliente, $triggerSource ?? 'venta_procesada');
 
-        if ($lead) {
-            \App\Models\LeadAutoEmailLog::create([
-                'lead_id'              => $lead->id,
-                'estado'               => 'bienvenida',
-                'intento'              => 1,
-                'template_identifier'  => 'welcome_client',
-                'subject'              => 'Bienvenido a ' . config('app.name') . ' - Próximos pasos',
-                'body_preview'         => 'Email de bienvenida enviado.',
-                'scheduled_at'         => now(),
-                'sent_at'              => now(),
-                'status'               => 'sent',
-                'mail_driver'          => config('mail.default'),
-                'triggered_by_user_id' => 9999,
-                'trigger_source'       => $triggerSource,
+        if (!$resultado['success']) {
+            Log::warning('Cliente no activado desde Venta', [
+                'venta_id' => $this->id,
+                'cliente_id' => $cliente->id,
+                'razon' => $resultado['message'],
             ]);
+            return false;
         }
 
-        \App\Models\Comentario::create([
-            'comentable_type' => \App\Models\Cliente::class,
-            'comentable_id'   => $cliente->id,
-            'user_id'         => 9999,
-            'contenido'       => "✅ Email de bienvenida enviado automáticamente a {$cliente->email_contacto}.",
-        ]);
-
-        Log::info('✅ WelcomeClientMail enviado', [
-            'venta_id' => $this->id,
-            'cliente_id' => $cliente->id,
-            'ctx' => $ctx,
-        ]);
-
         return true;
-
     } catch (\Throwable $e) {
-        Log::error('❌ Error enviando WelcomeClientMail', [
+        Log::error('❌ Error activando cliente desde Venta', [
             'venta_id' => $this->id,
             'error' => $e->getMessage(),
         ]);
-
         return false;
     }
+
+
+
 }
-
-
-
 }

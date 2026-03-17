@@ -9,6 +9,8 @@ use Filament\Pages\Page;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
+use App\Services\TelegramService;
+use Filament\Notifications\Notification;
 
 class Chats extends Page
 {
@@ -36,12 +38,21 @@ class Chats extends Page
     public ?string $telegramLinkUrl = null;
     public ?string $telegramLinkExpiresAt = null;
 
+        // Propiedades para el modal
+    public bool $mostrarModalRevincular = false;
+    public string $motivoRevincular = '';
+
+
+
     public function mount(): void
     {
-        /** @var \App\Models\User|null $user */
+       /** @var \App\Models\User|null $user */
         $user = auth()->user();
 
-        $this->cliente = $user?->clientes()->first();
+        $clienteActivoId = session('cliente_activo_id');
+        $this->cliente = $clienteActivoId
+            ? $user?->clientes()->where('clientes.id', $clienteActivoId)->first()
+            : $user?->clientes()->first();
 
         if (! $this->cliente) {
             return;
@@ -116,6 +127,88 @@ class Chats extends Page
             }
         }
     }
+
+
+
+public function abrirModalRevincular(): void
+{
+    $this->mostrarModalRevincular = true;
+    $this->motivoRevincular = '';
+}
+
+public function cerrarModalRevincular(): void
+{
+    $this->mostrarModalRevincular = false;
+    $this->motivoRevincular = '';
+}
+
+public function solicitarRevincular(): void
+{
+    if (!$this->cliente || !$this->hasAsesor) {
+        return;
+    }
+
+    $this->validate([
+        'motivoRevincular' => 'required|min:5|max:300',
+    ], [
+        'motivoRevincular.required' => 'Por favor indica el motivo.',
+        'motivoRevincular.min'      => 'El motivo debe tener al menos 5 caracteres.',
+        'motivoRevincular.max'      => 'El motivo no puede superar los 300 caracteres.',
+    ]);
+
+    $asesor = $this->cliente->asesor;
+    if (!$asesor) {
+        Notification::make()
+            ->title('No se pudo enviar la solicitud')
+            ->warning()
+            ->send();
+        $this->mostrarModalRevincular = false;
+        return;
+    }
+
+    // Buscar o crear la conversación del cliente
+    $chat = ChatConversacion::query()
+        ->where('cliente_id', $this->cliente->id)
+        ->latest('id')
+        ->first();
+
+    if ($chat) {
+        // Insertar mensaje de sistema visible en el chat del asesor
+        \App\Models\ChatMensaje::create([
+            'chat_id'  => $chat->id,
+            'origen'   => 'sistema',
+            'tipo'     => 'text',
+            'contenido' => "🔔 SOLICITUD DE REVINCULACIÓN DE TELEGRAM\n\nEl cliente solicita un nuevo enlace de vinculación.\n\nMotivo: {$this->motivoRevincular}\n\nPor favor, envíale un nuevo enlace desde el panel de administración.",
+            'leido'    => false,
+        ]);
+
+        // Actualizar contadores para que aparezca como no leído
+        $chat->increment('unread_count');
+        $chat->update(['last_message_at' => now()]);
+    }
+
+    // Notificación en campana del asesor como respaldo
+   \Filament\Notifications\Notification::make()
+    ->title('🔔 Solicitud de revinculación')
+    ->body("El cliente solicita un nuevo enlace de Telegram.")
+    ->warning()
+    ->actions([
+\Filament\Actions\Action::make('ver_chat')
+            ->label('Ver chat del cliente')
+->url(\App\Filament\Resources\ClienteResource::getUrl('view', ['record' => $this->cliente->id], panel: 'admin'))
+            ->markAsRead(),
+    ])
+    ->sendToDatabase($asesor);
+    Notification::make()
+        ->title('Solicitud enviada')
+        ->body('Tu asesor ha sido notificado y te enviará el nuevo enlace pronto.')
+        ->success()
+        ->send();
+
+    $this->mostrarModalRevincular = false;
+    $this->motivoRevincular = '';
+}
+
 
     /**
      * ✅ BOTÓN "Abrir Telegram" (APP)

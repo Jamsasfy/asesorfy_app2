@@ -40,10 +40,14 @@ class Suscripcion extends Page
 
     public function mount(): void
     {
-        /** @var Cliente|null $cliente */
-        $cliente = auth()->user()?->clientes()->first();
+        /** @var \App\Models\User|null $user */
+        $user = auth()->user();
 
-        $this->cliente = $cliente;
+        $clienteActivoId = session('cliente_activo_id');
+        
+        $this->cliente = $clienteActivoId
+            ? $user?->clientes()->where('clientes.id', $clienteActivoId)->first()
+            : $user?->clientes()->first();
 
         if (! $this->cliente) {
             // ✅ Inicializar ambas

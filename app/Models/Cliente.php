@@ -118,6 +118,11 @@ class Cliente extends Model
         return $this->hasMany(ClienteSuscripcion::class);
     }
 
+    public function contratosResponsabilidad(): HasMany
+    {
+        return $this->hasMany(ContratoResponsabilidad::class);
+    }
+
     public function documentosPolimorficos()
     {
         return $this->morphMany(Documento::class, 'documentable');
@@ -232,6 +237,11 @@ $msg = "🔄 <b>Actualización de tu cuenta</b>\n\nTe informamos que, para darte
             }
         });
     }
+    public function chatConversacion(): \Illuminate\Database\Eloquent\Relations\HasOne
+{
+    return $this->hasOne(\App\Models\ChatConversacion::class, 'cliente_id')
+        ->latest('id');
+}
 
     public function tieneMetodoPagoStripe(): bool
     {

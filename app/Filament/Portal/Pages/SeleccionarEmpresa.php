@@ -15,41 +15,37 @@ class SeleccionarEmpresa extends Page
 
     protected static ?string $slug = 'seleccionar-empresa';
 
-    public function mount(): void
-        {
-            $user = Auth::user();
-            $clientes = $user->clientes()->get();
+    public function mount()
+    {
+        $user = Auth::user();
+        $clientes = $user->clientes()->get();
 
-            // Cambio rápido desde el dropdown del dashboard
-            $cambiarId = request()->query('cambiar');
-            if ($cambiarId) {
-                $existe = $clientes->contains('id', (int) $cambiarId);
-                if ($existe) {
-                    session(['cliente_activo_id' => (int) $cambiarId]);
-                }
-                $this->redirect('/portal');
-                return;
+        // Cambio rápido desde el dropdown del dashboard
+        $cambiarId = request()->query('cambiar');
+        if ($cambiarId) {
+            $existe = $clientes->contains('id', (int) $cambiarId);
+            if ($existe) {
+                session(['cliente_activo_id' => (int) $cambiarId]);
             }
-
-            if ($clientes->isEmpty()) {
-                $this->redirect('/portal');
-                return;
-            }
-
-            if ($clientes->count() === 1) {
-                session(['cliente_activo_id' => $clientes->first()->id]);
-                $this->redirect('/portal');
-                return;
-            }
-
-            $clienteActivoId = session('cliente_activo_id');
-            if ($clienteActivoId && $clientes->contains('id', $clienteActivoId)) {
-                $this->redirect('/portal');
-                return;
-            }
+            return redirect('/portal');
         }
 
-    public function seleccionar(int $clienteId): void
+        if ($clientes->isEmpty()) {
+            return redirect('/portal');
+        }
+
+        if ($clientes->count() === 1) {
+            session(['cliente_activo_id' => $clientes->first()->id]);
+            return redirect('/portal');
+        }
+
+        $clienteActivoId = session('cliente_activo_id');
+        if ($clienteActivoId && $clientes->contains('id', $clienteActivoId)) {
+            return redirect('/portal');
+        }
+    }
+
+    public function seleccionar(int $clienteId)
     {
         $user = Auth::user();
 
@@ -62,7 +58,7 @@ class SeleccionarEmpresa extends Page
 
         session(['cliente_activo_id' => $clienteId]);
 
-        $this->redirect('/portal');
+        return redirect('/portal');
     }
 
     public function getClientes()

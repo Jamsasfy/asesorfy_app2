@@ -14,7 +14,7 @@ class RequestPasswordReset extends BaseRequestPasswordReset
     {
         $data = $this->form->getState();
 
-        $status = Password::broker(Filament::getPanel('portal')->getAuthPasswordBroker())
+        $status = Password::broker('portal')
             ->sendResetLink(
                 ['email' => $data['email']],
                 function ($user, string $token): void {

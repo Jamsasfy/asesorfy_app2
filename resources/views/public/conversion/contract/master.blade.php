@@ -5,7 +5,6 @@
     <title>Contrato de Servicios</title>
 
     <style>
-        @page { margin: 22mm 18mm; }
 
         body {
             font-family: Helvetica, Arial, sans-serif;
@@ -94,10 +93,38 @@
             max-height: 80px;
             display: block;
         }
+
+        @page { margin: 22mm 18mm 25mm 18mm; }
+        footer {
+            position: fixed;
+            bottom: -20px;
+            left: 0;
+            right: 0;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 5px;
+            font-size: 8px;
+            color: #94a3b8;
+            text-align: center;
+        }
+        .page-number:before {
+            content: "Pagina " counter(page);
+        }
     </style>
 </head>
 
 <body>
+    <footer>
+        <div style="text-align:center; margin-bottom:3px;">
+            Firmado digitalmente el {{ $signedAt->format('d/m/Y H:i') }}
+            @if(isset($hashFirma) && $hashFirma)
+                — SHA256: <span style="font-family:monospace;">{{ $hashFirma }}</span>
+            @endif
+        </div>
+        <div style="text-align:center;">
+            <span class="page-number"></span>
+        </div>
+    </footer>
+
 @php
     $servicesSummary = $servicesSummary ?? (data_get($blueprint ?? [], 'servicios', []) ?? []);
 
@@ -186,6 +213,18 @@
             </td>
         </tr>
     </table>
+
+    @if(isset($hashFirma) && $hashFirma)
+    <div style="margin-top:30px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:12px 14px; font-size:9px; color:#555;">
+        <strong>[SHA256] Verificacion de integridad del documento</strong>
+        <div style="font-family:monospace; font-size:9px; color:#1a1a1a; word-break:break-all; margin-top:4px;">SHA256: {{ $hashFirma }}</div>
+        <div style="margin-top:8px; font-size:8.5px; color:#777; line-height:1.5;">
+            El código hash SHA-256 que figura en este documento es una huella digital única generada a partir del contenido íntegro del PDF en el momento de su firma. Cualquier alteración posterior del documento, por mínima que sea, produciría un hash completamente diferente, lo que permitiría detectar cualquier manipulación.
+            Este mecanismo de verificación está reconocido como medio de prueba de integridad documental conforme al Reglamento (UE) 910/2014 del Parlamento Europeo (eIDAS), la Ley 6/2020 reguladora de determinados aspectos de los servicios electrónicos de confianza, y es admisible como prueba en procedimientos judiciales y administrativos de acuerdo con la Ley 1/2000 de Enjuiciamiento Civil.
+            IP de firma: {{ $clientIp ?? 'No registrada' }} — Email: {{ $form['email'] ?? '—' }} — Fecha: {{ $signedAt->format('d/m/Y H:i') }}
+        </div>
+    </div>
+    @endif
 
 </body>
 </html>

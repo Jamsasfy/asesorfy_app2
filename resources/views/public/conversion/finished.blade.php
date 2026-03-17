@@ -102,13 +102,13 @@
     {{-- DATOS CLIENTE --}}
     @php
        $form = $form ?? [];
-       $nombre = trim(($form['nombre'] ?? '') . ' ' . ($form['apellidos'] ?? ''));
-       $razon = $form['razon_social'] ?? $nombre;
-       if (!$razon) $razon = '—';
+       $titular = trim(($form['nombre'] ?? '') . ' ' . ($form['apellidos'] ?? ''));
+       if (!$titular) $titular = trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+       if (!$titular) $titular = $cliente->razon_social ?? '—';
     @endphp
 
     <div class="data-grid">
-      <div><div class="lbl">Titular</div><div class="val">{{ $razon }}</div></div>
+      <div><div class="lbl">Titular</div><div class="val">{{ $titular }}</div></div>
       <div><div class="lbl">DNI / CIF</div><div class="val">{{ $form['cif'] ?? $form['dni'] ?? '—' }}</div></div>
       <div><div class="lbl">Email</div><div class="val">{{ $form['email'] ?? '—' }}</div></div>
     </div>

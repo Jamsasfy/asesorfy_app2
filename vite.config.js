@@ -11,7 +11,7 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/css/filament/admin/theme.css',
                 'resources/css/filament/portal/theme.css',
-
+                'resources/css/filament/portal/login.css',
                 ],
             refresh: [`resources/views/**/*`],
         }),

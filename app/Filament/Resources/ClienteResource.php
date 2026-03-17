@@ -18,6 +18,7 @@ use App\Filament\Resources\Clienteresource\RelationManagers\DocumentosRelationMa
 use App\Filament\Resources\Clienteresource\RelationManagers\UsuariosRelationManager;
 use App\Filament\Resources\ClienteResource\RelationManagers\LeadsRelationManager;
 use App\Filament\Resources\ClienteResource\RelationManagers\SuscripcionesRelationManager;
+use App\Filament\Resources\ClienteResource\RelationManagers\ContratosResponsabilidadRelationManager;
 use App\Filament\Resources\ClienteResource\Pages\ListClientes;
 use App\Filament\Resources\ClienteResource\Pages\CreateCliente;
 use App\Filament\Resources\ClienteResource\Pages\ViewCliente;
@@ -314,136 +315,360 @@ public static function infolist(Schema $schema): Schema
         ->columns(3)
         ->schema([
 
-            /* =========================================================
-             | DATOS BÁSICOS
-             ========================================================= */
-            Section::make('Datos básicos del cliente')
-                ->icon('heroicon-o-user')
-                ->description(fn ($record) => new HtmlString(/* TU HTML TAL CUAL */))
+            // FILA 1: las 3 secciones principales
+            \Filament\Schemas\Components\Grid::make(3)
+                ->columnSpan(3)
                 ->schema([
 
-                    TextEntry::make('nombre')
-                        ->label('Nombre')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary'),
+                    Section::make('Datos básicos del cliente')
+                        ->icon('heroicon-o-user')
+                        ->columnSpan(1)
+                        ->schema([
+                            TextEntry::make('nombre')
+                                ->label('Nombre')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary'),
 
-                    TextEntry::make('apellidos')
-                        ->label('Apellidos')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary'),
+                            TextEntry::make('apellidos')
+                                ->label('Apellidos')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary'),
 
-                    TextEntry::make('razon_social')
-                        ->label('Razón social')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary')
-                        ->columnSpan(2),
+                            TextEntry::make('razon_social')
+                                ->label('Razón social')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary')
+                                ->columnSpan(2),
 
-                    TextEntry::make('nombre_comercial')
-                        ->label('Nombre comercial')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary')
-                        ->placeholder('—')
-                        ->columnSpan(2),
+                            TextEntry::make('nombre_comercial')
+                                ->label('Nombre comercial')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary')
+                                ->placeholder('—')
+                                ->columnSpan(2),
 
-                    TextEntry::make('email_contacto')
-                        ->label('Email')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary')
-                        ->columnSpan(2),
+                            TextEntry::make('email_contacto')
+                                ->label('Email')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary')
+                                ->columnSpan(2),
 
-                    TextEntry::make('telefono_contacto')
-                        ->label('TFN')
-                        ->inlineLabel()
-                        ->copyable()
-                        ->color('warning'),
-                ])
-                ->columns(2),
+                            TextEntry::make('telefono_contacto')
+                                ->label('TFN')
+                                ->inlineLabel()
+                                ->copyable()
+                                ->color('warning'),
+                        ])
+                        ->columns(2),
 
-            /* =========================================================
-             | DIRECCIÓN
-             ========================================================= */
-            Section::make('Dirección del cliente')
-                ->icon('heroicon-m-map-pin')
+                    Section::make('Dirección del cliente')
+                        ->icon('heroicon-m-map-pin')
+                        ->columnSpan(1)
+                        ->schema([
+                            TextEntry::make('direccion_completa')
+                                ->label('Dirección')
+                                ->state(fn ($record) => implode(' · ', array_filter([
+                                    $record->direccion,
+                                    trim(($record->localidad ?? '') . ($record->provincia ? " ({$record->provincia})" : '')),
+                                    $record->codigo_postal,
+                                    $record->comunidad_autonoma,
+                                ])))
+                                ->copyable()
+                                ->weight('bold')
+                                ->color('primary')
+                                ->columnSpan(3),
+
+                            TextEntry::make('iban_impuestos')
+                                ->label('IBAN impuestos (Hacienda / SS)')
+                                ->copyable()
+                                ->placeholder('No informado')
+                                ->color(fn ($state) => filled($state) ? 'primary' : 'warning')
+                                ->columnSpan(3),
+                        ])
+                        ->columns(3),
+
+                    Section::make('Estado y asignación')
+                        ->icon('heroicon-o-shield-check')
+                        ->columnSpan(1)
+                        ->schema([
+                            TextEntry::make('estado')
+                                ->label('Estado')
+                                ->badge()
+                                ->weight('bold')
+                                ->columnSpan(1),
+
+                            TextEntry::make('asesor.name')
+                                ->label('Asesor')
+                                ->badge()
+                                ->getStateUsing(fn ($record) =>
+                                    $record->asesor?->name ?? '⚠️ Sin asignar'
+                                )
+                                ->columnSpan(1),
+
+                            TextEntry::make('tarifa_principal_activa_con_precio')
+                                ->label('Tarifa')
+                                ->badge()
+                                ->columnSpan(1),
+
+                            TextEntry::make('created_at')
+                                ->label('Creado')
+                                ->dateTime('d/m/Y H:i')
+                                ->color('info'),
+
+                            TextEntry::make('fecha_alta')
+                                ->label('Alta servicio')
+                                ->dateTime('d/m/Y H:i')
+                                ->color('success'),
+
+                            TextEntry::make('fecha_baja')
+                                ->label('Baja servicio')
+                                ->dateTime('d/m/Y H:i')
+                                ->color('danger'),
+                        ])
+                        ->columns(3),
+
+                ]),
+
+            // FILA 2: Telegram
+           \Filament\Schemas\Components\Grid::make(3)
+                ->columnSpan(3)
                 ->schema([
 
-                    TextEntry::make('direccion_completa')
-                        ->label('Dirección')
-                        ->state(fn ($record) => implode(' · ', array_filter([
-                            $record->direccion,
-                            trim(($record->localidad ?? '') . ($record->provincia ? " ({$record->provincia})" : '')),
-                            $record->codigo_postal,
-                            $record->comunidad_autonoma,
-                        ])))
-                        ->copyable()
-                        ->weight('bold')
-                        ->color('primary')
-                        ->columnSpan(3),
 
-                    TextEntry::make('iban_impuestos')
-                        ->label('IBAN impuestos (Hacienda / SS)')
-                        ->copyable()
-                        ->placeholder('No informado')
-                        ->color(fn ($state) => filled($state) ? 'primary' : 'warning')
-                        ->columnSpan(3),
-                ])
-                ->columns(3),
+                   Section::make('Telegram y Comunicación')
+                ->icon('icon-telegram')
+                ->columnSpan(1)
+                ->collapsed(true)
+                ->description(fn ($record) => new HtmlString(
+                    $record->chatConversacion?->telegram_chat_id
+                        ? '<span style="display:inline-flex;align-items:center;gap:4px;background:#dcfce7;color:#15803d;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;">● Vinculado</span>'
+                        : (is_null($record->asesor_id)
+                            ? '<span style="display:inline-flex;align-items:center;gap:4px;background:#fee2e2;color:#991b1b;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;">● Sin vincular (Requiere asesor)</span>'
+                            : '<span style="display:inline-flex;align-items:center;gap:4px;background:#fef9c3;color:#854d0e;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;">● Sin vincular</span>')
+                ))
+                ->headerActions([
 
-            /* =========================================================
-             | ESTADO Y ASIGNACIÓN
-             ========================================================= */
-            Section::make('Estado y asignación')
-                ->icon('heroicon-o-shield-check')
-                ->schema([
-
-                    TextEntry::make('estado')
-                        ->label('Estado')
-                        ->badge()
-                        ->weight('bold')
-                        ->columnSpan(1),
-
-                    TextEntry::make('asesor.name')
-                        ->label('Asesor')
-                        ->badge()
-                        ->getStateUsing(fn ($record) =>
-                            $record->asesor?->name ?? '⚠️ Sin asignar'
+                    \Filament\Actions\Action::make('enviar_enlace_telegram')
+                        ->label('Enviar enlace vinculación')
+                        ->icon('icon-telegram')
+                        ->color('info')
+                        ->visible(fn ($record): bool =>
+                            !is_null($record->asesor_id) &&
+                            is_null($record->chatConversacion?->telegram_chat_id)
                         )
-                        ->columnSpan(1),
+                        ->requiresConfirmation()
+                        ->modalHeading('Enviar enlace de vinculación')
+                        ->modalDescription('Se generará un nuevo enlace y se enviará al email del cliente.')
+                        ->modalSubmitActionLabel('Enviar enlace')
+                        ->action(function ($record) {
+                            $token = \Illuminate\Support\Str::random(48);
 
-                    TextEntry::make('tarifa_principal_activa_con_precio')
-                        ->label('Tarifa')
+                            \App\Models\TelegramLink::query()
+                                ->where('cliente_id', $record->id)
+                                ->whereNull('used_at')
+                                ->update(['expires_at' => now()->subMinute()]);
+
+                            \App\Models\TelegramLink::create([
+                                'cliente_id' => $record->id,
+                                'token'      => $token,
+                                'expires_at' => now()->addHours(48),
+                                'used_at'    => null,
+                            ]);
+
+                            $linkUrl = url("/telegram/link/{$token}");
+
+                            try {
+                                \Illuminate\Support\Facades\Mail::to($record->email_contacto)
+                                    ->send(new \App\Mail\TelegramVinculacionMail($record, $linkUrl));
+
+                                \Filament\Notifications\Notification::make()
+                                    ->title('✅ Enlace enviado')
+                                    ->body('Se ha enviado el enlace al email del cliente.')
+                                    ->success()
+                                    ->send();
+                            } catch (\Throwable $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Error al enviar email')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+
+                    \Filament\Actions\Action::make('revincular_telegram')
+                        ->label('Revincular')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('warning')
+                        ->visible(fn ($record): bool =>
+                            !is_null($record->asesor_id) &&
+                            !is_null($record->chatConversacion?->telegram_chat_id)
+                        )
+                        ->requiresConfirmation()
+                        ->modalHeading('Revincular Telegram')
+                        ->modalDescription('Se generará un enlace de revinculación y se enviará al email del cliente.')
+                        ->modalSubmitActionLabel('Enviar enlace revinculación')
+                        ->action(function ($record) {
+                            $token = 'relink_' . \Illuminate\Support\Str::random(48);
+
+                            \App\Models\TelegramLink::query()
+                                ->where('cliente_id', $record->id)
+                                ->whereNull('used_at')
+                                ->update(['expires_at' => now()->subMinute()]);
+
+                            \App\Models\TelegramLink::create([
+                                'cliente_id' => $record->id,
+                                'token'      => $token,
+                                'expires_at' => now()->addHours(48),
+                                'used_at'    => null,
+                            ]);
+
+                            $linkUrl = url("/telegram/link/{$token}");
+
+                            try {
+                            \Illuminate\Support\Facades\Mail::to($record->email_contacto)
+                ->send(new \App\Mail\TelegramVinculacionMail($record, $linkUrl));
+
+                                \Filament\Notifications\Notification::make()
+                                    ->title('✅ Enlace de revinculación enviado')
+                                    ->body('Se ha enviado el enlace al email del cliente.')
+                                    ->success()
+                                    ->send();
+                            } catch (\Throwable $e) {
+                                \Filament\Notifications\Notification::make()
+                                    ->title('Error al enviar email')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+                            }
+                        }),
+
+                    \Filament\Actions\Action::make('desvincular_telegram')
+                        ->label('Desvincular')
+                        ->icon('heroicon-o-x-circle')
+                        ->color('danger')
+                        ->visible(fn ($record): bool =>
+                            !is_null($record->chatConversacion?->telegram_chat_id)
+                        )
+                        ->requiresConfirmation()
+                        ->modalHeading('¿Desvincular Telegram?')
+                        ->modalDescription('Esto eliminará la vinculación de Telegram de este cliente.')
+                        ->modalSubmitActionLabel('Sí, desvincular')
+                        ->action(function ($record) {
+                            $record->chatConversacion?->update([
+                                'telegram_chat_id'    => null,
+                                'telegram_thread_id'  => null,
+                                'telegram_username'   => null,
+                                'telegram_first_name' => null,
+                            ]);
+
+                            \Filament\Notifications\Notification::make()
+                                ->title('🔌 Telegram desvinculado')
+                                ->danger()
+                                ->send();
+                        }),
+
+                ])
+                ->schema([
+                    TextEntry::make('telegram_estado')
+                        ->label('Estado vinculación')
                         ->badge()
-                        ->columnSpan(1),
+                        ->getStateUsing(fn ($record) => match(true) {
+                            $record->chatConversacion?->telegram_chat_id !== null => 'Vinculado',
+                            is_null($record->asesor_id) => 'Sin vincular (Requiere asesor)',
+                            default => 'Sin vincular'
+                        })
+                        ->color(fn ($state) => match($state) {
+                            'Vinculado' => 'success',
+                            'Sin vincular (Requiere asesor)' => 'danger',
+                            default => 'warning',
+                        }),
 
-                    TextEntry::make('created_at')
-                        ->label('Creado')
-                        ->dateTime('d/m/Y H:i')
-                        ->color('info'),
+                    TextEntry::make('telegram_username')
+                        ->label('Usuario Telegram')
+                        ->getStateUsing(fn ($record) => $record->chatConversacion?->telegram_username
+                            ? '@' . $record->chatConversacion->telegram_username
+                            : '—')
+                        ->copyable(),
 
-                    TextEntry::make('fecha_alta')
-                        ->label('Alta servicio')
-                        ->dateTime('d/m/Y H:i')
-                        ->color('success'),
+                    TextEntry::make('telegram_chat_id')
+                        ->label('Chat ID')
+                        ->getStateUsing(fn ($record) => $record->chatConversacion?->telegram_chat_id ?? '—')
+                        ->copyable(),
 
-                    TextEntry::make('fecha_baja')
-                        ->label('Baja servicio')
-                        ->dateTime('d/m/Y H:i')
-                        ->color('danger'),
+                    TextEntry::make('ultimo_mensaje')
+                        ->label('Último mensaje')
+                        ->getStateUsing(fn ($record) => $record->chatConversacion?->last_message_at
+                            ? $record->chatConversacion->last_message_at->format('d/m/Y H:i')
+                            : '—'),
+
+                    TextEntry::make('telegram_first_name')
+                        ->label('Nombre en Telegram')
+                        ->getStateUsing(fn ($record) => $record->chatConversacion?->telegram_first_name ?? '—'),
+
+                    TextEntry::make('mensajes_sin_leer')
+                        ->label('Sin leer')
+                        ->badge()
+                        ->getStateUsing(fn ($record) => $record->chatConversacion?->unread_count ?? 0)
+                        ->color(fn ($state) => $state > 0 ? 'danger' : 'gray'),
                 ])
                 ->columns(3),
 
+                    Section::make('Contratos firmados')
+                        ->icon('heroicon-o-document-check')
+                        ->columnSpan(1)
+                        ->collapsed(true)
+                        ->description('Contrato de servicios firmados.')
+                        ->schema(function ($record) {
+
+                            $items = [];
+
+                            // ── Contrato de servicios ──
+                            $link = \App\Models\LeadConversionLink::where(function($q) use ($record) {
+                                $q->where('meta->existing_cliente_id', $record->id)
+                                  ->orWhere('meta->cliente_id', $record->id);
+                            })
+                            ->whereNotNull('meta->pdf')
+                            ->latest('id')
+                            ->first();
+
+                            if ($link) {
+                                $pdfPath = data_get($link->meta, 'pdf');
+                                $pdfUrl  = \Illuminate\Support\Facades\Storage::disk('public')->url($pdfPath);
+                                $ventaId = data_get($link->meta, 'existing_venta_id');
+                                $venta   = $ventaId ? \App\Models\Venta::find($ventaId) : null;
+                                $fecha   = $venta?->signed_at ?? $link->created_at;
+
+                                $items[] = \Filament\Infolists\Components\TextEntry::make('contrato_servicios')
+                                    ->label('Contrato de servicios')
+                                    ->html()
+                                    ->getStateUsing(fn () => new \Illuminate\Support\HtmlString(
+                                        "<a href='{$pdfUrl}' target='_blank' style='color:#0ea5e9;text-decoration:underline;'>
+                                            📄 Ver contrato firmado — " . $fecha->format('d/m/Y H:i') . "
+                                        </a>"
+                                    ));
+                            } else {
+                                $items[] = \Filament\Infolists\Components\TextEntry::make('sin_contrato_servicios')
+                                    ->label('Contrato de servicios')
+                                    ->getStateUsing(fn () => 'Sin contrato firmado.');
+                            }
+
+                           
+
+                            return $items;
+                        }),
+                ]),
         ]);
 }
-
 
 
 
@@ -1039,7 +1264,7 @@ public static function infolist(Schema $schema): Schema
        LeadsRelationManager::class,
         SuscripcionesRelationManager::class,
 FacturasRelationManager::class,
-         
+         ContratosResponsabilidadRelationManager::class,
       
         // Puedes añadir más relation managers aquí si es necesario
     ];

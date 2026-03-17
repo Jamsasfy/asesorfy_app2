@@ -72,16 +72,30 @@
 
     @if(!$venta->tienePagoInicialCompletado())
         <p>
-            Si deseas completar la contratación, puedes volver a intentarlo haciendo clic en el siguiente botón:
+            Si deseas completar la contratación, elige cómo quieres realizar el pago:
         </p>
 
-        <a href="{{ route('payment.pay', ['venta' => $venta->id]) }}" class="btn btn-primary">
-            💳 Intentar el pago de nuevo
+        <a href="{{ route('payment.pay', ['venta' => $venta->id]) }}" class="btn btn-primary" style="display:block; text-align:center; margin-bottom:10px;">
+            💳 Pagar con tarjeta
         </a>
 
-        <p class="text-muted" style="margin-top: 16px;">
-            Si tienes dudas o prefieres otro método de pago, puedes contactar con tu asesor o escribirnos en  
-            <strong>info@asesorfy.net</strong>.
+        <div style="background:#f3f4f6; border-radius:10px; padding:16px; margin-top:10px;">
+            <div style="font-weight:600; margin-bottom:8px;">🏦 Pagar por transferencia bancaria</div>
+            <p style="font-size:13px; color:#374151; margin-bottom:6px;">
+                Realiza una transferencia con los siguientes datos e indícanos el concepto para identificar tu pago:
+            </p>
+            <div style="font-size:13px; line-height:1.8;">
+                <strong>Titular:</strong> AsesorFy S.L.<br>
+                <strong>IBAN:</strong> {{ $iban }}<br>
+                <strong>Concepto:</strong> Contrato #{{ $venta->id }} — {{ $venta->cliente->nombre ?? $venta->cliente->razon_social }}
+            </div>
+            <p style="font-size:12px; color:#6b7280; margin-top:10px;">
+                Una vez recibida la transferencia, activaremos tu servicio en un plazo máximo de 24-48h laborables y recibirás confirmación por email.
+            </p>
+        </div>
+
+        <p class="text-muted" style="margin-top: 16px; font-size:12px;">
+            ¿Tienes dudas? Contacta con tu asesor o escríbenos a <strong>info@asesorfy.net</strong>.
         </p>
     @else
         <p>

@@ -87,28 +87,19 @@ class UserResource extends Resource implements HasShieldPermissions
 {
     return $schema
         ->components([
-
             // ===============================
             // CREACIÓN / EDICIÓN USUARIO WEB
             // ===============================
-            Section::make('Creación de usuario web con acceso a AsesorFy')
-                ->description('Este usuario tendrá acceso limitado a la plataforma, necesario para clientes, trabajadores, etc.')
+            Section::make('Usuario con acceso a AsesorFy')
+                ->description('Configuración de acceso y permisos del usuario en la plataforma.')
                 ->icon('heroicon-o-user-plus')
                 ->schema([
-
                     TextInput::make('name')
                         ->label('Nombre')
                         ->required()
                         ->suffixIcon('heroicon-m-user-circle')
-                        ->maxLength(191),
-
-                    Select::make('roles')
-                        ->label('Rol del usuario')
-                        ->relationship('roles', 'name')
-                        ->multiple()
-                        ->preload()
-                        ->searchable()
-                        ->required(),
+                        ->maxLength(191)
+                        ->columnSpan(2),
 
                     TextInput::make('email')
                         ->label('Email')
@@ -116,77 +107,110 @@ class UserResource extends Resource implements HasShieldPermissions
                         ->suffixIcon('heroicon-m-at-symbol')
                         ->required()
                         ->unique(ignoreRecord: true)
-                        ->maxLength(191),
+                        ->maxLength(191)
+                        ->columnSpan(2),
 
                     TextInput::make('password')
-                        ->label('Password')
+                        ->label('Contraseña')
                         ->password()
                         ->revealable()
                         ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->dehydrateStateUsing(fn ($state) =>
                             filled($state) ? Hash::make($state) : null
-                        ),
+                        )
+                        ->columnSpan(2),
 
                     TextInput::make('password_confirmation')
-                        ->label('Confirmar password')
+                        ->label('Confirmar contraseña')
                         ->password()
                         ->revealable()
                         ->dehydrated(false)
                         ->required(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->visible(fn ($livewire) => $livewire instanceof CreateRecord)
                         ->same('password')
-                        ->helperText('Rellena ambos campos solo si estás creando el usuario.'),
-
+                        ->helperText('Repite la contraseña.')
+                        ->columnSpan(2),
+                    
+                    Select::make('roles')
+                        ->label('Rol del usuario')
+                        ->options(fn () => \Spatie\Permission\Models\Role::pluck('name', 'id'))
+                        ->multiple()
+                        ->preload()
+                        ->searchable()
+                        ->required()
+                        ->native(false)
+                        ->suffixIcon('heroicon-m-shield-check')
+                        ->default(fn ($record) => $record?->roles->pluck('id')->toArray() ?? [])
+                        ->afterStateHydrated(function ($component, $state, $record) {
+                            // Cargar roles actuales al editar
+                            if ($record) {
+                                $component->state($record->roles->pluck('id')->toArray());
+                            }
+                        })
+                        ->columnSpan(4),
+                    
                     Toggle::make('acceso_app')
-                        ->label('Acceso a la plataforma')
-                        ->helperText('Activa este campo para permitir el acceso del usuario al sistema.')
+                        ->label('Acceso al panel de administración')
+                        ->helperText('Permite acceso al panel admin de Filament.')
+                        ->default(false)
+                        ->inline(false)
+                        ->live()
+                        ->visible(fn ($record) => 
+                            $record?->trabajador !== null || // Es trabajador
+                            $record?->hasRole('super_admin') || // Es super admin
+                            $record?->acceso_app == 1 // O ya tiene acceso admin activado
+                        )
+                        ->columnSpan(2),
+                    
+                    Toggle::make('portal_activo')
+                        ->label('Acceso al portal activo')
+                        ->helperText('Desactivar para bloquear acceso (impagos, suspensiones, etc.).')
                         ->default(true)
-                        ->inline(false),
-
+                        ->inline(false)
+                        ->columnSpan(2),
+                    
+                    Forms\Components\Placeholder::make('tipo_usuario_info')
+                        ->label('Tipo de usuario')
+                        ->content(fn (callable $get) => 
+                            $get('acceso_app') 
+                                ? '👨💼 Trabajador - Puede acceder al panel de administración' 
+                                : '👤 Cliente - Solo acceso al portal cliente'
+                        )
+                        ->columnSpan(4),
                 ])
-                ->columns(3)
-                ->columnSpanFull(), // 👈 ESTO ES LO QUE LO HACE MÁS ANCHO
-
+                ->columns(4)
+                ->columnSpanFull(),
 
             // ===============================
             // CAMBIO DE CONTRASEÑA (SOLO EDIT)
             // ===============================
-            Section::make('Actualizar contraseña de acceso a AsesorFy')
-                ->description('Si quieres cambiar la contraseña del usuario, puedes hacerlo aquí.')
+            Section::make('Actualizar contraseña')
+                ->description('Cambiar la contraseña del usuario.')
                 ->icon('heroicon-o-key')
                 ->schema([
+                    TextInput::make('password')
+                        ->label('Nueva contraseña')
+                        ->password()
+                        ->revealable()
+                        ->nullable()
+                        ->helperText('Déjalo vacío si no quieres cambiarla')
+                        ->dehydrated(fn ($state) => filled($state))
+                        ->dehydrateStateUsing(fn ($state) => Hash::make($state))
+                        ->maxLength(191),
 
-                   TextInput::make('password')
-    ->label('Nueva contraseña')
-    ->password()
-    ->revealable()
-    ->nullable()
-    ->helperText('Déjalo vacío si no quieres cambiar la contraseña')
-    ->dehydrated(fn ($state) => filled($state))
-    ->dehydrateStateUsing(fn ($state) => Hash::make($state))
-    ->maxLength(191),
-
-
-
-
-                   TextInput::make('password_confirmation')
-    ->label('Confirmar contraseña')
-    ->password()
-    ->revealable()
-    ->nullable()
-    ->dehydrated(false)
-    ->requiredWith('password')
-    ->same('password')
-    ->helperText('Solo obligatorio si introduces una nueva contraseña'),
-
-
-
-
+                    TextInput::make('password_confirmation')
+                        ->label('Confirmar contraseña')
+                        ->password()
+                        ->revealable()
+                        ->nullable()
+                        ->dehydrated(false)
+                        ->requiredWith('password')
+                        ->same('password')
+                        ->helperText('Solo obligatorio si cambias la contraseña'),
                 ])
                 ->columns(2)
                 ->visible(fn ($livewire) => $livewire instanceof EditRecord),
-
         ]);
 }
 
@@ -211,11 +235,29 @@ class UserResource extends Resource implements HasShieldPermissions
                     ->badge()    
                     ->color('primary')                    
                     ->searchable(),  
-                    TextColumn::make('acceso_app')
-                    ->label('Acceso')
-                    ->formatStateUsing(fn ($state) => $state ? '✅ Activo' : '❌ Inactivo')
-                    ->badge()
-                    ->color(fn ($state) => $state ? 'success' : 'danger'),    
+                    TextColumn::make('tipo')
+                        ->label('Tipo')
+                        ->state(fn ($record) => $record) // 👈 AÑADIR ESTO
+                        ->formatStateUsing(fn ($record) => $record->acceso_app ? '👨💼 Trabajador' : '👤 Cliente')
+                        ->badge()
+                        ->color(fn ($record) => $record->acceso_app ? 'warning' : 'info'),
+                    
+                    TextColumn::make('acceso')
+                        ->label('Acceso')
+                        ->state(fn ($record) => $record) // 👈 AÑADIR ESTO
+                        ->formatStateUsing(function ($record) {
+                            if ($record->acceso_app) {
+                                return 'Panel Admin';
+                            }
+                            return $record->portal_activo ? 'Portal ✅' : 'Portal 🔒';
+                        })
+                        ->badge()
+                        ->color(function ($record) {
+                            if ($record->acceso_app) {
+                                return 'success';
+                            }
+                            return $record->portal_activo ? 'success' : 'danger';
+                        }),    
                 TextColumn::make('created_at')
                 ->label('Fecha creación')
                     ->dateTime('d/m/y - H:m')
@@ -280,41 +322,49 @@ class UserResource extends Resource implements HasShieldPermissions
             ],layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(6)
             ->recordActions([
-                EditAction::make(),
-                ViewAction::make(),
-                DeleteAction::make()
-                ->before(function ($record, $action) {
-                    if ($record->trabajador) {
+                EditAction::make()
+                    ->label(''),
+                
+                ViewAction::make()
+                    ->label(''),
+                
+                Action::make('toggle_portal')
+                    ->label('Portal')
+                    ->icon(fn ($record) => $record->portal_activo ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
+                    ->color(fn ($record) => $record->portal_activo ? 'success' : 'danger')
+                    ->tooltip(fn ($record) => $record->portal_activo ? 'Portal activo' : 'Portal bloqueado')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->portal_activo ? '🔒 Bloquear acceso al portal' : '🔓 Activar acceso al portal')
+                    ->modalDescription(fn ($record) => $record->portal_activo 
+                        ? 'El usuario no podrá acceder al portal (útil para impagos, suspensiones, etc.).' 
+                        : 'El usuario podrá acceder de nuevo al portal.'
+                    )
+                    ->modalSubmitActionLabel(fn ($record) => $record->portal_activo ? 'Bloquear' : 'Activar')
+                    ->action(function ($record) {
+                        $record->update([
+                            'portal_activo' => !$record->portal_activo,
+                        ]);
+                        
                         Notification::make()
-                            ->title('⛔ No se puede eliminar el usuario')
-                            ->body('Este usuario está vinculado a un trabajador. Si deseas eliminarlo, debes hacerlo desde la sección de Trabajadores.')
-                            ->danger()
-                            ->persistent()
+                            ->title($record->portal_activo ? '✅ Portal activado' : '🔒 Portal bloqueado')
+                            ->success()
                             ->send();
-
-                        $action->cancel(); // ❌ Cancela el borrado
-                    }
-                }),
-                Action::make('toggle_acceso_app')
-                ->label('Acceso')
-                ->icon(fn ($record) => $record->acceso_app ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
-                ->color(fn ($record) => $record->acceso_app ? 'success' : 'danger')
-                ->schema([
-                    Toggle::make('acceso_app')
-                        ->label('¿Acceso permitido?')
-                        ->helperText('Activa o desactiva el acceso del usuario a la plataforma.')
-                        ->default(fn ($record) => $record->acceso_app),
-                ])
-                ->action(function ($record, array $data) {
-                  //  dd($data); // Verifica si está llegando el valor de acceso_app
-                    $record->update([
-                        'acceso_app' => $data['acceso_app'],
-                    ]);
-                })
-                ->modalHeading('Configurar acceso del usuario')
-                ->modalSubmitActionLabel('Actualizar')
-                ->modalCancelActionLabel('Cancelar')
-                ->requiresConfirmation(),
+                    }),
+                
+                DeleteAction::make()
+                    ->label('')
+                    ->before(function ($record, $action) {
+                        if ($record->trabajador) {
+                            Notification::make()
+                                ->title('⛔ No se puede eliminar')
+                                ->body('Este usuario está vinculado a un trabajador. Elimínalo desde la sección Trabajadores.')
+                                ->danger()
+                                ->persistent()
+                                ->send();
+                            
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

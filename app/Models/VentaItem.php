@@ -74,11 +74,9 @@ public function proyecto(): HasOne
 }
 
 // Un VentaItem puede tener una Suscripción asociada
-public function suscripcion(): HasOne
+public function suscripcion(): BelongsTo
 {
-    // La relación es a través de la venta y el servicio, es un poco más compleja
-    return $this->hasOne(ClienteSuscripcion::class, 'venta_origen_id', 'venta_id')
-                ->where('servicio_id', $this->servicio_id);
+    return $this->belongsTo(ClienteSuscripcion::class, 'cliente_suscripcion_id');
 }
 
 

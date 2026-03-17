@@ -25,7 +25,7 @@ class RecordatorioPagoMail extends Mailable
         // Si es transferencia, preparamos los datos bancarios
         if ($this->venta->pago_inicial_metodo === 'transferencia') {
             $this->iban = VariableConfiguracion::where('nombre_variable', 'iban_transferencias')->value('valor_variable') 
-                ?? VariableConfiguracion::where('nombre_variable', 'empresa_iban')->value('valor_variable');
+                ?? VariableConfiguracion::where('nombre_variable', 'empresa_banco_iban')->value('valor_variable');
             
             $dni = $venta->cliente->dni_cif ?? $venta->lead->dni ?? '---';
             $this->concepto = trim($dni . " - Venta #" . $venta->id);

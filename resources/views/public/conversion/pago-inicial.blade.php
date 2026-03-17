@@ -144,8 +144,9 @@
     $cliente = $venta->cliente ?? null;
     $form = $link->meta['form_data'] ?? [];
 
-    $razon = $form['razon_social'] ?? trim(($form['nombre'] ?? '').' '.($form['apellidos'] ?? ''));
-    if (!$razon) $razon = $cliente->nombre ?? '—';
+    $titular = trim(($form['nombre'] ?? '') . ' ' . ($form['apellidos'] ?? ''));
+    if (!$titular) $titular = trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+    if (!$titular) $titular = $cliente->razon_social ?? '—';
 
     // Items
     $itemsUnicos = $venta->items->filter(fn($i) => $i->servicio && $i->servicio->tipo->value === 'unico');
@@ -215,7 +216,7 @@
 
     {{-- DATOS CLIENTE --}}
     <div class="data-grid">
-      <div><div class="lbl">Titular</div><div class="val">{{ $razon }}</div></div>
+      <div><div class="lbl">Titular</div><div class="val">{{ $titular  }}</div></div>
       <div><div class="lbl">DNI / CIF</div><div class="val">{{ $form['cif'] ?? $form['dni'] ?? '—' }}</div></div>
       <div><div class="lbl">Email</div><div class="val">{{ $form['email'] ?? '—' }}</div></div>
     </div>

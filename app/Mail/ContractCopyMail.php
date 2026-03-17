@@ -43,7 +43,7 @@ class ContractCopyMail extends Mailable
             // Si es transferencia, preparamos datos
             if ($this->metodo === 'transferencia') {
                 $this->iban = VariableConfiguracion::where('nombre_variable', 'iban_transferencias')->value('valor_variable') 
-                     ?? VariableConfiguracion::where('nombre_variable', 'empresa_iban')->value('valor_variable');
+                     ?? VariableConfiguracion::where('nombre_variable', 'empresa_banco_iban')->value('valor_variable');
                 
                 $dni = $lead->dni ?? $lead->cif ?? $this->venta->cliente->dni_cif ?? '---';
                 $this->concepto = trim($dni . " - Venta #" . $this->venta->id);

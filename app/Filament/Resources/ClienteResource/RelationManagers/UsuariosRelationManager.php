@@ -68,8 +68,8 @@ class UsuariosRelationManager extends RelationManager
                             ->revealable()
                             ->requiredWith('password'),
 
-                        Toggle::make('acceso_app')
-                            ->label('Acceso activado')
+                        Toggle::make('portal_activo')
+                            ->label('Acceso portal activado')
                             ->default(true),
                     ])
                     ->columns(2),
@@ -92,8 +92,8 @@ class UsuariosRelationManager extends RelationManager
                     ->label('Creado en App')
                     ->dateTime('d/m/y - H:i')
                     ->sortable(),
-                TextColumn::make('acceso_app')
-                    ->label('Acceso')
+                TextColumn::make('portal_activo')
+                    ->label('Acceso Portal')
                     ->formatStateUsing(fn ($state) => $state ? '✅ Activo' : '❌ Inactivo')
                     ->badge()
                     ->color(fn ($state) => $state ? 'success' : 'danger'),
@@ -156,25 +156,28 @@ class UsuariosRelationManager extends RelationManager
                 DetachAction::make()->label('Desvincular'),
                 DeleteAction::make(),
 
-                Action::make('toggle_acceso_app')
-                    ->label(fn ($record) => $record->acceso_app ? 'Quitar acceso' : 'Dar acceso')
-                    ->icon(fn ($record) => $record->acceso_app ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
-                    ->color(fn ($record) => $record->acceso_app ? 'danger' : 'success')
-                    ->schema([
-                        Toggle::make('acceso_app')
-                            ->label('¿Acceso permitido?')
-                            ->helperText('Activa o desactiva el acceso del usuario a la plataforma.')
-                            ->default(fn ($record) => $record->acceso_app),
-                    ])
-                    ->action(function ($record, array $data) {
+                Action::make('toggle_portal')
+                    ->label('Portal')
+                    ->icon(fn ($record) => $record->portal_activo ? 'heroicon-o-lock-open' : 'heroicon-o-lock-closed')
+                    ->color(fn ($record) => $record->portal_activo ? 'success' : 'danger')
+                    ->tooltip(fn ($record) => $record->portal_activo ? 'Portal activo' : 'Portal bloqueado')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->portal_activo ? '🔒 Bloquear acceso al portal' : '🔓 Activar acceso al portal')
+                    ->modalDescription(fn ($record) => $record->portal_activo 
+                        ? 'El usuario no podrá acceder al portal (útil para impagos, suspensiones, etc.).' 
+                        : 'El usuario podrá acceder de nuevo al portal.'
+                    )
+                    ->modalSubmitActionLabel(fn ($record) => $record->portal_activo ? 'Bloquear' : 'Activar')
+                    ->action(function ($record) {
                         $record->update([
-                            'acceso_app' => $data['acceso_app'],
+                            'portal_activo' => !$record->portal_activo,
                         ]);
-                    })
-                    ->modalHeading('Configurar acceso del usuario')
-                    ->modalSubmitActionLabel('Actualizar')
-                    ->modalCancelActionLabel('Cancelar')
-                    ->requiresConfirmation(),
+                        
+                        Notification::make()
+                            ->title($record->portal_activo ? '✅ Portal activado' : '🔒 Portal bloqueado')
+                            ->success()
+                            ->send();
+                    }),
             ])
 
             ->toolbarActions([

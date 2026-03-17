@@ -1,59 +1,8 @@
 {{-- resources/views/filament/portal/pages/dashboard.blade.php --}}
 <x-filament-panels::page>
 
- {{-- SELECTOR DE EMPRESA (solo si tiene varios clientes) --}}
-    @if(auth()->user()->clientes()->count() > 1)
-        @php $clienteActivo = auth()->user()->clientes()->find(session('cliente_activo_id')); @endphp
-        @if($clienteActivo)
-        <div x-data="{ open: false }" class="flex items-center gap-3 rounded-xl border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-950 px-4 py-3 mb-2">
-            
-            <div class="flex items-center justify-center w-9 h-9 rounded-full bg-primary-500 text-white font-bold text-base shrink-0">
-                {{ strtoupper(substr($clienteActivo->razon_social ?? $clienteActivo->nombre ?? '?', 0, 1)) }}
-            </div>
+@livewire(\App\Filament\Portal\Widgets\NotificacionesWidget::class)
 
-            <div class="flex-1 min-w-0">
-                <div class="text-xs font-medium text-primary-600 dark:text-primary-400 uppercase tracking-wide">Empresa activa</div>
-                <div class="text-sm font-semibold text-gray-900 dark:text-white truncate">
-                    {{ $clienteActivo->razon_social ?? $clienteActivo->nombre . ' ' . $clienteActivo->apellidos }}
-                </div>
-            </div>
-
-            <div class="relative shrink-0">
-                <button @click="open = !open" class="flex items-center gap-1 text-xs text-primary-600 dark:text-primary-400 hover:text-primary-800 font-medium transition-colors">
-                    Cambiar
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 transition-transform" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-
-                <div x-show="open" @click.outside="open = false" x-transition
-                     class="absolute right-0 top-7 z-50 min-w-[220px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1">
-                    @foreach(auth()->user()->clientes()->get() as $c)
-                        <a href="{{ url('/portal/seleccionar-empresa?cambiar=' . $c->id) }}"
-                           class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors {{ $c->id === session('cliente_activo_id') ? 'bg-primary-50 dark:bg-primary-950' : '' }}">
-                            <div class="flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0 {{ $c->id === session('cliente_activo_id') ? 'bg-primary-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-600' }}">
-                                {{ strtoupper(substr($c->razon_social ?? $c->nombre ?? '?', 0, 1)) }}
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                    {{ $c->razon_social ?? $c->nombre . ' ' . $c->apellidos }}
-                                </div>
-                                <div class="text-xs text-gray-500">{{ $c->dni_cif }}</div>
-                            </div>
-                            @if($c->id === session('cliente_activo_id'))
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-primary-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                </svg>
-                            @endif
-                        </a>
-                    @endforeach
-                </div>
-            </div>
-        </div>
-        @endif
-    @endif
-
-    
     @php
         $accent = '#41c0e9';
         
@@ -453,4 +402,67 @@
 
         </div>
     </div>
+
+    {{-- MODAL DE NOTIFICACIONES CRÍTICAS --}}
+    @php
+        $notificacionesCriticas = \App\Models\NotificacionPortal::activas()
+            ->where('bloquea_portal', true)
+            ->whereDoesntHave('vistas', function ($q) {
+                $q->where('user_id', auth()->id())
+                  ->where('visto_en_plataforma', true);
+            })
+            ->first();
+        $accent = $accent ?? '#41c0e9';
+    @endphp
+
+    @if($notificacionesCriticas)
+        <div class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+             style="background: rgba(0,0,0,0.8);"
+             x-data="{ modalAbierto: true }"
+             x-show="modalAbierto">
+
+            <div class="w-full max-w-2xl rounded-3xl bg-white dark:bg-gray-900 shadow-2xl p-8"
+                 x-transition>
+
+                <div class="flex items-start gap-4 mb-6">
+                    <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-100 ring-2 ring-red-500 shrink-0">
+                        <span class="text-3xl">🔴</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-2xl font-black text-gray-900 dark:text-white">
+                            {{ $notificacionesCriticas->titulo }}
+                        </h3>
+                        <p class="text-sm text-gray-500 mt-1">Notificación crítica - Requiere lectura</p>
+                    </div>
+                </div>
+
+                <div class="rounded-2xl bg-gray-50 dark:bg-gray-800 p-6 mb-6">
+                    <div class="prose prose-sm dark:prose-invert max-w-none">
+                        {!! $notificacionesCriticas->mensaje !!}
+                    </div>
+                </div>
+
+                <button
+                    type="button"
+                    wire:click="marcarNotificacionCriticaLeida({{ $notificacionesCriticas->id }})"
+                    @click="modalAbierto = false"
+                    class="w-full flex items-center justify-center gap-2 rounded-xl px-6 py-4 text-base font-bold text-white shadow-lg transition-all hover:opacity-90"
+                    style="background-color: {{ $accent }};"
+                >
+                    <x-filament::icon icon="heroicon-m-check-circle" class="h-6 w-6" />
+                    He leído y entendido
+                </button>
+            </div>
+        </div>
+
+        <script>
+            document.addEventListener('livewire:initialized', () => {
+                document.body.style.overflow = 'hidden';
+
+                Livewire.on('notificacionLeida', () => {
+                    document.body.style.overflow = '';
+                });
+            });
+        </script>
+    @endif
 </x-filament-panels::page>

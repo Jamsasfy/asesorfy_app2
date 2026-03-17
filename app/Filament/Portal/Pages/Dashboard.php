@@ -91,10 +91,12 @@ class Dashboard extends BaseDashboard
 
         $this->telegramVinculado = (bool) $this->chat?->telegram_chat_id;
         
-        if ($this->chat?->last_message_at) {
+        if ($this->chat?->last_message_at && $this->telegramVinculado) {
             $this->ultimaConversacion = $this->chat->last_message_at
                 ->timezone(config('app.timezone', 'Europe/Madrid'))
                 ->diffForHumans();
+        } else {
+            $this->ultimaConversacion = null;
         }
     }
 
@@ -126,15 +128,25 @@ class Dashboard extends BaseDashboard
         }
     }
 
-            public function getWidgets(): array
-        {
-            return [
-                \App\Filament\Portal\Widgets\SelectorEmpresaWidget::class,
-            ];
-        }
+    public function getWidgets(): array
+    {
+        return [
+            \App\Filament\Portal\Widgets\SelectorEmpresaWidget::class,
+            \App\Filament\Portal\Widgets\NotificacionesWidget::class,
+        ];
+    }
 
-        public function getColumns(): int | array
-        {
-            return 1;
+    public function getColumns(): int | array
+    {
+        return 1;
+    }
+
+    public function marcarNotificacionCriticaLeida(int $notificacionId): void
+    {
+        $notificacion = \App\Models\NotificacionPortal::find($notificacionId);
+
+        if ($notificacion) {
+            $notificacion->marcarComoLeida(auth()->user());
         }
+    }
 }

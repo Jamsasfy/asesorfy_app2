@@ -34,12 +34,15 @@ class FacturaResource extends Resource
      */
     public static function getEloquentQuery(): Builder
     {
-        $user = auth()->user();
-
-        $clienteIds = $user?->clientes()->pluck('clientes.id')->all() ?? [];
-
+        $clienteActivoId = session('cliente_activo_id');
+        
+        if (!$clienteActivoId) {
+            // Si no hay cliente activo, no mostrar nada
+            return parent::getEloquentQuery()->whereRaw('1 = 0');
+        }
+        
         return parent::getEloquentQuery()
-            ->whereIn('cliente_id', $clienteIds);
+            ->where('cliente_id', $clienteActivoId);
     }
 
     public static function canCreate(): bool
