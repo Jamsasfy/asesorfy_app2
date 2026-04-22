@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan:*)",
+      "Bash(php -l \"c:/wamp64/www/asesorfy_app2/app/Filament/Widgets/ComercialLeadsChart.php\")",
+      "Bash(php -l \"c:/wamp64/www/asesorfy_app2/app/Filament/Widgets/ComercialVentasChart.php\")",
+      "Bash(xargs grep:*)",
+      "Bash(composer show *)",
+      "Bash(grep -rn \"//.*HasShieldPermissions\\\\|//.*Shield\\\\|// Shield\\\\|//Shield\" c:/wamp64/www/asesorfy_app2/app/Filament/Resources/)"
+    ]
+  }
+}
