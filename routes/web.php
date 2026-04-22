@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\FacturaPdfController; // <-- Asegúrate de que esta importación esté
+use App\Http\Controllers\ComercialExportController;
 use App\Http\Controllers\FileViewController;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
@@ -51,6 +52,14 @@ Route::get('/facturas/generar-pdf/{factura}', [FacturaPdfController::class, 'gen
     ->name('facturas.generar-pdf')
     ->middleware('auth');
 
+Route::middleware('auth')->group(function () {
+    Route::get('/admin/comisiones/comerciales/export-excel', [ComercialExportController::class, 'exportExcel'])
+        ->name('comisiones.comerciales.export-excel');
+
+    Route::get('/admin/comisiones/comerciales/export-pdf', [ComercialExportController::class, 'exportPdf'])
+        ->name('comisiones.comerciales.export-pdf');
+});
+
     Route::get('/view-storage-file/{path}', [FileViewController::class, 'show'])
     ->where('path', '.*')
     ->name('file.view')
@@ -96,7 +105,11 @@ Route::prefix('conversion')->name('conversion.')->group(function () {
         Route::get('{token}/finished', [LeadConversionController::class, 'finished'])
             ->middleware('check.recurrent')
             ->name('finished');
-    });  
+    });
+
+    // Redirección dinámica según estado actual del proceso
+    Route::get('{token}/resume', [LeadConversionController::class, 'resume'])
+        ->name('resume');
 
 });
 
@@ -144,6 +157,88 @@ Route::get('/portal/bloqueado', function () {
 
 
 
+
+// Contratos de incentivos
+use App\Http\Controllers\FirmarContratoIncentivosController;
+
+Route::prefix('contrato-incentivos')->name('firmar-contrato-incentivos')->group(function () {
+    Route::get('{token}', [FirmarContratoIncentivosController::class, 'show']);
+    Route::post('{token}', [FirmarContratoIncentivosController::class, 'firmar'])
+        ->name('.store');
+});
+
+// PDF sin firmar (para el iframe del formulario)
+Route::get('/contrato-incentivos-pdf/{token}', function (string $token) {
+    $contrato = App\Models\ComercialContratoIncentivo::where('token_firma', $token)->firstOrFail();
+
+    $files = \Storage::disk('local')->files('contratos-incentivos');
+    foreach ($files as $file) {
+        if (str_contains($file, 'sin-firmar') && str_contains($file, "-{$contrato->id}.pdf")) {
+            return response()->file(\Storage::disk('local')->path($file));
+        }
+    }
+
+    abort(404, 'PDF no encontrado');
+})->name('contrato-incentivos.pdf');
+
+// Descarga autenticada del PDF firmado (admin/coordinador o el propio comercial)
+Route::middleware('auth')->get('/descargar-contrato-firmado/{id}', function ($id) {
+    $contrato = App\Models\ComercialContratoIncentivo::findOrFail($id);
+    $user = \Illuminate\Support\Facades\Auth::user();
+
+    if (!$user->hasRole(['super_admin', 'coordinador']) && $user->id !== $contrato->comercial_id) {
+        abort(403, 'No tienes permiso para acceder a este contrato');
+    }
+
+    if (!$contrato->pdf_path) {
+        abort(404, 'PDF firmado no disponible');
+    }
+
+    if (!\Storage::disk('local')->exists($contrato->pdf_path)) {
+        abort(404, 'Archivo no encontrado');
+    }
+
+    $nombreArchivo = ($contrato->tipo === 'anexo' ? 'anexo' : 'contrato-incentivos')
+        . '-' . $contrato->id . '-firmado.pdf';
+
+    return \Storage::disk('local')->download(
+        $contrato->pdf_path,
+        $nombreArchivo,
+        ['Content-Type' => 'application/pdf']
+    );
+})->name('descargar-contrato-firmado');
+
+// Descarga autenticada del informe PDF de comisiones
+Route::middleware('auth')->get('/descargar-informe-comision/{id}', function ($id) {
+    $historial = \App\Models\ComercialHistorialObjetivo::findOrFail($id);
+    $user = \Illuminate\Support\Facades\Auth::user();
+
+    if (!$user->hasRole(['super_admin', 'coordinador']) && $user->id !== $historial->comercial_id) {
+        abort(403, 'No tienes permisos para ver este informe.');
+    }
+
+    if (!$historial->informe_pdf_path || !\Illuminate\Support\Facades\Storage::disk('local')->exists($historial->informe_pdf_path)) {
+        abort(404, 'El informe no ha sido generado aún.');
+    }
+
+    return response()->download(
+        \Illuminate\Support\Facades\Storage::disk('local')->path($historial->informe_pdf_path),
+        'informe-comisiones-' . $historial->año . '-' . str_pad($historial->mes, 2, '0', STR_PAD_LEFT) . '.pdf'
+    );
+})->name('descargar-informe-comision');
+
+// PDF firmado (para descarga en vista firmado)
+Route::get('/contrato-incentivos-pdf-firmado/{token}', function (string $token) {
+    $contrato = App\Models\ComercialContratoIncentivo::where('token_firma', $token)
+        ->whereNotNull('fecha_firma')
+        ->firstOrFail();
+
+    if ($contrato->pdf_path && \Storage::disk('local')->exists($contrato->pdf_path)) {
+        return response()->file(\Storage::disk('local')->path($contrato->pdf_path));
+    }
+
+    abort(404, 'PDF firmado no encontrado');
+})->name('contrato-incentivos.pdf.firmado');
 
 // Contrato de responsabilidad
 use App\Http\Controllers\Public\ContratoResponsabilidadController;

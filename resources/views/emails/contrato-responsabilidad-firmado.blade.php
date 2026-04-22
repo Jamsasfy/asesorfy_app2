@@ -28,7 +28,13 @@
   <div class="content">
     <h1>Documento firmado ✅</h1>
 
-    <p>Hola, <strong>{{ trim(($contrato->cliente->nombre ?? '') . ' ' . ($contrato->cliente->apellidos ?? '')) ?: $contrato->cliente->razon_social }}</strong>.</p>
+    @if($contrato->cliente->tipo_cliente_id == 1)
+        {{-- AUTÓNOMO --}}
+        <p>Hola, <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong>.</p>
+    @else
+        {{-- SOCIEDAD --}}
+        <p>Hola, <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong> ({{ $contrato->cliente->razon_social }}).</p>
+    @endif
 
     <p>Te confirmamos que has firmado correctamente el siguiente documento:</p>
 

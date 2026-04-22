@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use Filament\Schemas\Schema;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Actions\EditAction;
@@ -211,6 +212,7 @@ class UserResource extends Resource implements HasShieldPermissions
                 ])
                 ->columns(2)
                 ->visible(fn ($livewire) => $livewire instanceof EditRecord),
+
         ]);
 }
 

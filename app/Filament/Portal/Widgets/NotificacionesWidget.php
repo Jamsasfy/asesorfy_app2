@@ -17,13 +17,19 @@ class NotificacionesWidget extends Widget
         
         // Obtener cliente activo
         $clienteActivoId = session('cliente_activo_id');
-        
         if (!$clienteActivoId) {
+            return collect();
+        }
+        
+        // Obtener fecha de alta del cliente
+        $cliente = \App\Models\Cliente::find($clienteActivoId);
+        if (!$cliente || !$cliente->fecha_alta) {
             return collect();
         }
         
         // Notificaciones activas que el usuario aún no ha leído
         return NotificacionPortal::activas()
+            ->where('created_at', '>=', $cliente->fecha_alta) // 🔥 SOLO DESDE QUE ES CLIENTE
             ->whereDoesntHave('vistas', function ($q) use ($user) {
                 $q->where('user_id', $user->id)
                   ->where('visto_en_plataforma', true); // Solo si marcó como leída

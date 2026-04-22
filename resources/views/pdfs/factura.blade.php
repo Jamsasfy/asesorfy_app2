@@ -190,11 +190,19 @@
 
     <div class="cliente-info">
         <strong>DATOS DEL CLIENTE</strong><br>
-        <strong>Razon Social:</strong> {{ $factura->cliente->razon_social ?? 'Cliente Desconocido' }}<br>
-        @if ($factura->cliente->nombre && $factura->cliente->apellidos)
-             <strong>Nombre y Apellidos cliente:</strong> {{ $factura->cliente->nombre }} {{ $factura->cliente->apellidos }}<br>
-        @endif
-        @if ($factura->cliente->dni_cif)
+        @if($factura->cliente->tipo_cliente_id == 1)
+            {{-- AUTÓNOMO: Nombre completo, nombre comercial (si existe) y DNI --}}
+            <strong>Nombre y Apellidos:</strong> {{ $factura->cliente->nombre }} {{ $factura->cliente->apellidos }}<br>
+            @if ($factura->cliente->nombre_comercial && $factura->cliente->nombre_comercial !== ($factura->cliente->nombre . ' ' . $factura->cliente->apellidos))
+                <strong>Nombre comercial:</strong> {{ $factura->cliente->nombre_comercial }}<br>
+            @endif
+            <strong>DNI/NIF:</strong> {{ $factura->cliente->dni_cif }}<br>
+        @else
+            {{-- SOCIEDAD: Razón social, nombre comercial (si existe) y CIF --}}
+            <strong>Razón Social:</strong> {{ $factura->cliente->razon_social }}<br>
+            @if ($factura->cliente->nombre_comercial && $factura->cliente->nombre_comercial !== $factura->cliente->razon_social)
+                <strong>Nombre comercial:</strong> {{ $factura->cliente->nombre_comercial }}<br>
+            @endif
             <strong>CIF:</strong> {{ $factura->cliente->dni_cif }}<br>
         @endif
         @if ($factura->cliente->direccion)

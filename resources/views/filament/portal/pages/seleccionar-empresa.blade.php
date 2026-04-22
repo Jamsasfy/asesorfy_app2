@@ -19,11 +19,11 @@
                     {{-- Icono / Inicial --}}
                     <div class="flex items-center gap-3">
                         <div class="flex items-center justify-center w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 font-bold text-lg">
-                            {{ strtoupper(substr($cliente->razon_social ?? $cliente->nombre ?? '?', 0, 1)) }}
+                            {{ strtoupper(substr($cliente->razon_social ?? '?', 0, 1)) }}
                         </div>
                         <div>
                             <div class="font-semibold text-gray-900 dark:text-white group-hover:text-primary-600 transition-colors">
-                                {{ $cliente->razon_social ?? $cliente->nombre . ' ' . $cliente->apellidos }}
+                                {{ $cliente->razon_social }}
                             </div>
                             <div class="text-xs text-gray-500 dark:text-gray-400">
                                 {{ $cliente->dni_cif }}

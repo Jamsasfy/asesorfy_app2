@@ -16,26 +16,45 @@
 </head>
 <body>
     <div class="container">
+
+        {{-- Cabecera diferenciada --}}
+        @if($context === 'creacion_manual')
+        <div class="header">
+            <h1>🔓 Nuevo acceso al portal</h1>
+        </div>
+        @else
         <div class="header">
             <h1>🎉 ¡Bienvenido a AsesorFy!</h1>
         </div>
-        
+        @endif
+
         <div class="content">
-            <p>Hola <strong>{{ $nombreCliente }}</strong>,</p>
-            
-            <p>¡Enhorabuena! Tu cuenta en AsesorFy ha sido creada exitosamente.</p>
-            
+
+            {{-- Saludo diferenciado --}}
+            @if($context === 'creacion_manual')
+                <p>Hola <strong>{{ $userName }}</strong>,</p>
+                <p>Se te ha dado acceso al portal de clientes de <strong>{{ $razonSocial }}</strong> en AsesorFy.</p>
+            @else
+                <p>Hola <strong>{{ $nombreCliente }}</strong>,</p>
+                <p>¡Enhorabuena! Tu cuenta en AsesorFy ha sido creada exitosamente.</p>
+            @endif
+
+            {{-- Caja de información --}}
             <div class="info-box">
                 <p><strong>📧 Tu email de acceso:</strong> {{ $email }}</p>
-                @if($asesorNombre && $asesorNombre !== 'Tu asesor')
-                    <p><strong>👨‍💼 Tu asesor asignado:</strong> {{ $asesorNombre }}</p>
+                @if($context === 'bienvenida_cliente')
+                    @if($asesor)
+                        <p><strong>👨‍💼 Tu asesor asignado:</strong> {{ $asesorNombre }}</p>
+                    @endif
+                    @if($suscripcion)
+                        <p><strong>📦 Servicio contratado:</strong> {{ $servicioNombre }}</p>
+                    @endif
                 @endif
-                <p><strong>📦 Servicio contratado:</strong> {{ $servicioNombre }}</p>
             </div>
 
             <h3>🔐 Activa tu cuenta</h3>
             <p>Para comenzar a usar el portal de clientes, haz clic en el botón de abajo y crea tu contraseña:</p>
-            
+
             <div style="text-align: center;">
                 <a href="{{ $activationUrl }}" class="button">✨ Activar mi cuenta</a>
             </div>
@@ -53,14 +72,14 @@
             </ul>
 
             <p>Si tienes alguna pregunta, no dudes en contactar con tu asesor.</p>
-            
+
             <p>¡Bienvenido a bordo!</p>
             <p><strong>Equipo AsesorFy</strong></p>
         </div>
 
         <div class="footer">
             <p>© {{ date('Y') }} AsesorFy. Todos los derechos reservados.</p>
-            <p style="font-size: 12px;">Si no solicitaste esta cuenta, puedes ignorar este email.</p>
+            <p style="font-size: 12px;">Si no solicitaste este acceso, puedes ignorar este email.</p>
         </div>
     </div>
 </body>

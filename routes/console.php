@@ -32,3 +32,14 @@ Schedule::command('stripe:sync')
     ->onOneServer()
     ->runInBackground()
     ->timezone('Europe/Madrid');
+
+// ===============================
+// CÁLCULO DE COMISIONES MENSUAL
+// ===============================
+
+Schedule::command('comisiones:calcular-mes')
+    ->monthlyOn(1, '03:00')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->appendOutputTo(storage_path('logs/comisiones-calcular.log'));

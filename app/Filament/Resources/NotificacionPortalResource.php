@@ -140,7 +140,7 @@ class NotificacionPortalResource extends Resource implements HasShieldPermission
                                 ->orWhere('dni_cif', 'like', "%{$search}%")
                                 ->limit(50)
                                 ->get()
-                                ->mapWithKeys(fn ($c) => [$c->id => ($c->razon_social ?? $c->nombre . ' ' . $c->apellidos) . ' (' . $c->dni_cif . ')']))
+                                ->mapWithKeys(fn ($c) => [$c->id => $c->razon_social . ' (' . $c->dni_cif . ')']))
                             ->visible(fn ($get) => $get('destinatarios') === 'cliente_especifico')
                             ->required(fn ($get) => $get('destinatarios') === 'cliente_especifico'),
                     ])

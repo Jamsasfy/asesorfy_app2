@@ -319,7 +319,7 @@ class TelegramWebhookController extends Controller
         // ==========================================
         if ($convs->count() === 1) {
             $conv = $convs->first();
-            $nombreEmpresa = $conv->cliente?->razon_social ?? trim(($conv->cliente?->nombre ?? '') . ' ' . ($conv->cliente?->apellidos ?? '')) ?: 'tu empresa';
+            $nombreEmpresa = $conv->cliente?->razon_social ?: 'tu empresa';
 
             // REGLA 1: Tubo único puro (nunca tuvo carpetas)
             if (empty($conv->telegram_thread_id)) {
@@ -364,7 +364,7 @@ class TelegramWebhookController extends Controller
         // ==========================================
         // REGLA 2: MULTI-EMPRESA (>1 clientes activos)
         // ==========================================
-        $listaEmpresas = $convs->map(fn ($c) => "• <b>" . ($c->cliente->razon_social ?? $c->cliente->nombre ?? "Cliente #{$c->cliente_id}") . "</b>")->implode("\n");
+        $listaEmpresas = $convs->map(fn ($c) => "• <b>" . ($c->cliente->razon_social ?? "Cliente #{$c->cliente_id}") . "</b>")->implode("\n");
 
         if ($isGeneral) {
             $this->replyTelegram(
@@ -576,7 +576,7 @@ class TelegramWebhookController extends Controller
         ) {
             // PREPARAMOS MENSAJES CON NOMBRE DE EMPRESA Y ETIQUETAS HTML <b>
             $nombreAsesor = $cliente->asesor ? $cliente->asesor->name : 'nuestro equipo';
-            $nombreEmpresa = $cliente->razon_social ?? trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+            $nombreEmpresa = $cliente->razon_social;
             
             $mensajeBienvenida = "🎉 <b>¡Vinculación completada con éxito!</b>\n\n"
                 . "🏢 <b>Empresa:</b> {$nombreEmpresa}\n"

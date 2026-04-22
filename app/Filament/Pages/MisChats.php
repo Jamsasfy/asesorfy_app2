@@ -655,9 +655,7 @@ public function unlinkSelectedTelegram(): void
         $clienteId = (int) $chat->cliente_id;
         
         // Sacamos el nombre para decírselo en el mensaje
-        $nombreCliente = $chat->cliente->razon_social 
-            ?? trim(($chat->cliente->nombre ?? '') . ' ' . ($chat->cliente->apellidos ?? '')) 
-            ?: 'esta empresa';
+        $nombreCliente = $chat->cliente->razon_social;
 
         try {
             DB::transaction(function () use ($chat, $clienteId) {

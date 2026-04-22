@@ -36,29 +36,35 @@ class EditCliente extends EditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        if (
-            empty($data['razon_social']) &&
-            (empty($data['nombre']) || empty($data['apellidos']))
-        ) {
-            Notification::make()
-            ->title('❌ Falta información clave')
-            ->body('Debes rellenar nombre y apellidos o razón social. Si es autónomo, emplead@ del hogar... nombre y apellidos es obligatorio. Si es empresa y otra figura jurídica, razón social es obligatorio.')
-            ->danger() // Estilo rojo
-            ->persistent() // No se cierra automáticamente
-            ->send();
+        $tipoCliente = $data['tipo_cliente_id'] ?? $this->record->tipo_cliente_id;
 
-        // Cancelar el guardado devolviendo los mismos datos sin error
-        // Esto evita la excepción pero no guarda nada
-        $this->halt(); // <- ⚠️ Esto detiene el guardado
+        // AUTÓNOMO: requiere nombre + apellidos
+        if ($tipoCliente == 1) {
+            if (empty($data['nombre']) || empty($data['apellidos'])) {
+                Notification::make()
+                    ->title('❌ Falta información')
+                    ->body('Los autónomos deben tener nombre y apellidos.')
+                    ->danger()
+                    ->persistent()
+                    ->send();
+                $this->halt();
+            }
+            // Auto-rellenar razon_social
+            if (empty($data['razon_social'])) {
+                $data['razon_social'] = trim($data['nombre'] . ' ' . $data['apellidos']);
+            }
+        } else {
+            // SOCIEDAD: requiere razon_social
+            if (empty($data['razon_social'])) {
+                Notification::make()
+                    ->title('❌ Falta información')
+                    ->body('Las sociedades deben tener razón social.')
+                    ->danger()
+                    ->persistent()
+                    ->send();
+                $this->halt();
+            }
         }
-
-            // ✅ Autocompletamos razón social si falta
-    if (empty($data['razon_social']) && !empty($data['nombre']) && !empty($data['apellidos'])) {
-        $data['razon_social'] = $data['nombre'] . ' ' . $data['apellidos'];
-    }
-
-
-    
 
         return $data;
     }

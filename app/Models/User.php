@@ -41,6 +41,8 @@ class User extends Authenticatable implements FilamentUser
         'activation_token',
         'activation_token_expires_at',
         'email_bienvenida_enviado',
+        'fecha_inicio_comercial',
+        'meses_prueba',
     ];
 
     protected $hidden = [
@@ -51,10 +53,11 @@ class User extends Authenticatable implements FilamentUser
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'password'          => 'hashed',
-            'cuenta_activada_at' => 'datetime',
+            'email_verified_at'           => 'datetime',
+            'password'                    => 'hashed',
+            'cuenta_activada_at'          => 'datetime',
             'activation_token_expires_at' => 'datetime',
+            'fecha_inicio_comercial'      => 'date',
         ];
     }
 
@@ -136,6 +139,159 @@ class User extends Authenticatable implements FilamentUser
     public function ventas(): HasMany
     {
         return $this->hasMany(Venta::class);
+    }
+
+    public function reglasComision(): BelongsToMany
+    {
+        return $this->belongsToMany(ComisionRegla::class, 'comercial_reglas', 'comercial_id', 'regla_id')
+            ->withPivot('es_obligatoria', 'activa')
+            ->withTimestamps();
+    }
+
+    public function asignacionesReglas(): HasMany
+    {
+        return $this->hasMany(ComercialRegla::class, 'comercial_id');
+    }
+
+    public function comisionesMensuales(): HasMany
+    {
+        return $this->hasMany(ComisionMensual::class, 'comercial_id');
+    }
+
+    public function historialObjetivos(): HasMany
+    {
+        return $this->hasMany(ComercialHistorialObjetivo::class, 'comercial_id');
+    }
+
+    public function alertasComercial(): HasMany
+    {
+        return $this->hasMany(ComercialAlerta::class, 'comercial_id');
+    }
+
+    /**
+     * Indica si el comercial está actualmente en período de prueba.
+     */
+    public function estaEnPeriodoPrueba(): bool
+    {
+        if (! $this->fecha_inicio_comercial) {
+            return false;
+        }
+
+        $meses = $this->meses_prueba ?? 3;
+        $finPrueba = $this->fecha_inicio_comercial->copy()->addMonths($meses)->subDay();
+
+        return now()->lte($finPrueba);
+    }
+
+    /**
+     * Devuelve en qué mes de prueba se encuentra el comercial (1-based).
+     * Si no está en prueba, devuelve null.
+     */
+    public function getMesActualPrueba(): ?int
+    {
+        if (! $this->estaEnPeriodoPrueba()) {
+            return null;
+        }
+
+        $inicio = $this->fecha_inicio_comercial->copy()->startOfMonth();
+        $ahora  = now()->startOfMonth();
+
+        return (int) $inicio->diffInMonths($ahora) + 1;
+    }
+
+    /**
+     * Indica si un mes/año concreto cayó dentro del período de prueba.
+     */
+    public function mesEstaEnPeriodoPrueba(int $anio, int $mes): bool
+    {
+        if (! $this->fecha_inicio_comercial) {
+            return false;
+        }
+
+        $meses      = $this->meses_prueba ?? 3;
+        $inicio     = $this->fecha_inicio_comercial->copy()->startOfMonth();
+        $finPrueba  = $this->fecha_inicio_comercial->copy()->addMonths($meses)->subDay();
+        $fechaMes   = \Carbon\Carbon::create($anio, $mes, 1)->startOfMonth();
+
+        return $fechaMes->gte($inicio) && $fechaMes->lte($finPrueba);
+    }
+
+    public function contratosIncentivos(): HasMany
+    {
+        return $this->hasMany(ComercialContratoIncentivo::class, 'comercial_id');
+    }
+
+    public function tieneContratoFirmado(): bool
+    {
+        return $this->contratosIncentivos()
+            ->whereNotNull('fecha_firma')
+            ->exists();
+    }
+
+    public function contratoBaseFirmado(): ?ComercialContratoIncentivo
+    {
+        return $this->contratosIncentivos()
+            ->where('tipo', 'base')
+            ->whereNotNull('fecha_firma')
+            ->first();
+    }
+
+    public function tieneReglasNoFirmadas(): bool
+    {
+        if (!$this->contratoBaseFirmado()) {
+            return true;
+        }
+
+        $reglasActuales = $this->asignacionesReglas()
+            ->where('activa', true)
+            ->with('regla')
+            ->get();
+
+        if ($reglasActuales->isEmpty()) {
+            return false;
+        }
+
+        $snapshotActual = $reglasActuales->map(function ($asignacion) {
+            return [
+                'id'             => $asignacion->regla_id,
+                'nombre'         => $asignacion->regla->nombre,
+                'minimo'         => (string) $asignacion->regla->minimo_mensual,
+                'porcentaje'     => (string) $asignacion->regla->porcentaje_comision,
+                'penalizacion'   => $asignacion->regla->penalizacion_baja_antes_meses,
+                'es_obligatoria' => (bool) $asignacion->es_obligatoria,
+                'activa'         => (bool) $asignacion->regla->activa,
+            ];
+        })->sortBy('id')->values()->toArray();
+
+        $ultimoContrato = $this->contratosIncentivos()
+            ->whereNotNull('fecha_firma')
+            ->latest('fecha_firma')
+            ->first();
+
+        if (!$ultimoContrato) {
+            return true;
+        }
+
+        $snapshotContrato = collect($ultimoContrato->reglas_snapshot)
+            ->map(fn ($r) => [
+                'id'             => $r['id'],
+                'nombre'         => $r['nombre'],
+                'minimo'         => (string) $r['minimo'],
+                'porcentaje'     => (string) $r['porcentaje'],
+                'penalizacion'   => $r['penalizacion'],
+                'es_obligatoria' => (bool) $r['es_obligatoria'],
+                'activa'         => (bool) $r['activa'],
+            ])
+            ->sortBy('id')
+            ->values()
+            ->toArray();
+
+        return $snapshotActual !== $snapshotContrato;
+    }
+
+    public function puedeAprobarComisiones(): bool
+    {
+        return $this->tieneContratoFirmado() && !$this->tieneReglasNoFirmadas();
     }
 
 }

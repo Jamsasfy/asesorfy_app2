@@ -222,9 +222,7 @@
                     @forelse($this->chats as $chat)
                         @php
                             $c = $chat->cliente;
-                            $nombre = $c?->razon_social
-                                ?? trim(($c?->nombre ?? '') . ' ' . ($c?->apellidos ?? ''))
-                                ?? 'Cliente';
+                            $nombre = $c?->razon_social ?? 'Cliente';
 
                             $iniciales = mb_strtoupper(mb_substr($nombre, 0, 2));
                             $preview = trim((string) ($chat->last_text ?? ''));
@@ -372,8 +370,7 @@
                                     @if($this->selectedChat?->cliente)
                                         @php
                                             $cliente = $this->selectedChat->cliente;
-                                            $clienteNombre = $cliente->razon_social
-                                                ?? trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''));
+                                            $clienteNombre = $cliente->razon_social;
                                             $clienteUrl = \App\Filament\Resources\ClienteResource::getUrl('view', ['record' => $cliente->id]);
                                         @endphp
 

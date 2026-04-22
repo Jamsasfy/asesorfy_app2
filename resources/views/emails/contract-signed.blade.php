@@ -21,7 +21,11 @@
 <body>
 
 @php
-$clienteNombre = trim(($venta?->cliente?->nombre ?? '') . ' ' . ($venta?->cliente?->apellidos ?? ''));
+$clienteNombre = $venta?->cliente
+    ? ($venta->cliente->tipo_cliente_id == 1
+        ? trim($venta->cliente->nombre . ' ' . $venta->cliente->apellidos)
+        : trim($venta->cliente->nombre . ' ' . $venta->cliente->apellidos) . ' (' . $venta->cliente->razon_social . ')')
+    : 'Cliente';
 if (!$clienteNombre) $clienteNombre = $lead->nombre ?? 'Hola';@endphp
 
 <div class="container">

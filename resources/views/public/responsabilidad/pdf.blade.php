@@ -141,8 +141,17 @@
     </p>
     <p>
         Y de otra parte,
-        <strong>{{ trim(($contrato->cliente->nombre ?? '') . ' ' . ($contrato->cliente->apellidos ?? '')) ?: $contrato->cliente->razon_social }}</strong>,
-        con DNI/NIF/CIF <strong>{{ $contrato->cliente->dni_cif ?? '—' }}</strong>,
+        @if($contrato->cliente->tipo_cliente_id == 1)
+            {{-- AUTÓNOMO --}}
+            <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong>,
+            con DNI/NIF <strong>{{ $contrato->cliente->dni_cif }}</strong>,
+        @else
+            {{-- SOCIEDAD --}}
+            <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong>,
+            con DNI <strong>{{ $contrato->cliente->dni_representante ?? $contrato->cliente->dni_cif }}</strong>,
+            en representación de <strong>{{ $contrato->cliente->razon_social }}</strong>,
+            con CIF <strong>{{ $contrato->cliente->dni_cif }}</strong>,
+        @endif
         en adelante, <strong>EL CLIENTE</strong>.
     </p>
     <p>Ambas partes, reconociéndose capacidad legal suficiente para obligarse, suscriben el presente Documento de Instrucción Expresa, Asunción de Riesgos y Exoneración de Responsabilidad.</p>
@@ -251,7 +260,11 @@
             </td>
             <td>
                 <strong>EL CLIENTE</strong><br>
-                {{ trim(($contrato->cliente->nombre ?? '') . ' ' . ($contrato->cliente->apellidos ?? '')) ?: $contrato->cliente->razon_social }}<br>
+                @if($contrato->cliente->tipo_cliente_id == 1)
+                    {{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}<br>
+                @else
+                    {{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }} ({{ $contrato->cliente->razon_social }})<br>
+                @endif
                 DNI/NIF/CIF: {{ $contrato->cliente->dni_cif ?? '—' }}
                 <div style="margin-top:10px;">
                     @if(isset($signatureDataUri))

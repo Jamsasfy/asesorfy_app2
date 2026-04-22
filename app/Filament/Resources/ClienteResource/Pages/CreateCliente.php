@@ -92,17 +92,21 @@ class CreateCliente extends CreateRecord
     // ... (pega aquí tus métodos handleRecordCreation y getCreatedNotification sin cambios)
     protected function handleRecordCreation(array $data): Model
     {
+        // Validación: debe tener nombre+apellidos O razon_social
         if (empty($data['razon_social']) && (empty($data['nombre']) || empty($data['apellidos']))) {
             Notification::make()
                 ->title('❌ Falta información')
-                ->body('Rellena razón social o nombre+apellidos.')
+                ->body('Debes rellenar nombre y apellidos (autónomos) o razón social (sociedades).')
                 ->danger()->persistent()->send();
             $this->halt();
             return new ($this->getModel())();
         }
-        if (empty($data['razon_social'])) {
+
+        // Auto-rellenar razon_social SOLO para autónomos
+        if (empty($data['razon_social']) && isset($data['tipo_cliente_id']) && $data['tipo_cliente_id'] == 1) {
             $data['razon_social'] = trim("{$data['nombre']} {$data['apellidos']}");
         }
+
         return parent::handleRecordCreation($data);
     }
 

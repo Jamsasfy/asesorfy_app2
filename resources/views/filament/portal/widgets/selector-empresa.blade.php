@@ -50,11 +50,11 @@
                     >
                         <div class="flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0
                             {{ $cliente->id === session('cliente_activo_id') ? 'bg-primary-500 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300' }}">
-                            {{ strtoupper(substr($cliente->razon_social ?? $cliente->nombre ?? '?', 0, 1)) }}
+                            {{ strtoupper(substr($cliente->razon_social ?? '?', 0, 1)) }}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                {{ $cliente->razon_social ?? $cliente->nombre . ' ' . $cliente->apellidos }}
+                                {{ $cliente->razon_social }}
                             </div>
                             <div class="text-xs text-gray-500 dark:text-gray-400">
                                 {{ $cliente->dni_cif }}

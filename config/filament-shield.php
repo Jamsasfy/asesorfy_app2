@@ -271,6 +271,17 @@ return [
         'Chats:Export'          => 'Chats · Exportar conversación (TXT)',
         'Chats:DownloadFiles'   => 'Chats · Descargar/ver adjuntos',
 
+        // ✅ Widgets del dashboard comercial
+        'View:ComercialStatsOverview'     => 'Widget · Estadísticas del comercial',
+        'View:ComercialLeadsChart'        => 'Widget · Gráfico de leads del comercial',
+        'View:ComercialVentasChart'       => 'Widget · Gráfico de ventas del comercial',
+        'View:ComercialConversionesTable' => 'Widget · Tabla de conversiones del comercial',
+
+        // ✅ NUEVOS: Widgets del sistema de comisiones
+    'View:ComisionesDelMesWidget'     => 'Widget · Comisiones del mes (comerciales)',
+    'View:HistorialRendimientoWidget' => 'Widget · Historial de rendimiento (comerciales)',
+
+
     ],
 
 

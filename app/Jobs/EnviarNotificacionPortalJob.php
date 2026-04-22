@@ -175,7 +175,7 @@ class EnviarNotificacionPortalJob implements ShouldQueue
             foreach ($clientes as $cliente) {
                 Log::info('🔍 Buscando chat para cliente', [
                     'cliente_id' => $cliente->id,
-                    'cliente_nombre' => $cliente->razon_social ?? ($cliente->nombre . ' ' . $cliente->apellidos),
+                    'cliente_nombre' => $cliente->razon_social,
                 ]);
 
                 // Buscar chat del CLIENTE

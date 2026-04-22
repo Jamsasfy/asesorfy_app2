@@ -49,16 +49,7 @@
                 
                 <div class="relative flex items-start justify-between gap-4">
                     <div class="flex items-start gap-4 flex-1">
-                        {{-- Icono destacado --}}
-                        <div class="flex h-14 w-14 items-center justify-center rounded-2xl {{ $colors['icon_bg'] }} ring-2 ring-white/30 shrink-0 shadow-lg">
-                            <span class="text-3xl">
-                                @if($notif->tipo === 'critico') 🔴
-                                @elseif($notif->tipo === 'urgente') 🟠
-                                @elseif($notif->tipo === 'aviso') 🟡
-                                @else 🔵
-                                @endif
-                            </span>
-                        </div>
+                        {{-- (Icono eliminado) --}}
 
                         <div class="flex-1">
                             {{-- Badge de tipo mejorado --}}

@@ -4,10 +4,12 @@ namespace App\Observers;
 
 use Filament\Actions\Action;
 use App\Enums\ClienteEstadoEnum;
+use App\Mail\AsesorAsignadoMail;
 use App\Models\Cliente;
 use App\Models\User;
 use Filament\Notifications\Notification; // <-- Importante añadir este 'use'
 use App\Filament\Resources\ClienteResource; // <-- Y este también
+use Illuminate\Support\Facades\Mail;
 
 class ClienteObserver
 {
@@ -65,6 +67,25 @@ public function saving(Cliente $cliente): void
                     'user_id'   => 9999,
                     'contenido' => '👤 Asesor definitivo asignado: ' . $asesorAsignado->name . ' — cliente pasado a Activo.',
                 ]);
+
+                // Enviar email al cliente informando del asesor asignado
+                if ($cliente->email_contacto) {
+                    try {
+                        Mail::to($cliente->email_contacto)
+                            ->send(new AsesorAsignadoMail($cliente, $asesorAsignado));
+
+                        \Log::info('✅ Email asesor asignado enviado', [
+                            'cliente_id' => $cliente->id,
+                            'asesor_id'  => $asesorAsignado->id,
+                            'email'      => $cliente->email_contacto,
+                        ]);
+                    } catch (\Exception $e) {
+                        \Log::error('❌ Error enviando email asesor asignado', [
+                            'cliente_id' => $cliente->id,
+                            'error'      => $e->getMessage(),
+                        ]);
+                    }
+                }
 
                 // Pasar cliente a ACTIVO
                 $cliente->updateQuietly(['estado' => ClienteEstadoEnum::ACTIVO]);

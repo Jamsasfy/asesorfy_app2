@@ -105,9 +105,38 @@ class ClienteActivacionService
     }
 
     /**
+     * Reenvía el email de activación a un usuario existente que no ha activado aún.
+     */
+    public function reenviarActivacion(Cliente $cliente, User $user, string $context = 'reenvio_manual'): array
+    {
+        try {
+            $user->activation_token = Str::random(64);
+            $user->activation_token_expires_at = Carbon::now()->addHours(72);
+            $user->save();
+
+            $this->enviarEmailActivacion($cliente, $user, $context);
+
+            return [
+                'success' => true,
+                'message' => 'Email de activación reenviado correctamente.',
+            ];
+        } catch (\Throwable $e) {
+            Log::error("❌ Error reenviando activación cliente {$cliente->id}", [
+                'user_id' => $user->id,
+                'error'   => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error al reenviar: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Envía el email de activación con link mágico.
      */
-    private function enviarEmailActivacion(Cliente $cliente, User $user, ?string $context): void
+    protected function enviarEmailActivacion(Cliente $cliente, User $user, ?string $context): void
     {
         try {
             $asesor = $cliente->asesor;
@@ -118,7 +147,8 @@ class ClienteActivacionService
                     cliente: $cliente,
                     user: $user,
                     asesor: $asesor,
-                    suscripcion: $suscripcionPrincipal
+                    suscripcion: $suscripcionPrincipal,
+                    context: $context ?? 'bienvenida_cliente',
                 ));
 
             // Registrar en comentarios

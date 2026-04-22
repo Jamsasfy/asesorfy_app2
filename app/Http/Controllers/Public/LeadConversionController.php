@@ -436,6 +436,51 @@ private function procesarTextosLegales($blueprint, $lead, $form)
         '[TABLA_SERVICIOS]'   => $htmlTablaCompleta,
     ];
 
+    // ============================================
+    // DETECTAR TIPO DE CLIENTE (3 CASOS)
+    // ============================================
+    $estadoSociedad = $form['estado_sociedad'] ?? null;
+    $esSociedadConstituida = ($estadoSociedad === 'constituida');
+    $esSociedadEnConstitucion = ($estadoSociedad === 'en_constitucion');
+
+    // Datos del firmante/representante
+    $nombreFirmante = trim(($form['nombre'] ?? '') . ' ' . ($form['apellidos'] ?? ''));
+    $nombreRepresentante = trim(($form['nombre_representante'] ?? '') . ' ' . ($form['apellidos_representante'] ?? ''));
+    $dniRepresentante = $form['dni'] ?? '';
+    $cifEmpresa = $form['cif'] ?? '';
+    $razonSocialEmpresa = $form['razon_social'] ?? '';
+
+    // Generar texto "Y de otra parte..." según caso
+    if ($esSociedadConstituida && !empty($cifEmpresa)) {
+        // CASO 3: SOCIEDAD CONSTITUIDA (con CIF)
+        $nombreParaContrato = $nombreRepresentante ?: $nombreFirmante;
+        $textoOtraParte = "Y de otra parte, <strong>{$nombreParaContrato}</strong>, con DNI <strong>{$dniRepresentante}</strong>, " .
+                          "en representación de <strong>{$razonSocialEmpresa}</strong>, con CIF <strong>{$cifEmpresa}</strong>, " .
+                          "domicilio social en {$direccionCli}, y correo electrónico {$emailCli} " .
+                          "(en adelante, \"EL CLIENTE\").";
+
+    } elseif ($esSociedadEnConstitucion) {
+        // CASO 2: SOCIEDAD EN CONSTITUCIÓN (sin CIF)
+        $textoOtraParte = "Y de otra parte, <strong>{$nombreFirmante}</strong>, con DNI <strong>{$dniRepresentante}</strong>, " .
+                          "domicilio en {$direccionCli}, y correo electrónico {$emailCli}, " .
+                          "actuando en nombre propio para la constitución de sociedad en constitución " .
+                          "(en adelante, \"EL CLIENTE\")." .
+                          "<p><strong>CLÁUSULA ESPECIAL:</strong> El presente contrato se suscribe para la prestación " .
+                          "de servicios vinculados a la constitución de una sociedad mercantil. " .
+                          "Una vez inscrita la sociedad en el Registro Mercantil, los servicios " .
+                          "recurrentes contratados se entenderán automáticamente transferidos a " .
+                          "la persona jurídica resultante.</p>";
+
+    } else {
+        // CASO 1: AUTÓNOMO (persona física) - VALOR POR DEFECTO
+        $textoOtraParte = "Y de otra parte, <strong>{$nombreFirmante}</strong>, con DNI/NIF <strong>{$dniCif}</strong>, " .
+                          "domicilio en {$direccionCli}, y correo electrónico {$emailCli} " .
+                          "(en adelante, \"EL CLIENTE\").";
+    }
+
+    // Añadir al array de replacements
+    $replacements['[TEXTO_OTRA_PARTE]'] = $textoOtraParte;
+
     $dbKeys = [
         'contrato_cabecera',
         'contrato_marco_legal',
@@ -728,11 +773,18 @@ private function procesarTextosLegales($blueprint, $lead, $form)
                 $dniCif          = $formData['dni'] ?? null;
             }
 
+            // DNI del representante (solo para sociedades)
+            $dniRepresentante = null;
+            if ($estadoSociedad === 'constituida' || $estadoSociedad === 'en_constitucion') {
+                $dniRepresentante = $formData['dni'] ?? null;
+            }
+
             $dataCliente = [
                 'nombre'             => $nombre,
                 'apellidos'          => $apellidos,
                 'dni_cif'            => $dniCif,
                 'razon_social'       => $razonSocialReal,
+                'dni_representante'  => $dniRepresentante,
                 'nombre_comercial'   => $nombreComercial,
                 'direccion'          => $formData['direccion'] ?? null,
                 'codigo_postal'      => $formData['cp'] ?? null,
@@ -1081,8 +1133,8 @@ private function procesarTextosLegales($blueprint, $lead, $form)
             try {
                 $absolutePdfPath = storage_path('app/public/' . $fileName);
 
-                // Determinar URL inteligente según estado
-                $resumeUrl = $this->determinarResumeUrl($link, $venta);
+                // URL dinámica que recalcula el estado en el momento del clic
+                $resumeUrl = route('conversion.resume', ['token' => $link->token]);
 
                 Mail::to($cliente->email_contacto)->send(
                     new ContractSignedMail($lead, $absolutePdfPath, $resumeUrl, $venta->fresh(['items.servicio', 'cliente']))
@@ -2164,6 +2216,19 @@ private function mapDescuentoColumns(array $s): array
 }
 
 
+
+    /**
+     * Redirige dinámicamente según el estado actual del proceso de conversión
+     */
+    public function resume(string $token): RedirectResponse
+    {
+        $link = LeadConversionLink::where('token', $token)->firstOrFail();
+        $venta = Venta::where('lead_id', $link->lead_id)->latest()->first();
+
+        $resumeUrl = $this->determinarResumeUrl($link, $venta);
+
+        return redirect($resumeUrl);
+    }
 
     /**
      * Determina la URL correcta para "Retomar mi alta" según el estado actual

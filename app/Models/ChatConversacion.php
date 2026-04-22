@@ -86,9 +86,7 @@ class ChatConversacion extends Model
         }
 
         // Nombre del topic: razón social o nombre del cliente
-        $topicName = $cliente->razon_social
-            ?? trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? ''))
-            ?: "Cliente #{$cliente->id}";
+        $topicName = $cliente->razon_social ?: "Cliente #{$cliente->id}";
 
         // Prefijo según tipo de cliente
         $tipoNombre = $cliente->tipoCliente?->nombre ?? '';

@@ -44,7 +44,7 @@ class ContratosResponsabilidadRelationManager extends RelationManager
                     ->label('Enviado')
                     ->dateTime('d/m/Y H:i'),
             ])
-            ->actions([
+            ->recordActions([
                 Action::make('ver_pdf')
                     ->label('Ver PDF')
                     ->icon('heroicon-o-document-text')

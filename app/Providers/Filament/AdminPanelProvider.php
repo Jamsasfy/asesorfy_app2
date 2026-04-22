@@ -82,8 +82,14 @@ class AdminPanelProvider extends PanelProvider
     \App\Filament\Widgets\AsesoresClientesAsignadosHorizontalBarChart::class,
     \App\Filament\Widgets\RecurrenteAcumuladoPorMesChart::class,
     \App\Filament\Widgets\ClientesNuevosYBajasPorMesChart::class,
+    \App\Filament\Widgets\ComercialStatsOverview::class,
+    \App\Filament\Widgets\ComercialLeadsChart::class,
+    \App\Filament\Widgets\ComercialConversionesTable::class,
+    \App\Filament\Widgets\ComercialVentasChart::class,
+    \App\Filament\Widgets\ComisionesDelMesWidget::class,
+    \App\Filament\Widgets\HistorialRendimientoWidget::class,
 
-               
+
             ])
 
           ->databaseNotifications() // <-- AÑADE ESTA LÍNEA

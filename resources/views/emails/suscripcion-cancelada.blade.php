@@ -22,7 +22,11 @@
     <img src="{{ url(asset('images/logo.png')) }}" alt="{{ config('app.name') }}">
   </div>
   <div class="content">
-    <h1>Hola, {{ trim(($cliente->nombre ?? '') . ' ' . ($cliente->apellidos ?? '')) ?: $cliente->razon_social }}</h1>
+    @if($cliente->tipo_cliente_id == 1)
+        <h1>Hola, {{ $cliente->nombre }} {{ $cliente->apellidos }}</h1>
+    @else
+        <h1>Hola, {{ $cliente->nombre }} {{ $cliente->apellidos }} ({{ $cliente->razon_social }})</h1>
+    @endif
 
     <p>Queremos informarte de que el servicio de asesoría recurrente asociado a tu expediente no será activado.</p>
 

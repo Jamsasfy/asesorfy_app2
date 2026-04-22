@@ -88,6 +88,17 @@ class LeadConversionLink extends Model
     {
         $meta = $previous?->meta ?? [];
 
+        // Limpiar campos del formulario anterior que deben rellenarse de nuevo
+        if (isset($meta['form_data'])) {
+            unset(
+                $meta['form_data']['provincia'],
+                $meta['form_data']['cp'],
+                $meta['form_data']['localidad'],
+                $meta['form_data']['comunidad_autonoma'],
+                $meta['form_data']['direccion']
+            );
+        }
+
         if ($previous) {
             // No lo marcamos usado; simplemente lo invalidamos por caducidad
             $previous->expires_at = now()->subSecond();

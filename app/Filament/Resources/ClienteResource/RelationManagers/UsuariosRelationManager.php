@@ -14,6 +14,11 @@ use Filament\Actions\DeleteBulkAction;
 use App\Models\User;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables\Columns\TextColumn;
@@ -125,29 +130,138 @@ class UsuariosRelationManager extends RelationManager
 
             ->headerActions([
                 // 1. EL NUEVO BOTÓN PARA VINCULAR USUARIOS EXISTENTES
-                AttachAction::make()
+                Action::make('vincular_usuario')
                     ->label('🔗 Vincular usuario existente')
                     ->color('info')
-                    ->preloadRecordSelect(),
+                    ->icon('heroicon-o-link')
+                    ->schema([
+                        Select::make('recordId')
+                            ->label('Usuario')
+                            ->options(fn () => User::where('acceso_app', false)->pluck('email', 'id'))
+                            ->required()
+                            ->searchable()
+                            ->live()
+                            ->afterStateUpdated(function ($state, $set) {
+                                if (!$state) return;
+                                $user = User::find($state);
+                                if (!$user) return;
+                                $set('clientes_actuales', $user->clientes()->pluck('razon_social')->toArray());
+                            }),
+
+                        Placeholder::make('info_clientes')
+                            ->label('Empresas con acceso actual')
+                            ->content(function ($get) {
+                                $clientes = $get('clientes_actuales') ?? [];
+                                if (empty($clientes)) {
+                                    return '✅ Este usuario no tiene acceso a ninguna empresa todavía.';
+                                }
+                                $lista = implode("\n• ", $clientes);
+                                return "⚠️ Este usuario ya tiene acceso a:\n\n• " . $lista;
+                            })
+                            ->visible(fn ($get) => !empty($get('recordId'))),
+
+                        Hidden::make('clientes_actuales'),
+                    ])
+                    ->modalHeading('Vincular Usuario Existente')
+                    ->modalDescription('Selecciona el usuario y confirma la vinculación')
+                    ->modalSubmitActionLabel('Vincular Usuario')
+                    ->action(function (array $data, $livewire) {
+                        $cliente = $livewire->getOwnerRecord();
+                        $userId  = $data['recordId'];
+
+                        $cliente->usuarios()->syncWithoutDetaching([$userId]);
+
+                        $user = User::find($userId);
+                        if ($user) {
+                            try {
+                                \Illuminate\Support\Facades\Mail::to($user->email)
+                                    ->send(new \App\Mail\UsuarioVinculadoMail($cliente, $user));
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Usuario vinculado correctamente')
+                                    ->body("Email de notificación enviado a {$user->email}")
+                                    ->send();
+                            } catch (\Exception $e) {
+                                Notification::make()
+                                    ->warning()
+                                    ->title('Usuario vinculado pero email no enviado')
+                                    ->body('El usuario fue vinculado pero hubo un error al enviar el email de notificación.')
+                                    ->persistent()
+                                    ->send();
+                            }
+                        }
+                    }),
 
                 // 2. EL BOTÓN ORIGINAL PARA CREAR DESDE CERO
                 CreateAction::make()
                     ->label('➕ Crear nuevo usuario')
                     ->icon('heroicon-o-user-plus')
-                    ->modalHeading('Nuevo usuario con acceso al cliente')
+                    ->modalHeading('Crear Nuevo Usuario para Cliente')
+                    ->modalDescription('Se creará el usuario y se enviará un email de activación automáticamente')
+                    ->form([
+                        Section::make('Datos del Usuario')
+                            ->schema([
+                                TextInput::make('name')
+                                    ->label('Nombre completo')
+                                    ->required()
+                                    ->maxLength(255),
+
+                                TextInput::make('email')
+                                    ->label('Email')
+                                    ->email()
+                                    ->required()
+                                    ->unique('users', 'email')
+                                    ->maxLength(255),
+
+                                Toggle::make('portal_activo')
+                                    ->label('Acceso al portal activado')
+                                    ->default(true)
+                                    ->helperText('El usuario podrá acceder al portal una vez active su cuenta'),
+                            ]),
+
+                        Section::make('Información')
+                            ->schema([
+                                Placeholder::make('info_activacion')
+                                    ->label('')
+                                    ->content('ℹ️ El usuario recibirá un email con un link de activación válido por 72 horas. No es necesario introducir contraseña.'),
+                            ]),
+                    ])
                     ->using(function (array $data, $livewire): User {
                         $cliente = $livewire->getOwnerRecord();
-                        $user = User::create($data);
+
+                        $user = User::create([
+                            'name'         => $data['name'],
+                            'email'        => $data['email'],
+                            'password'     => bcrypt(\Illuminate\Support\Str::random(32)),
+                            'portal_activo' => $data['portal_activo'] ?? true,
+                            'acceso_app'   => false,
+                        ]);
+
                         $cliente->usuarios()->attach($user->id);
+
+                        // Enviar email de activación (establece token + envía ClienteActivadoMail)
+                        try {
+                            app(\App\Services\ClienteActivacionService::class)
+                                ->reenviarActivacion($cliente, $user, 'creacion_manual');
+
+                            Notification::make()
+                                ->success()
+                                ->title('Usuario creado correctamente')
+                                ->body("Email de activación enviado a {$user->email}")
+                                ->send();
+                        } catch (\Exception $e) {
+                            Notification::make()
+                                ->warning()
+                                ->title('Usuario creado pero email no enviado')
+                                ->body('El usuario fue creado pero hubo un error al enviar el email. Usa el botón "Reenviar Activación".')
+                                ->persistent()
+                                ->send();
+                        }
+
                         return $user;
                     })
-                    ->after(function (User $record): void {
-                        Notification::make()
-                            ->title('✅ Usuario creado correctamente')
-                            ->body("Se ha creado un usuario con NOMBRE: 👤 <span style='color:#2563eb; font-weight:bold'>{$record->name}</span> para acceder a este cliente en la plataforma AsesorFy.")
-                            ->success()
-                            ->send();
-                    }),
+                    ->successNotification(null),
             ])
 
             ->recordActions([
@@ -155,6 +269,36 @@ class UsuariosRelationManager extends RelationManager
                 // AÑADIMOS DESVINCULAR POR SEGURIDAD
                 DetachAction::make()->label('Desvincular'),
                 DeleteAction::make(),
+
+                Action::make('reenviar_activacion')
+                    ->label('Reenviar Activación')
+                    ->icon('heroicon-o-envelope')
+                    ->color('warning')
+                    ->tooltip('Reenviar email de activación de cuenta')
+                    ->visible(fn ($record) => !empty($record->activation_token))
+                    ->requiresConfirmation()
+                    ->modalHeading('Reenviar email de activación')
+                    ->modalDescription(fn ($record) => "Se enviará un nuevo link de activación (válido 72h) a {$record->email}.")
+                    ->modalSubmitActionLabel('Sí, reenviar')
+                    ->action(function ($record, $livewire) {
+                        $cliente = $livewire->getOwnerRecord();
+                        $resultado = app(\App\Services\ClienteActivacionService::class)
+                            ->reenviarActivacion($cliente, $record);
+
+                        if ($resultado['success']) {
+                            Notification::make()
+                                ->title('✅ Email reenviado')
+                                ->body("Nuevo link de activación enviado a {$record->email}.")
+                                ->success()
+                                ->send();
+                        } else {
+                            Notification::make()
+                                ->title('❌ Error al reenviar')
+                                ->body($resultado['message'])
+                                ->danger()
+                                ->send();
+                        }
+                    }),
 
                 Action::make('toggle_portal')
                     ->label('Portal')

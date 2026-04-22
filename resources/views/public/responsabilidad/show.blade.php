@@ -33,8 +33,20 @@
             <p>De una parte, <strong>{{ config('app.name') }}</strong>, en adelante, <strong>LA ASESORÍA</strong>.</p>
             <p>
                 Y de otra parte,
-                <strong>{{ trim(($contrato->cliente->nombre ?? '') . ' ' . ($contrato->cliente->apellidos ?? '')) ?: $contrato->cliente->razon_social }}</strong>,
-                con DNI/NIF/CIF <strong>{{ $contrato->cliente->dni_cif ?? '—' }}</strong>,
+                @if($contrato->cliente->tipo_cliente_id == 1)
+                    <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong>,
+                @else
+                    <strong>{{ $contrato->cliente->nombre }} {{ $contrato->cliente->apellidos }}</strong> ({{ $contrato->cliente->razon_social }}),
+                @endif
+                @if($contrato->cliente->tipo_cliente_id == 1)
+                    {{-- AUTÓNOMO --}}
+                    con DNI/NIF <strong>{{ $contrato->cliente->dni_cif }}</strong>,
+                @else
+                    {{-- SOCIEDAD --}}
+                    con DNI <strong>{{ $contrato->cliente->dni_representante ?? $contrato->cliente->dni_cif }}</strong>,
+                    en representación de <strong>{{ $contrato->cliente->razon_social }}</strong>,
+                    con CIF <strong>{{ $contrato->cliente->dni_cif }}</strong>,
+                @endif
                 en adelante, <strong>EL CLIENTE</strong>.
             </p>
             <p>Ambas partes, reconociéndose capacidad legal suficiente para obligarse, suscriben el presente Documento de Instrucción Expresa, Asunción de Riesgos y Exoneración de Responsabilidad.</p>
