@@ -13,7 +13,6 @@ use App\Filament\Resources\OficinaResource\Pages\EditOficina;
 use App\Filament\Resources\OficinaResource\Pages;
 use App\Filament\Resources\OficinaResource\RelationManagers;
 use App\Models\Oficina;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -22,7 +21,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class OficinaResource extends Resource implements HasShieldPermissions
+class OficinaResource extends Resource
 {
     protected static ?string $model = Oficina::class;
 
@@ -32,17 +31,6 @@ class OficinaResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Oficina';
     protected static ?string $pluralModelLabel = 'Oficinas';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
     public static function form(Schema $schema): Schema

@@ -13,7 +13,6 @@ use App\Filament\Resources\ProcedenciaResource\Pages\EditProcedencia;
 use App\Filament\Resources\ProcedenciaResource\Pages;
 use App\Filament\Resources\ProcedenciaResource\RelationManagers;
 use App\Models\Procedencia;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -25,7 +24,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class ProcedenciaResource extends Resource implements HasShieldPermissions
+class ProcedenciaResource extends Resource
 {
     protected static ?string $model = Procedencia::class;
 
@@ -35,17 +34,6 @@ class ProcedenciaResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Procedencia';
     protected static ?string $pluralModelLabel = 'Procedencia de los Leads';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

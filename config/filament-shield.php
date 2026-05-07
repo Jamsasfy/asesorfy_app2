@@ -195,7 +195,15 @@ return [
             'unassign_assessor',
         ],
 
-        
+        \App\Filament\Resources\LeadResource::class => [
+            'cambiar_comercial',
+            'quitar_comercial',
+        ],
+
+        \App\Filament\Resources\NotificacionPortalResource::class => [
+            'enviar',
+        ],
+
     ],
 
     'exclude' => [
@@ -254,34 +262,38 @@ return [
     |
     */
 
-   // config/filament-shield.php
-
     'custom_permissions' => [
 
-        // ✅ MisChats / Telegram
-        'Chats:MarkRead'        => 'Chats · Marcar chat como leído',
-        'Chats:ReLinkTelegram'  => 'Chats · Re-vincular Telegram',
-        'Chats:UnlinkTelegram'  => 'Chats · Desvincular Telegram',
+        // 💬 CHATS / TELEGRAM
+        'Chats:MarkRead'          => '💬 Chats · Marcar chat como leído',
+        'Chats:ViewTeam'          => '💬 Chats · Ver chats del departamento (coordinador)',
+        'Chats:ViewAll'           => '💬 Chats · Ver TODOS los chats (admin)',
+        'Chats:ReLinkTelegram'    => '💬 Chats · Re-vincular Telegram',
+        'Chats:UnlinkTelegram'    => '💬 Chats · Desvincular Telegram',
+        'Chats:Export'            => '💬 Chats · Exportar conversación (TXT)',
+        'Chats:DownloadFiles'     => '💬 Chats · Descargar/ver adjuntos',
 
-        // ✅ NUEVOS: visibilidad por rol
-        'Chats:ViewAll'         => 'Chats · Ver todos los chats (Admin)',
-        'Chats:ViewTeam'        => 'Chats · Ver chats del departamento (Coordinador)',
+        // 📄 CONTRATOS DE RESPONSABILIDAD
+        'EnviarContrato:ContratoResponsabilidad' => '📄 Contrato · Enviar nuevo contrato a cliente',
+        'Reenviar:ContratoResponsabilidad'       => '📄 Contrato · Reenviar enlace de firma',
+        'VerPdf:ContratoResponsabilidad'         => '📄 Contrato · Ver PDF firmado (admin)',
+        'EnviarCopia:ContratoResponsabilidad'    => '📄 Contrato · Enviar copia firmada a cliente',
 
-        // ✅ (Opcional, para el siguiente paso)
-        'Chats:Export'          => 'Chats · Exportar conversación (TXT)',
-        'Chats:DownloadFiles'   => 'Chats · Descargar/ver adjuntos',
+        // 🎯 LEADS (vista amplia "Todos los Leads")
+        'Comentar:Lead'           => '🎯 Lead · Comentar en leads ajenos (desde Todos los Leads)',
 
-        // ✅ Widgets del dashboard comercial
-        'View:ComercialStatsOverview'     => 'Widget · Estadísticas del comercial',
-        'View:ComercialLeadsChart'        => 'Widget · Gráfico de leads del comercial',
-        'View:ComercialVentasChart'       => 'Widget · Gráfico de ventas del comercial',
-        'View:ComercialConversionesTable' => 'Widget · Tabla de conversiones del comercial',
+        // 📋 MIS LEADS (cartera propia del comercial)
+        'Create:MisLeads'         => '📋 Mis Leads · Crear lead en cartera propia',
+        'Update:MisLeads'         => '📋 Mis Leads · Editar lead propio',
+        'Delete:MisLeads'         => '📋 Mis Leads · Borrar lead propio',
 
-        // ✅ NUEVOS: Widgets del sistema de comisiones
-    'View:ComisionesDelMesWidget'     => 'Widget · Comisiones del mes (comerciales)',
-    'View:HistorialRendimientoWidget' => 'Widget · Historial de rendimiento (comerciales)',
-
-
+        // 📊 WIDGETS DE COMERCIALES
+        'View:ComercialStatsOverview'     => '📊 Widget · Estadísticas generales del comercial',
+        'View:ComercialLeadsChart'        => '📊 Widget · Gráfico de leads del comercial',
+        'View:ComercialVentasChart'       => '📊 Widget · Gráfico de ventas del comercial',
+        'View:ComercialConversionesTable' => '📊 Widget · Tabla de conversiones del comercial',
+        'View:ComisionesDelMesWidget'     => '📊 Widget · Comisiones del mes (comerciales)',
+        'View:HistorialRendimientoWidget' => '📊 Widget · Historial de rendimiento (comerciales)',
     ],
 
 

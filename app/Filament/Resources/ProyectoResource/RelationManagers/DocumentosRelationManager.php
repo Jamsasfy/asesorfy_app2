@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ProyectoResource\RelationManagers;
 
+use App\Enums\DocumentoEstadoEnum;
 use App\Models\DocumentoSubtipo;
 use App\Models\Proyecto;
 use Filament\Actions\CreateAction;
@@ -131,23 +132,50 @@ class DocumentosRelationManager extends RelationManager
                     ->falseIcon('heroicon-m-x-circle')
                     ->trueColor('success')
                     ->falseColor('danger')
-                    ->action(function ($record) {
-                        if (! auth()->user()->can('verificado_documento')) {
+                    ->action(function ($record, $livewire) {
+                        if (! (auth()->user()?->can('Verificar:Documento') ?? false)) {
                             Notification::make()
-                                ->title('No tienes permiso para verificar este documento.')
+                                ->title('No tienes permiso para verificar documentos.')
                                 ->danger()
                                 ->send();
                             return;
                         }
 
-                        $record->verificado = ! $record->verificado;
-                        $record->save();
+                        $estadoActual = $record->estado;
+
+                        // Proteger estados especiales — no permitir toggle directo
+                        if (in_array($estadoActual, [
+                            DocumentoEstadoEnum::RECHAZADO,
+                            DocumentoEstadoEnum::NECESITA_ACLARACION,
+                        ], true)) {
+                            Notification::make()
+                                ->title('No se puede verificar directamente')
+                                ->body('Este documento está en estado "' . $estadoActual->label() . '". Ábrelo para gestionarlo correctamente.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+
+                        // Toggle entre VERIFICADO y PENDIENTE
+                        $nuevoEstado = $estadoActual === DocumentoEstadoEnum::VERIFICADO
+                            ? DocumentoEstadoEnum::PENDIENTE
+                            : DocumentoEstadoEnum::VERIFICADO;
+
+                        $record->update(['estado' => $nuevoEstado]);
 
                         Notification::make()
-                            ->title($record->verificado ? 'Documento verificado' : 'Verificación retirada')
+                            ->title($nuevoEstado === DocumentoEstadoEnum::VERIFICADO
+                                ? 'Documento verificado'
+                                : 'Verificación retirada')
                             ->success()
                             ->send();
-                    }),
+
+                        $record->refresh();
+                        $livewire->dispatch('$refresh');
+                    })
+                    ->tooltip(fn ($record) => $record->verificado
+                        ? 'Marcar como NO verificado'
+                        : 'Marcar como verificado'),
 
                 TextColumn::make('created_at')
                     ->label('Subido el')

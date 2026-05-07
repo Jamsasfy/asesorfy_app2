@@ -16,7 +16,6 @@ use App\Filament\Resources\DepartamentoResource\Pages\EditDepartamento;
 use App\Filament\Resources\DepartamentoResource\Pages;
 use App\Filament\Resources\DepartamentoResource\RelationManagers;
 use App\Models\Departamento;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Resources\Resource;
@@ -28,7 +27,7 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 
 
-class DepartamentoResource extends Resource implements HasShieldPermissions
+class DepartamentoResource extends Resource
 {
     protected static ?string $model = Departamento::class;
 
@@ -39,17 +38,6 @@ class DepartamentoResource extends Resource implements HasShieldPermissions
     protected static ?string $pluralModelLabel = 'Departamentos';
 
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
     public static function form(Schema $schema): Schema

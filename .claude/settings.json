@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/c/wamp64/bin/mysql/mysql9.1.0/bin/mysql.exe -u root asesorfy_app2 -e ' *)",
+      "Bash(grep -rn \"use BezhanSalleh\\\\\\\\\\\\\\\\FilamentShield\\\\\\\\\\\\\\\\Contracts\\\\\\\\\\\\\\\\HasShieldPermissions\" /c/wamp64/www/asesorfy_app2/app/Filament/Resources/)",
+      "Bash(grep -v \"//\")",
+      "Bash(php -l /c/wamp64/www/asesorfy_app2/app/Filament/Resources/NotificacionPortalResource.php)",
+      "Bash(php -l /c/wamp64/www/asesorfy_app2/app/Filament/Resources/NotificacionPortalResource/Pages/EditNotificacionPortal.php)",
+      "Bash(php -l /c/wamp64/www/asesorfy_app2/app/Filament/Resources/NotificacionPortalResource/Pages/ViewNotificacionPortal.php)",
+      "Bash(php -l /c/wamp64/www/asesorfy_app2/app/Filament/Resources/NotificacionPortalResource/Pages/CreateNotificacionPortal.php)",
+      "Bash(php -l /c/wamp64/www/asesorfy_app2/app/Policies/NotificacionPortalPolicy.php)",
+      "Bash(grep -n \"canCreate\\\\|canEdit\\\\|canDelete\\\\|canView\\\\|use Illuminate\\\\\\\\\\\\\\\\Database\\\\\\\\\\\\\\\\Eloquent\\\\\\\\\\\\\\\\Model\" app/Filament/Resources/LeadResource.php)",
+      "Bash(grep -n \"^use Illuminate\\\\\\\\\\\\\\\\Database\\\\\\\\\\\\\\\\Eloquent\\\\\\\\\\\\\\\\Model\" app/Filament/Resources/LeadResource.php)",
+      "Bash(php -l app/Filament/Resources/LeadResource.php)",
+      "Bash(php -l app/Filament/Pages/MisLeads.php)",
+      "Bash(php -l resources/views/filament/pages/mis-leads.blade.php)"
+    ]
+  }
+}

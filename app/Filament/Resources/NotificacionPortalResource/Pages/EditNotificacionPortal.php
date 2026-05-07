@@ -24,14 +24,15 @@ class EditNotificacionPortal extends EditRecord
                 ->modalDescription('¿Estás seguro de que quieres enviar esta notificación a los destinatarios seleccionados?')
                 ->action(function () {
                     dispatch(new \App\Jobs\EnviarNotificacionPortalJob($this->record));
-                    
+
                     Notification::make()
                         ->title('✅ Notificación enviándose')
                         ->body('La notificación se está enviando a los destinatarios.')
                         ->success()
                         ->send();
                 })
-                ->visible(fn () => $this->record->activa && !$this->record->enviada),
+                ->visible(fn () => $this->record->activa && !$this->record->enviada)
+                ->authorize('enviar'),
             
             DeleteAction::make(),
         ];

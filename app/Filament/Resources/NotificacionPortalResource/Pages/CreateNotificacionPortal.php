@@ -29,7 +29,8 @@ class CreateNotificacionPortal extends CreateRecord
                 ->label('💾 Guardar y Enviar Inmediatamente')
                 ->action('createAndSend')
                 ->color('success')
-                ->icon('heroicon-o-paper-airplane'),
+                ->icon('heroicon-o-paper-airplane')
+                ->visible(fn () => auth()->user()?->can('Enviar:NotificacionPortal') ?? false),
             
             $this->getCancelFormAction(),
         ];

@@ -13,61 +13,69 @@ class LeadStatsOverview extends BaseWidget
     protected static ?int $sort = -2;
     protected ?string $pollingInterval = '60s';
     protected static ?string $maxWidth = '5xl';
-protected function getStats(): array
-{
-    $query = Lead::query();
 
-    $esComercial = auth()->user()->hasRole('comercial');
+    // true → filtrar por asignado_id (Mis Leads); false → global (Todos los Leads)
+    public bool $soloPropios = false;
 
-    if ($esComercial) {
-        $query->where('asignado_id', auth()->id());
+    public static function canView(): bool
+    {
+        return true;
     }
 
-   $totalLeads = Cache::remember(
-    'widget_total_leads_' . ($esComercial ? auth()->id() : 'global'),
-    now()->addMinutes(5),
-    fn () => $query->count()
-);
+    protected function getStats(): array
+    {
+        $query = Lead::query();
 
-    // 🔰 NUEVO: «pendientes» contextuales
-    $pendientes = $esComercial
-        ? (clone $query)->where('estado', LeadEstadoEnum::SIN_GESTIONAR->value)->count()
-        : (clone $query)->whereNull('asignado_id')->count();
+        if ($this->soloPropios) {
+            $query->where('asignado_id', auth()->id());
+        }
 
-   $descripcion = $pendientes > 0
-    ? ($esComercial
-        ? "Leads propios sin gestionar: {$pendientes}"
-        : "Leads sin asignar: {$pendientes}")
-    : "Todo al día";
+        $cacheKey = $this->soloPropios
+            ? 'widget_total_leads_' . auth()->id()
+            : 'widget_total_leads_global';
 
-    $colorEstad = $pendientes > 0 ? 'warning' : 'success';
+        $totalLeads = Cache::remember(
+            $cacheKey,
+            now()->addMinutes(5),
+            fn () => (clone $query)->count()
+        );
 
-    // Conjuntos de estados
-    $iniciales   = collect(LeadEstadoEnum::cases())->filter->isInicial()->pluck('value');
-    $enProgreso  = collect(LeadEstadoEnum::cases())->filter->isEnProgreso()->pluck('value');
-    $convertidos = collect(LeadEstadoEnum::cases())->filter->isConvertido()->pluck('value');
+        $pendientes = $this->soloPropios
+            ? (clone $query)->where('estado', LeadEstadoEnum::SIN_GESTIONAR->value)->count()
+            : (clone $query)->whereNull('asignado_id')->count();
 
-    return [
-        Stat::make('Leads Totales', $totalLeads)
-            ->description($descripcion)
-            ->descriptionIcon('heroicon-m-clipboard-document')
-            ->color($colorEstad),
+        $descripcion = $pendientes > 0
+            ? ($this->soloPropios
+                ? "Leads propios sin gestionar: {$pendientes}"
+                : "Leads sin asignar: {$pendientes}")
+            : 'Todo al día';
 
-        Stat::make('Iniciales', (clone $query)->whereIn('estado', $iniciales)->count())
-            ->description('Aún sin gestionar')
-            ->descriptionIcon('heroicon-m-eye')
-            ->color('gray'),
+        $colorEstad = $pendientes > 0 ? 'warning' : 'success';
 
-        Stat::make('En Proceso', (clone $query)->whereIn('estado', $enProgreso)->count())
-            ->description('Trabajándose')
-            ->descriptionIcon('heroicon-m-arrow-path')
-            ->color('info'),
+        $iniciales   = collect(LeadEstadoEnum::cases())->filter->isInicial()->pluck('value');
+        $enProgreso  = collect(LeadEstadoEnum::cases())->filter->isEnProgreso()->pluck('value');
+        $convertidos = collect(LeadEstadoEnum::cases())->filter->isConvertido()->pluck('value');
 
-        Stat::make('Convertidos', (clone $query)->whereIn('estado', $convertidos)->count())
-            ->description('Cerrados con éxito')
-            ->descriptionIcon('heroicon-m-check-circle')
-            ->color('success'),
-    ];
-}
+        return [
+            Stat::make('Leads Totales', $totalLeads)
+                ->description($descripcion)
+                ->descriptionIcon('heroicon-m-clipboard-document')
+                ->color($colorEstad),
 
+            Stat::make('Iniciales', (clone $query)->whereIn('estado', $iniciales)->count())
+                ->description('Aún sin gestionar')
+                ->descriptionIcon('heroicon-m-eye')
+                ->color('gray'),
+
+            Stat::make('En Proceso', (clone $query)->whereIn('estado', $enProgreso)->count())
+                ->description('Trabajándose')
+                ->descriptionIcon('heroicon-m-arrow-path')
+                ->color('info'),
+
+            Stat::make('Convertidos', (clone $query)->whereIn('estado', $convertidos)->count())
+                ->description('Cerrados con éxito')
+                ->descriptionIcon('heroicon-m-check-circle')
+                ->color('success'),
+        ];
+    }
 }

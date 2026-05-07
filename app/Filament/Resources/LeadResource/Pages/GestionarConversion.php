@@ -84,6 +84,16 @@ class GestionarConversion extends Page
     {
         $this->lead = Lead::findOrFail($record);
 
+        // B5-L9: ownership check — misma lógica que getEloquentQuery()
+        $user = auth()->user();
+        if ($user && $user->hasRole('comercial') && ! $user->hasRole('super_admin')) {
+            abort_unless(
+                $this->lead->asignado_id === $user->id,
+                403,
+                'No tienes acceso a este lead.'
+            );
+        }
+
         $this->tiposCliente = TipoCliente::query()
             ->orderBy('nombre')
             ->get();

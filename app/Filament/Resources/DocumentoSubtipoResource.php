@@ -12,7 +12,6 @@ use App\Filament\Resources\DocumentoSubtipoResource\Pages\EditDocumentoSubtipo;
 use App\Filament\Resources\DocumentoSubtipoResource\Pages;
 use App\Filament\Resources\DocumentoSubtipoResource\RelationManagers;
 use App\Models\DocumentoSubtipo;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -24,7 +23,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
+class DocumentoSubtipoResource extends Resource
 {
     protected static ?string $model = DocumentoSubtipo::class;
 
@@ -37,17 +36,6 @@ class DocumentoSubtipoResource extends Resource implements HasShieldPermissions
 
 
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

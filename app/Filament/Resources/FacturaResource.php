@@ -29,7 +29,6 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Tables\Columns\TextColumn;
 use App\Services\ConfiguracionService;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Action;
 use Filament\Forms\Components\Actions;
@@ -42,7 +41,7 @@ use Illuminate\Support\Facades\Auth;
 
 
 
-class FacturaResource extends Resource implements HasShieldPermissions
+class FacturaResource extends Resource
 {
     protected static ?string $model = Factura::class;
 
@@ -50,17 +49,6 @@ class FacturaResource extends Resource implements HasShieldPermissions
     protected static string | \UnitEnum | null $navigationGroup = 'Gestión Pagos y Facturas';
 
 
-     public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 public static function shouldRegisterNavigation(): bool
 {
     return auth()->user()?->hasRole('super_admin');

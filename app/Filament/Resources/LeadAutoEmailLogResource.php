@@ -20,14 +20,13 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use Filament\Support\Enums\FontFamily;
 
-class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
+class LeadAutoEmailLogResource extends Resource
 {
     protected static ?string $model = LeadAutoEmailLog::class;
 
@@ -37,17 +36,6 @@ class LeadAutoEmailLogResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Envío';
     protected static ?string $pluralModelLabel = 'Historial de Envíos';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
     public static function form(Schema $schema): Schema
     {

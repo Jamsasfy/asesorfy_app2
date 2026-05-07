@@ -51,10 +51,10 @@ class ContratoResponsabilidadController extends Controller
         ])->setPaper('a4');
 
         $fileName = 'responsabilidad/resp_' . $token . '_' . $signedAt->format('Ymd_His') . '.pdf';
-        Storage::disk('public')->put($fileName, $pdf->output());
+        Storage::disk('local')->put($fileName, $pdf->output());
 
         // 2. Calcular hash del PDF sin hash
-        $hashFirma = hash_file('sha256', storage_path('app/public/' . $fileName));
+        $hashFirma = hash_file('sha256', Storage::disk('local')->path($fileName));
 
         // 3. Regenerar PDF con hash incluido
         $pdfFinal = Pdf::loadView('public.responsabilidad.pdf', [
@@ -65,8 +65,8 @@ class ContratoResponsabilidadController extends Controller
             'hashFirma'        => $hashFirma,
         ])->setPaper('a4');
 
-        Storage::disk('public')->put($fileName, $pdfFinal->output());
-        $absolutePdfPath = storage_path('app/public/' . $fileName);
+        Storage::disk('local')->put($fileName, $pdfFinal->output());
+        $absolutePdfPath = Storage::disk('local')->path($fileName);
 
         // 4. Guardar contrato
         $contrato->update([

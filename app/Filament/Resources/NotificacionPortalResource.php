@@ -22,9 +22,8 @@ use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 
-class NotificacionPortalResource extends Resource implements HasShieldPermissions
+class NotificacionPortalResource extends Resource
 {
     protected static ?string $model = NotificacionPortal::class;
 
@@ -35,18 +34,6 @@ class NotificacionPortalResource extends Resource implements HasShieldPermission
     protected static string|\UnitEnum|null $navigationGroup = 'Portal';
     protected static ?int $navigationSort = 1;
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-            'enviar', // Permiso custom para enviar notificaciones
-        ];
-    }
 
     public static function form(Schema $schema): Schema
     {

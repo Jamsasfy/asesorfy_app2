@@ -16,6 +16,7 @@ use App\Http\Controllers\Public\StripeSetupController;
 
 use App\Http\Controllers\Webhooks\StripeWebhookController;
 use App\Http\Controllers\ChatMensajeFileController;
+use App\Http\Controllers\ContratoResponsabilidadPdfController;
 use App\Http\Controllers\Portal\PortalFacturaPdfController;
 use App\Http\Controllers\Portal\PortalFacturaPdfDownloadController;
 use App\Http\Controllers\Portal\StripeBillingPortalController;
@@ -58,6 +59,9 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/admin/comisiones/comerciales/export-pdf', [ComercialExportController::class, 'exportPdf'])
         ->name('comisiones.comerciales.export-pdf');
+
+    Route::get('/admin/contratos-responsabilidad/{contrato}/pdf', ContratoResponsabilidadPdfController::class)
+        ->name('contratos-responsabilidad.pdf');
 });
 
     Route::get('/view-storage-file/{path}', [FileViewController::class, 'show'])

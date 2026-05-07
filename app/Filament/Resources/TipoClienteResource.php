@@ -13,7 +13,6 @@ use App\Filament\Resources\TipoClienteResource\Pages\EditTipoCliente;
 use App\Filament\Resources\TipoClienteResource\Pages;
 use App\Filament\Resources\TipoClienteResource\RelationManagers;
 use App\Models\TipoCliente;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -26,24 +25,13 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
-class TipoClienteResource extends Resource implements HasShieldPermissions
+class TipoClienteResource extends Resource
 {
     protected static ?string $model = TipoCliente::class;
 
     protected static string | \BackedEnum | null $navigationIcon = 'icon-group-by-ref-type';
     protected static string | \UnitEnum | null $navigationGroup = 'Configuración plataforma';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

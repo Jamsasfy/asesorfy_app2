@@ -18,7 +18,6 @@ use App\Filament\Resources\UserResource\Pages\CreateUser;
 use App\Filament\Resources\UserResource\Pages\EditUser;
 use App\Filament\Resources\UserResource\RelationManagers;
 use App\Models\User;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -38,7 +37,7 @@ use Illuminate\Support\Facades\Hash;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Spatie\Permission\Models\Role;
 
-class UserResource extends Resource implements HasShieldPermissions
+class UserResource extends Resource
 {
     protected static ?string $model = User::class;
 
@@ -48,17 +47,6 @@ class UserResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Usuario web';
     protected static ?string $pluralModelLabel = 'Usuarios con acceso web';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
             public static function getEloquentQuery(): Builder
         {
             return parent::getEloquentQuery()

@@ -18,7 +18,6 @@ use App\Filament\Resources\ComentarioResource\RelationManagers;
 use App\Models\Cliente;
 use App\Models\Comentario;
 use App\Models\User;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -34,7 +33,7 @@ use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Filament\Tables\Filters\Filter;
 use Illuminate\Support\Str;
 
-class ComentarioResource extends Resource implements HasShieldPermissions
+class ComentarioResource extends Resource
 {
     protected static ?string $model = Comentario::class;
 
@@ -58,17 +57,6 @@ public static function canAccess(): bool
 }
 
     
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

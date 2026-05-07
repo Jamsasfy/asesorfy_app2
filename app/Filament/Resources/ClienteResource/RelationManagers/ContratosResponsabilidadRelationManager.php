@@ -49,15 +49,15 @@ class ContratosResponsabilidadRelationManager extends RelationManager
                     ->label('Ver PDF')
                     ->icon('heroicon-o-document-text')
                     ->color('gray')
-                    ->visible(fn ($record) => $record->esFirmado() && $record->pdf_path)
-                    ->url(fn ($record) => Storage::disk('public')->url($record->pdf_path))
+                    ->visible(fn ($record) => $record->esFirmado() && $record->pdf_path && (auth()->user()?->can('VerPdf:ContratoResponsabilidad') ?? false))
+                    ->url(fn ($record) => route('contratos-responsabilidad.pdf', $record))
                     ->openUrlInNewTab(),
 
                 Action::make('reenviar_enlace')
                     ->label('Reenviar enlace')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('warning')
-                    ->visible(fn ($record) => !$record->esFirmado())
+                    ->visible(fn ($record) => !$record->esFirmado() && (auth()->user()?->can('Reenviar:ContratoResponsabilidad') ?? false))
                     ->requiresConfirmation()
                     ->modalHeading('Reenviar enlace de firma')
                     ->modalDescription('Se enviará de nuevo el email al cliente con el enlace para firmar.')
@@ -84,12 +84,12 @@ class ContratosResponsabilidadRelationManager extends RelationManager
                     ->label('Enviar copia')
                     ->icon('heroicon-o-paper-airplane')
                     ->color('primary')
-                    ->visible(fn ($record) => $record->esFirmado() && $record->pdf_path)
+                    ->visible(fn ($record) => $record->esFirmado() && $record->pdf_path && (auth()->user()?->can('EnviarCopia:ContratoResponsabilidad') ?? false))
                     ->requiresConfirmation()
                     ->modalHeading('Enviar copia al cliente')
                     ->modalDescription('Se enviará una copia del documento firmado al email del cliente.')
                     ->action(function ($record) {
-                        $absolutePdfPath = storage_path('app/public/' . $record->pdf_path);
+                        $absolutePdfPath = Storage::disk('local')->path($record->pdf_path);
                         try {
                             \Illuminate\Support\Facades\Mail::to($record->cliente->email_contacto)
                                 ->cc($record->asesor->email)

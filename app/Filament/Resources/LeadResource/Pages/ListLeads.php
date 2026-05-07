@@ -29,9 +29,12 @@ class ListLeads extends ListRecords
 
     protected function getHeaderWidgets(): array
     {
+        if (! auth()->user()?->hasRole('super_admin')) {
+            return [];
+        }
+
         return [
             LeadStatsOverview::class,
-            // Otros widgets si los hubiera...
         ];
     }
 

@@ -14,7 +14,6 @@ use App\Filament\Resources\DocumentoCategoriaResource\Pages\EditDocumentoCategor
 use App\Filament\Resources\DocumentoCategoriaResource\Pages;
 use App\Filament\Resources\DocumentoCategoriaResource\RelationManagers;
 use App\Models\DocumentoCategoria;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Resources\Resource;
@@ -27,7 +26,7 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 
 
-class DocumentoCategoriaResource extends Resource implements HasShieldPermissions 
+class DocumentoCategoriaResource extends Resource
 {
     protected static ?string $model = DocumentoCategoria::class;
 
@@ -38,17 +37,6 @@ class DocumentoCategoriaResource extends Resource implements HasShieldPermission
     protected static ?string $modelLabel = 'Tipo general documento';
     protected static ?string $pluralModelLabel = 'Tipos general de documentos';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

@@ -6,7 +6,9 @@
       "Bash(php -l \"c:/wamp64/www/asesorfy_app2/app/Filament/Widgets/ComercialVentasChart.php\")",
       "Bash(xargs grep:*)",
       "Bash(composer show *)",
-      "Bash(grep -rn \"//.*HasShieldPermissions\\\\|//.*Shield\\\\|// Shield\\\\|//Shield\" c:/wamp64/www/asesorfy_app2/app/Filament/Resources/)"
+      "Bash(grep -rn \"//.*HasShieldPermissions\\\\|//.*Shield\\\\|// Shield\\\\|//Shield\" c:/wamp64/www/asesorfy_app2/app/Filament/Resources/)",
+      "Bash(/c/wamp64/bin/mysql/mysql9.1.0/bin/mysql.exe -u root asesorfy_app2 -e \"SELECT COUNT\\(*\\) as total FROM permissions;\")",
+      "Bash(/c/wamp64/bin/mysql/mysql9.1.0/bin/mysql.exe -u root asesorfy_app2 -e ' *)"
     ]
   }
 }

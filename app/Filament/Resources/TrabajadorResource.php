@@ -17,7 +17,6 @@ use App\Filament\Resources\TrabajadorResource\Pages\EditTrabajador;
 use App\Filament\Resources\TrabajadorResource\Pages;
 use App\Filament\Resources\TrabajadorResource\RelationManagers;
 use App\Models\Trabajador;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -39,7 +38,7 @@ use Spatie\Permission\Models\Role;
 use Filament\Tables\Enums\RecordActionsPosition;
 
 
-class TrabajadorResource extends Resource implements HasShieldPermissions
+class TrabajadorResource extends Resource
 {
     protected static ?string $model = Trabajador::class;
 
@@ -49,17 +48,6 @@ class TrabajadorResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Trabajador AsesorFy';
     protected static ?string $pluralModelLabel = 'Trabajadores AsesorFy';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
     public static function getNavigationBadge(): ?string
     {
         return static::getModel()::count();

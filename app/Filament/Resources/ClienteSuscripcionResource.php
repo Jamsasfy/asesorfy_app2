@@ -21,7 +21,6 @@ use App\Enums\ClienteSuscripcionEstadoEnum;
 use App\Enums\ServicioTipoEnum;
 use App\Filament\Resources\ClienteSuscripcionResource\Pages;
 use App\Models\ClienteSuscripcion;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -46,7 +45,7 @@ use Filament\Actions\Action;
 
 
 
-class ClienteSuscripcionResource extends Resource implements HasShieldPermissions
+class ClienteSuscripcionResource extends Resource
 {
     protected static ?string $model = ClienteSuscripcion::class;
 
@@ -54,17 +53,6 @@ class ClienteSuscripcionResource extends Resource implements HasShieldPermission
     protected static string | \UnitEnum | null $navigationGroup = 'Gestión Pagos y Facturas';
 
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
 

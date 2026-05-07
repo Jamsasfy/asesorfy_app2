@@ -14,7 +14,6 @@ use App\Filament\Resources\EmailTemplateResource\Pages\EditEmailTemplate;
 use App\Filament\Resources\EmailTemplateResource\Pages;
 use App\Models\EmailTemplate;
 use Filament\Resources\Resource;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Tables\Table;
 
 // Usa los namespaces “padre” y luego referéncialos como Forms\... y Tables\...
@@ -22,7 +21,7 @@ use Filament\Forms;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables;
 
-class EmailTemplateResource extends Resource implements HasShieldPermissions
+class EmailTemplateResource extends Resource
 {
     protected static ?string $model = EmailTemplate::class;
 
@@ -32,17 +31,6 @@ class EmailTemplateResource extends Resource implements HasShieldPermissions
     protected static ?string $pluralModelLabel = 'Plantillas de Email';
     protected static ?string $navigationLabel = 'Plantillas Email';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-        ];
-    }
 
 
     public static function form(Schema $schema): Schema

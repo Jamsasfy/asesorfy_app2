@@ -54,7 +54,8 @@ class ViewLead extends ViewRecord
     }
     
         return [
-            EditAction::make(),
+            EditAction::make()
+                ->visible(fn () => auth()->user()?->can('Update:Lead') ?? false),
 
 
 Action::make('verConversion')
@@ -63,7 +64,10 @@ Action::make('verConversion')
     ->visible(fn (Lead $record) => in_array($record->estado, [
         LeadEstadoEnum::CONVERTIDO_ESPERA_FIRMA,
         LeadEstadoEnum::CONVERTIDO_ESPERA_DATOS,
-    ], true))
+    ], true) && (
+        auth()->user()?->hasRole('super_admin') ||
+        $record->asignado_id === auth()->id()
+    ))
     ->url(fn (Lead $record) => LeadResource::getUrl('conversion', ['record' => $record->id]))
     ->openUrlInNewTab()
     ->color('info')
@@ -95,7 +99,7 @@ Action::make('verConversion')
              ->label('Asignar Comercial')
              ->icon('heroicon-o-user-plus')
              ->color('success')
-             ->visible(fn ($record) => is_null($record->asignado_id))
+             ->visible(fn ($record) => is_null($record->asignado_id) && (auth()->user()?->can('Update:Lead') ?? false))
              ->schema([
                  Select::make('asignado_id')
                      ->label('Elige Comercial')
@@ -122,7 +126,7 @@ Action::make('verConversion')
              ->label('Cambiar Comercial')
              ->icon('heroicon-o-user-minus')
              ->color('primary')
-             ->visible(fn ($record) => ! is_null($record->asignado_id))
+             ->visible(fn ($record) => ! is_null($record->asignado_id) && (auth()->user()?->can('CambiarComercial:Lead') ?? false))
              ->schema([
                  Select::make('asignado_id')
                      ->label('Nuevo Comercial')
@@ -149,7 +153,7 @@ Action::make('verConversion')
              ->label('Quitar Comercial')
              ->icon('heroicon-o-user-minus')
              ->color('danger')
-             ->visible(fn ($record) => ! is_null($record->asignado_id))
+             ->visible(fn ($record) => ! is_null($record->asignado_id) && (auth()->user()?->can('QuitarComercial:Lead') ?? false))
              ->requiresConfirmation()
              ->modalHeading('¿Quitar comercial?')
              ->modalDescription('Esto dejará el lead sin comercial asignado.')
@@ -168,7 +172,7 @@ Action::make('verConversion')
         ->label('Forzar Estado')
         ->icon('heroicon-o-shield-check')
         ->color('danger')
-        ->visible(fn () => auth()->user()->hasRole('super_admin'))
+        ->visible(fn () => auth()->user()?->can('Update:Lead') ?? false)
         ->schema([
             Select::make('estado')
                 ->label('Estado deseado')

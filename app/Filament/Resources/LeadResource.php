@@ -27,7 +27,6 @@ use App\Enums\VentaEstadoEnum;
 use App\Models\Comentario;
 use App\Models\Lead;
 use App\Models\User;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Carbon\Carbon;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
@@ -49,6 +48,7 @@ use Illuminate\Support\Facades\Auth;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 use Filament\Infolists\Components\TextEntry;
 use Illuminate\Support\Facades\Log; // Para escribir en el log de Laravel
@@ -72,7 +72,7 @@ use App\Models\Factura as FacturaModel; // ✅ IMPORTANTE (modelo real)
 
 //use Filament\Tables\Actions\Action; // Para acciones personalizadas
 
-class LeadResource extends Resource implements HasShieldPermissions
+class LeadResource extends Resource
 {
     protected static ?string $model = Lead::class;
 
@@ -84,10 +84,6 @@ class LeadResource extends Resource implements HasShieldPermissions
 
     public static function getNavigationLabel(): string
     {
-        if (auth()->check() && auth()->user()->hasRole('comercial')) {
-            return 'Mis Leads';
-        }
-
         return 'Todos los Leads';
     }
 
@@ -95,36 +91,49 @@ class LeadResource extends Resource implements HasShieldPermissions
     protected static ?string $modelLabel = 'Lead';
     protected static ?string $pluralModelLabel = 'Todos los Leads';
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-            'convertir',
-        ];
-    }
 
     public static function getEloquentQuery(): EloquentBuilder
     {
+        return parent::getEloquentQuery()->with(['comentarios.user']);
+    }
+
+    public static function canCreate(): bool
+    {
         $user = auth()->user();
+        if (! $user) return false;
+        if ($user->hasRole('super_admin')) return true;
+        if ($user->can('Create:MisLeads')) return true;
+        return $user->can('Create:Lead');
+    }
 
-        // Empieza con la consulta base del recurso
-        $query = parent::getEloquentQuery()->with(['comentarios.user']);
+    public static function canEdit(Model $record): bool
+    {
+        $user = auth()->user();
+        if (! $user) return false;
+        if ($user->hasRole('super_admin')) return true;
+        if ($user->can('Update:MisLeads') && $record->asignado_id === $user->id) return true;
+        return $user->can('Update:Lead');
+    }
 
-        if ($user && $user->hasRole('comercial') && ! $user->hasRole('super_admin')) {
-            $query->where('asignado_id', $user->id);
-        }
-        return $query;
+    public static function canDelete(Model $record): bool
+    {
+        $user = auth()->user();
+        if (! $user) return false;
+        if ($user->hasRole('super_admin')) return true;
+        if ($user->can('Delete:MisLeads') && $record->asignado_id === $user->id) return true;
+        return $user->can('Delete:Lead');
+    }
+
+    public static function canView(Model $record): bool
+    {
+        $user = auth()->user();
+        if (! $user) return false;
+        return $user->can('View:Lead');
     }
 
     public static function shouldRegisterNavigation(): bool
     {
-        // Solo los super_admins verán el recurso “Todos los Leads”
-        return auth()->user()?->hasRole(['super_admin', 'comercial']);
+        return auth()->user()?->can('ViewAny:Lead') ?? false;
     }
 
 
@@ -1953,7 +1962,8 @@ class LeadResource extends Resource implements HasShieldPermissions
 
                 EditAction::make()
                     ->label('')
-                    ->tooltip('Editar Lead'),
+                    ->tooltip('Editar Lead')
+                    ->visible(fn () => auth()->user()?->can('Update:Lead') ?? false),
                 Action::make('llamar')
                     ->icon('heroicon-o-phone-arrow-up-right')
                     ->label('')
@@ -2423,7 +2433,8 @@ class LeadResource extends Resource implements HasShieldPermissions
                         ->requiresConfirmation()
                         ->modalHeading('Exportar Leads Seleccionados')
                         ->modalDescription('Exportarás todos los datos de los Leads seleccionados.'),
-                    DeleteBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->visible(fn () => auth()->user()?->can('DeleteAny:Lead') ?? false),
                     // ExportBulkAction::make(), // Si usas exportación
 
                     // Acción Masiva: Asignar (Movida aquí y adaptada)

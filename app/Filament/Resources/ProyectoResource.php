@@ -40,7 +40,6 @@ use Filament\Forms\Components\DateTimePicker; // Importa Section
 use Filament\Tables\Columns\TextColumn; // Importa TextColumn
 
 use App\Enums\ProyectoEstadoEnum; // Si usas el Enum para estados
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Carbon\Carbon;
 use Filament\Forms\Components\Placeholder;
 use Malzariey\FilamentDaterangepickerFilter\Filters\DateRangeFilter;
@@ -65,7 +64,7 @@ use Livewire\Component as LivewireComponent;
 
 
 
-class ProyectoResource extends Resource implements HasShieldPermissions
+class ProyectoResource extends Resource
 {
     protected static ?string $model = Proyecto::class;
 
@@ -76,21 +75,6 @@ class ProyectoResource extends Resource implements HasShieldPermissions
 
 
 
-      public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-            'assign_assessor',   // Permiso para asignar/cambiar asesor
-            'unassign_assessor', // Permiso para quitar asesor
-          
-          
-        ];
-    }
 
      // ** Nuevo método para la agrupación dinámica **
     public static function getNavigationGroup(): ?string

@@ -38,7 +38,6 @@ use App\Filament\Resources\VentaResource\RelationManagers;
 use App\Models\Servicio;
 use App\Models\Venta;
 use App\Models\VentaItem;
-use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use Filament\Forms;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
@@ -82,7 +81,7 @@ use App\Filament\Resources\FacturaResource;
 
 
 
-class VentaResource extends Resource implements HasShieldPermissions
+class VentaResource extends Resource
 {
     protected static ?string $model = Venta::class;
 
@@ -137,18 +136,6 @@ class VentaResource extends Resource implements HasShieldPermissions
     return $query->whereRaw('1 = 0');
 }
 
-    public static function getPermissionPrefixes(): array
-    {
-        return [
-            'view',
-            'view_any',
-            'create',
-            'update',
-            'delete',
-            'delete_any',
-            'boton_crear_venta',
-        ];
-    }
 
     
 public static function form(Schema $schema): Schema
@@ -1847,8 +1834,13 @@ public static function infolist(Schema $schema): Schema
         return [
             'index' => ListVentas::route('/'),
             'create' => CreateVenta::route('/create'),
-            'view' => ViewVenta::route('/{record}'), 
+            'view' => ViewVenta::route('/{record}'),
             'edit' => EditVenta::route('/{record}/edit'),
         ];
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
     }
 }

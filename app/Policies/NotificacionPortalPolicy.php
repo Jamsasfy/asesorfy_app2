@@ -42,4 +42,9 @@ class NotificacionPortalPolicy
         return $authUser->can('DeleteAny:NotificacionPortal');
     }
 
+    public function enviar(AuthUser $authUser, NotificacionPortal $notificacionPortal): bool
+    {
+        return $authUser->can('Enviar:NotificacionPortal');
+    }
+
 }

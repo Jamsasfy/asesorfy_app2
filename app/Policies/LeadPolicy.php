@@ -42,4 +42,14 @@ class LeadPolicy
         return $authUser->can('DeleteAny:Lead');
     }
 
+    public function cambiarComercial(AuthUser $authUser, Lead $lead): bool
+    {
+        return $authUser->can('CambiarComercial:Lead');
+    }
+
+    public function quitarComercial(AuthUser $authUser, Lead $lead): bool
+    {
+        return $authUser->can('QuitarComercial:Lead');
+    }
+
 }

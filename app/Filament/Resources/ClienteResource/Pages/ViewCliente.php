@@ -269,7 +269,7 @@ class ViewCliente extends ViewRecord
             ->color('danger')
             ->visible(fn (ViewRecord $livewire): bool =>
                 !is_null($livewire->getRecord()->asesor_id) &&
-                auth()->user()?->hasAnyRole(['asesor', 'super_admin'])
+                (auth()->user()?->can('EnviarContrato:ContratoResponsabilidad') ?? false)
             )
             ->schema([
                 \Filament\Forms\Components\TextInput::make('titulo')

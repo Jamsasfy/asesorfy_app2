@@ -141,10 +141,10 @@ public static function getNavigationGroup(): ?string
     // Permitir si es asesor Y tiene el permiso para ver cualquier documento
     // (la consulta luego se encargará de filtrar cuáles ve)
     if ($user->hasRole('asesor')) {
-        return $user->can('view_any_documento');
+        return $user->can('ViewAny:Documento');
     }  
     if ($user->hasRole('coordinador')) {
-         return $user->can('view_any_documento');
+         return $user->can('ViewAny:Documento');
     } 
 
     return false; // Por defecto, no mostrar para otros roles

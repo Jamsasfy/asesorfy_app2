@@ -42,9 +42,12 @@ Do not propose patches that conflict with the Sprint 0 plan without discussing i
 
 ---
 
-## Security Audit Status (as of 2026-04-21)
+## Security Audit Status (as of 2026-04-21, updated 2026-04-22)
 
 A complete security and architectural audit was performed in two phases:
+
+**Update 2026-04-22 — Sprint 0 partial progress:** Shield cleanup session completed. See section **"Sprint 0 Progress Log"** below for full details. 8 bugs closed, 2 confirmed false positives, 421 junk permissions purged from DB, 17 Resources cleaned.
+
 
 ### Phase 1 — Global Flows (F1-F5) — 133 findings
 
@@ -79,7 +82,132 @@ For complete details, see `auditoria-recursos-menores.md` and `plan-arreglo-v2.m
 
 ---
 
-## The 7 Architectural Demons
+## Sprint 0 Progress Log
+
+### Session 2026-04-22 — Shield Cleanup + Documentation
+
+**Objective:** clean up the permissions system (Shield) which was carrying 421 junk permissions from the v3→v4 migration 5 months ago. Also: fix all bugs caused by v3 permissions still referenced in live code.
+
+#### Closed bugs (8)
+
+| ID | Description | Resolution |
+|---|---|---|
+| **B3-K5** | `->actions()` in ContratosResponsabilidadRM v3 API | Changed to `->recordActions()`. Was actually working via undocumented alias. Verified as false positive that was converted into hygiene fix. |
+| **B-SH1** | `verificar_documento` (v3 orphan) in `LeadResource/RelationManagers/DocumentosRelationManager.php:131` | Changed to `'Verificar:Documento'` + toggle logic now modifies `estado` (source of truth) instead of `verificado` (derived alias) + guards for RECHAZADO/NECESITA_ACLARACION |
+| **B-SH1a** | `verificado_documento` (v3 typo) in `ProyectoResource/RelationManagers/DocumentosRelationManager.php:135` | Same fix as B-SH1 |
+| **B-SH3** | `view_any_documento` (v3) in `DocumentoResource.php:144,147` `shouldRegisterNavigation()` | Changed to `'ViewAny:Documento'`. Effect: asesor and coordinador now see "Documentos de Clientes" menu item |
+| **B-SH4** | `boton_crear_venta_venta` (v3) in `VentaResource/Pages/ListVentas.php:19` | CreateAction eliminated entirely + `canCreate(): false` added to VentaResource. Business decision: sales are NEVER created manually — only via Lead → Conversion → Contract → Payment → Closed Sale flow |
+| **B-SH5** | `EstadoPolicy.php` dead with scaffold stubs `{{ ForceDelete }}` | File deleted. No Estado model/resource exists in the project |
+| **B-SH7** | Privilege escalation: rol `comercial` could use "Cambiar/Quitar Comercial" buttons on leads | Created 2 Shield permissions `CambiarComercial:Lead` + `QuitarComercial:Lead` via `resources.manage[LeadResource]`. Added `->visible(can(...))` guards to both header actions in `ViewLead.php` |
+| **Enviar:NotificacionPortal** | Policy mentirosa: `->authorize('enviar')` called a Policy method that didn't exist. 3 other send points had no guard at all. Latent bug: if View:NotificacionPortal ever assigned to another role, that role could send mass emails to ALL portal clients | Created permission via `resources.manage[NotificacionPortalResource]`. Added `enviar()` method to `NotificacionPortalPolicy`. All 4 send points (tabla, EditPage header, ViewPage header, CreatePage "Guardar y Enviar") now have consistent guards |
+
+#### Confirmed false positives (2)
+
+| ID | Original finding | Reality |
+|---|---|---|
+| **B3-A1** | "HasShieldPermissions commented in ClienteResource — permissions can't be regenerated" | In Shield 4.x, `HasShieldPermissions` is **DEPRECATED** (README line 699). Commenting it out is CORRECT. Shield 4.x reads permissions from `config/filament-shield.php` (see Shield 4.x architecture below). The 17 other Resources that still `implements HasShieldPermissions` were actually dead code being ignored. |
+| **B3-K5 (predicted behavior)** | "`->actions()` in Filament v4 will crash or silently hide actions" | Filament 4.3.1 accepts `->actions()` as an undocumented backwards-compatible alias for `->recordActions()`. The buttons were working all along. Changed to the official API name anyway for future-proofing. |
+
+#### Mass DB cleanup
+
+| Metric | Before | After | Delta |
+|---|---|---|---|
+| Total permissions in DB | 649 | 231 | -418 (-64%) |
+| v3 snake_case (junk) | 111 | 0 | -111 |
+| v3 double colon `X::Y` (junk) | 172 | 0 | -172 |
+| v4 orphan (ForceDelete/Reorder/Replicate/Restore) | 138 | 0 | -138 |
+| Legitimate v4 permissions | 228 | 231 | +3 (new B-SH7 + Enviar) |
+| Roles affected | 0 | 0 | None, assignments intact |
+
+Cleanup command patterns used (preserved for future reference):
+
+```php
+// Delete v3 snake_case (no colon)
+Permission::where('name', 'NOT LIKE', '%:%')->delete();
+
+// Delete v3 with double colon
+Permission::where('name', 'LIKE', '%::%')->delete();
+
+// Delete v4 orphan (methods no longer in policies.methods config)
+Permission::where(function($q) {
+    $q->where('name', 'LIKE', 'ForceDelete:%')
+      ->orWhere('name', 'LIKE', 'ForceDeleteAny:%')
+      ->orWhere('name', 'LIKE', 'Reorder:%')
+      ->orWhere('name', 'LIKE', 'Replicate:%')
+      ->orWhere('name', 'LIKE', 'Restore:%')
+      ->orWhere('name', 'LIKE', 'RestoreAny:%');
+})->delete();
+```
+
+Backup files created before cleanup (git-ignored):
+- `storage/backups/shield-cleanup/full-db-backup-20260422-102903.sql` (2.8 MB)
+- `storage/backups/shield-cleanup/permissions-tables-20260422-102903.sql` (61 KB)
+- Git commit `973eeef` on branch `update-filament-v4`
+
+#### Cleanup of 17 Resources with obsolete `HasShieldPermissions`
+
+All 17 Resources had `implements HasShieldPermissions` + a `getPermissionPrefixes()` method that Shield 4.x **ignores entirely**. This was dead code from the v3→v4 migration. Cleaned:
+
+ClienteSuscripcion, Comentario, Departamento, DocumentoCategoria, DocumentoSubtipo, EmailTemplate, Factura, LeadAutoEmailLog, Lead, NotificacionPortal, Oficina, Procedencia, Proyecto, TipoCliente, Trabajador, User, Venta.
+
+Result: no `implements HasShieldPermissions` in any Resource, config is the single source of truth.
+
+#### New bugs documented (pending fix)
+
+| ID | Description | Severity | Context |
+|---|---|---|---|
+| **B3-K5-BIS** | PDFs of `ContratoResponsabilidad` stored on `public` disk with direct URLs. Any user knowing the URL (48-char random token) can download signed contracts indefinitely — no auth, no expiry, no access log | 🔴 | Discovered while testing B3-K5. Fix scheduled in 4 phases (Fase 1 already complete: API modernization). Related to sistemic B8-A2 (public disk for all documents) |
+| **B-SH6** | Some admin actions use `hasPermissionTo()` directly instead of `can()`. This BYPASSES Shield's `intercept_gate: 'before'` and causes `super_admin` to fail permission checks unexpectedly | 🔴 | Discovered during B-SH1 testing. Need to audit codebase for `hasPermissionTo()` calls that should be `can()`. Possibly sistemic |
+| **B-SH8** | Rol `comercial` has no `Update:Lead` permission → cannot even VIEW the lead edit page. Business need: should be able to view the form with some fields editable and the rest disabled | 🟡 | Needs design decision: which fields are commercial-editable? Candidates: phone, email, notes. Non-editable: comercial_id, estado, asesor_id |
+| **B5-L9 (confirmed)** | `GestionarConversion::mount()` in `LeadResource/Pages/GestionarConversion.php` uses `Lead::findOrFail($record)` with no ownership check. Commercial can open `/admin/leads/{OTHER_ID}/conversion` directly by URL and manipulate another commercial's lead flow (change services, resend contract email, etc.) | 🔴 | Was already in audit catalog. Now CONFIRMED experimentally during Convertir:Lead investigation. Likely part of systemic pattern: other custom Pages may have similar missing guards in `mount()` |
+| **Convertir:Lead (declared, unused)** | The `convertir` permission declared in LeadResource trait was never connected to any guard. Trait eliminated in 17-Resource cleanup — no further action needed | ✅ Resolved by cleanup | The real conversion flow protection is B5-L9 above |
+
+#### Discovery: how `verificado` actually works in Documento model
+
+During the B-SH1 fix, deep debugging revealed a critical architectural fact that was causing silent save failures:
+
+- The `verificado` column in `documentos` table is NOT an autonomous field
+- It is a **derived alias** of `estado`
+- `Documento::booted()` has a `saving()` hook (lines 61-66) that FORCES:
+  - If `estado === VERIFICADO` → `verificado = true`
+  - Otherwise → `verificado = false`
+- This happens on every `save()`, before Eloquent builds the UPDATE query
+- **Consequence:** directly assigning `$record->verificado = X; $record->save()` is silently reverted. Eloquent finds no dirty fields and skips the UPDATE, returning `true` without persisting. Hard to debug.
+
+**Rule:** never modify `verificado` directly. Always change `estado`, and the hook will sync `verificado`. This applies to ALL 4 RelationManagers that handle Documents (LeadRM, ProyectoRM, ClienteRM, ClienteDocumentosVinculadosRM) as well as DocumentoResource.
+
+#### Discovery: how Shield 4.x actually works in AsesorFy
+
+This was verified experimentally TWICE during the session (delete permission → run `shield:generate --all` → permission reappears with new ID). Documented to prevent future confusion:
+
+**`HasShieldPermissions` contract is DEPRECATED in Shield 4.x.** The README (line 699 of `vendor/bezhansalleh/filament-shield/README.md`) states literally: *"If you have implemented the HasShieldPermissions contract in your resources... if you leave it as is, it will be ignored."*
+
+**`config/filament-shield.php` is the SINGLE SOURCE OF TRUTH.** It declares permissions in 3 ways:
+
+1. `policies.methods` — base permissions generated for every Resource (currently: viewAny, view, create, update, delete, deleteAny). `shield:generate` creates e.g. `View:Cliente`, `Create:Lead`, etc.
+
+2. `resources.manage[Resource::class]` — custom permissions per Resource. With `'merge' => true`, they ADD to the base methods. Examples from AsesorFy:
+   - `ClienteResource => ['cambiar_asesor', 'asignar_asesor', ...]` → generates `CambiarAsesor:Cliente`, `AsignarAsesor:Cliente`, etc.
+   - `LeadResource => ['cambiar_comercial', 'quitar_comercial']` → generates `CambiarComercial:Lead`, `QuitarComercial:Lead`
+   - `NotificacionPortalResource => ['enviar']` → generates `Enviar:NotificacionPortal`
+
+3. `custom_permissions` — standalone permissions not tied to a Resource. Examples: `Chats:ViewAll`, `View:ComisionesDelMesWidget`.
+
+**What `shield:generate --all` regenerates:** EVERYTHING declared in config. Confirmed experimentally — deleted `Enviar:NotificacionPortal` (id=653), ran generate, permission returned with id=654. Same test also confirmed for `CambiarComercial:Lead`. **Do NOT trust suggestions that permissions need a custom seeder to survive `migrate:fresh` — they regenerate from config.** Only ROLE→PERMISSION assignments need a seeder (those ARE lost on fresh).
+
+**Naming convention in this project:** `PascalCase:PascalCase` with colon separator. Config declares in snake_case which Shield converts (e.g., `cambiar_comercial` → `CambiarComercial`). The subject side uses `class_basename` of the model (`Cliente`, `Lead`, `Documento`).
+
+**To add a new custom permission:**
+1. Declare in `resources.manage[SomeResource::class] = [...]` OR in `custom_permissions` (if not tied to a Resource)
+2. Run `php artisan shield:generate --all`
+3. Permission appears in DB
+4. Assign to roles from `/admin/shield/roles/` UI (NOT from code — business decision)
+5. Add `->visible()` / `->authorize()` guards in the code that uses it
+
+**Important gotcha:** the Shield command says "X permissions generated" where X may be higher than the actual DB count. This is because `firstOrCreate` counts every upsert attempt. Always verify final state with `Permission::count()`.
+
+---
+
 
 These are the recurring patterns that generate most bugs in AsesorFy. When modifying or adding code, actively check that your changes don't reinforce any of them.
 
@@ -118,15 +246,17 @@ A growing pattern of "flags and features that lie":
 
 These are the bug patterns that appear in MULTIPLE areas of the codebase. When you see code resembling these, suspect a bug.
 
-### Pattern 1 — Decorative Policy not invoked (10 occurrences)
+### Pattern 1 — Decorative Policy not invoked (10+ occurrences)
 
 **Symptom:** A `XxxPolicy.php` exists with correct methods (view, update, delete). It is registered. But the actions in Resources, Pages, and Relation Managers don't call `->authorize('update', $record)`. They rely only on `can('Update:Xxx')` Shield checks or on `getEloquentQuery()` scoping.
 
 **Effect:** If scoping fails (bug, refactor, middleware change), there's no second line of defense.
 
-**Confirmed in:** LeadPolicy, VentaPolicy, ClientePolicy, ClienteSuscripcionPolicy, ProyectoPolicy, DocumentoPolicy, ChatPolicy (doesn't exist), UserPolicy, TrabajadorPolicy, ComercialHistorialObjetivoPolicy.
+**Variant: custom Pages with `mount()` using `findOrFail()` without ownership check.** `getEloquentQuery()` scoping only applies to tables — a direct URL like `/admin/leads/{OTHER_ID}/conversion` bypasses it. Confirmed in `GestionarConversion::mount()` during 2026-04-22 session (B5-L9 confirmed experimentally). Other custom Pages likely share this pattern — audit needed.
 
-**Rule when writing new code:** Every Resource/Page/Action/RelationManager MUST invoke its Policy explicitly. Don't trust Shield alone. Don't trust scoping alone.
+**Confirmed in:** LeadPolicy, VentaPolicy, ClientePolicy, ClienteSuscripcionPolicy, ProyectoPolicy, DocumentoPolicy, ChatPolicy (doesn't exist), UserPolicy, TrabajadorPolicy, ComercialHistorialObjetivoPolicy. Also in custom Pages like `GestionarConversion`.
+
+**Rule when writing new code:** Every Resource/Page/Action/RelationManager MUST invoke its Policy explicitly. Don't trust Shield alone. Don't trust scoping alone. For custom Pages, add ownership check in `mount()` before `findOrFail()`.
 
 ### Pattern 2 — Scaffold not cleaned in production (3 occurrences)
 
@@ -955,7 +1085,11 @@ These errors have already occurred in this project. If any of them appears, insp
 - A CTA button becomes invisible when toggling light/dark mode → using `dark:` modifiers on the background color; remove them.
 - A newly styled element appears completely unstyled after a Blade edit → Tailwind JIT has not seen the new classes yet. Run `npm run build`.
 - `Class "Filament\Resources\Components\Tab" not found` → use `Filament\Schemas\Components\Tabs\Tab`.
-- `php artisan shield:generate --all` doesn't regenerate some custom permissions → `HasShieldPermissions` is commented out in ClienteResource (B3-A1).
+- Shield permissions in v4: declare them in `config/filament-shield.php` under `resources.manage[X]` or `custom_permissions`. Do NOT use `HasShieldPermissions` contract — it is deprecated and ignored in Shield 4.x. Commenting it out (as in ClienteResource) is CORRECT. See section "Discovery: how Shield 4.x actually works" for details.
+- `->actions()` on a Filament 4 Table works today as an undocumented alias for `->recordActions()`. Still prefer the official API to be future-proof against alias removal in minor versions.
+- `$record->verificado = X; $record->save()` on Documento silently fails to persist — the model's `saving()` hook forces `verificado` to track `estado`. Always change `estado` instead. See "Discovery: how `verificado` actually works" for details.
+- A `save()` returns `true` but no `UPDATE` is emitted in the query log → an Observer or `booted()` hook is reverting the dirty field during the `saving()` event. Inspect `app/Models/X.php` for `static::saving(...)` and `app/Observers/XObserver.php`. Use `DB::listen()` in a temp script to confirm.
+- `auth()->user()->can('Permission:Model')` returns false for super_admin → somewhere in the chain a direct `hasPermissionTo()` or `$user->permissions->contains()` is being used instead of `can()`. That call bypasses Shield's `intercept_gate: 'before'`. Always use `can()` or `Gate::allows()`, never `hasPermissionTo()` directly, when you want super_admin to bypass.
 
 ---
 
@@ -1211,9 +1345,42 @@ Before modifying document upload, access, display, purge, or linking behavior, v
 
 Do not assume current storage conventions without checking the real code.
 
-**Current state (pending Sprint 0 fixes):**
+### Document state model — critical
+
+The `Documento` model has FIVE states via `DocumentoEstadoEnum`:
+- `PENDIENTE` — uploaded, waiting for review
+- `VERIFICADO` — approved by advisor
+- `RECHAZADO` — rejected with `motivo_rechazo`
+- `NECESITA_ACLARACION` — advisor asked client a question
+- `ARCHIVADO` — closed/archived
+
+The `verificado` boolean column is a **derived alias of `estado`** — not an autonomous field. `Documento::booted()` has a `saving()` hook that forces:
+- `estado === VERIFICADO` → `verificado = true`
+- otherwise → `verificado = false`
+
+**Never modify `verificado` directly.** Change `estado` and the hook syncs `verificado`. Direct assignment of `verificado` is silently reverted during `saving()` and Eloquent skips the UPDATE (returns `true` without persisting).
+
+### Document RelationManagers — 4 distinct implementations
+
+All 4 use the same `Documento` model via polymorphic `documentable_type`. They are NOT copy-paste — each has its own logic:
+
+| RM | Purpose | Initial estado | Special features |
+|---|---|---|---|
+| `ClienteResource/DocumentosRM` | Docs directly attached to cliente | VERIFICADO (if uploader is trabajador) | Has SHA-256 duplicate detection, no clickable verification toggle |
+| `ClienteResource/DocumentosVinculadosRM` | Docs from leads/proyectos of the cliente | — | Read-only aggregated view |
+| `LeadResource/DocumentosRM` | Docs of a specific lead | VERIFICADO | Clickable verification toggle (fixed in B-SH1) |
+| `ProyectoResource/DocumentosRM` | Docs of a specific proyecto | VERIFICADO | Clickable verification toggle (fixed in B-SH1a) + creates proyecto comment on upload |
+
+### Document main working flow (CHAIN)
+
+The primary advisor workflow is through `DocumentoResource` with URL parameter `?chain=1&cliente={id}&seen=...`. When advisor clicks "Ver" on a document from cliente's ficha, they enter CHAIN mode. After each action (verify/reject/ask/archive), the page automatically redirects to the next PENDIENTE document of the same cliente. When all are processed, returns to `/admin/clientes/{id}?relation=1`.
+
+The CHAIN logic is in `DocumentoResource::getNextDocumentId()` and is referenced from multiple actions. Preserve this when modifying document actions.
+
+### Current storage state (pending Sprint 0 fixes)
 
 - **Client documents:** public disk ⚠️ — B8-A2 fix required (move to `local` + authenticated controller)
+- **`ContratoResponsabilidad` PDFs:** public disk ⚠️ — B3-K5-BIS fix in progress (4 phases planned)
 - **Commission reports and signed contracts:** `local` disk ✅ (correct)
 - **Telegram chat attachments:** `local` disk ✅ (correct)
 
@@ -1236,6 +1403,33 @@ At minimum, always provide:
 - expected behavior after change
 - manual test steps
 - possible regressions or side effects
+
+### Test-First method for audit findings (established 2026-04-22)
+
+When fixing an audit finding, follow this protocol:
+
+1. **Read the real code** — don't trust the audit summary alone. Paste file contents before analyzing.
+2. **Reproduce the bug manually** with each affected role before touching code. 2 false positives (B3-A1, B3-K5 predicted behavior) were caught this way during 2026-04-22 session.
+3. **If the bug doesn't reproduce** → it's a false positive. Document as such, do not "fix" it.
+4. **If the bug reproduces but differently** than described → re-audit before fixing. B3-K5-BIS was discovered this way (the buttons worked, but the URLs they generated were the real bug).
+5. **Apply fix** surgically, one finding at a time.
+6. **Verify** with the same manual test from step 2.
+7. **Document** in the Sprint 0 Progress Log.
+
+This method is slower but catches false positives and discovers deeper bugs. It has proved essential for findings that describe behavior predictions rather than code-literal facts.
+
+### When debugging silent persistence failures
+
+If `$model->save()` returns `true` but the database doesn't reflect the change:
+
+1. Use `DB::listen()` in a temporary PHP script to see the actual SQL emitted:
+   ```php
+   DB::listen(fn($q) => error_log("SQL: {$q->sql} | " . json_encode($q->bindings)));
+   ```
+2. Check `$model->isDirty()` and `$model->getDirty()` before and after the `save()` call
+3. Inspect `app/Models/X.php` for `static::saving(...)` hooks in `booted()`
+4. Inspect `app/Observers/XObserver.php` for the full event lifecycle
+5. If dirty fields disappear between assignment and UPDATE, a hook is reverting them — the field may be a derived alias (see `verificado` example above)
 
 ---
 
